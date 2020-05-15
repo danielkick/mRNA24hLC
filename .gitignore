@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+# Don't track ABFs -- large and static
+*.abf
+# Don't track files that are generated from the scripts
+/inst/extdata/EsynvmodData/*
+/data/*
