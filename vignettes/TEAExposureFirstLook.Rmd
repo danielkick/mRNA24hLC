@@ -1,0 +1,38 @@
+---
+title: "TEA Exposure First Look"
+author: "Daniel R. Kick"
+date: "July 25, 2019"
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Electrophysiology
+
+To summarize the data I've used the linear fit of an approximately linear portion of the graph (5mV to -35mV) and reported the y intercept and slope of this fit. The *IA* data was subtracted in clampfit, with I_HTK being subtracted off line. This plot provides a snapshot of this and the data within this data set. The dashed line is the linear fit of the passive region, the solid line is the raw values, and the points are the subtracted values. 
+
+![Summary of Experiments](S:/Data_Daniel/ActiveProjects/mRNA24hLC/data/figures/IonicExample.tiff)
+
+Any effects in the intercept or slope appears to be minor, but may be 'real' in the Delayed group. Taken as a whole there does seem to be a relationship between the two, but I am not confident that it is appropriate to combine all the data in that manner. 
+
+![Intercepts](S:/Data_Daniel/ActiveProjects/mRNA24hLC/data/figures/Ionic0M.tiff)
+
+![Slopes](S:/Data_Daniel/ActiveProjects/mRNA24hLC/data/figures/IonicDM.tiff)
+
+## Electrophysiology vs Molecular Biology
+
+_BKKCa_ and *IHTK* have similar trends. "acute"an increase between "Compensated" and "Delayed". In retrospect, rather than washing in additional blockers, I wish I had washed out TEA so we could establish if 1) total *IHTK* is increased until the insensitive portion approaches some limit or 2) the insensitive fraction is increased. 
+The changes in _Shal_ and _Shaker_ and *IA* do not mimic each other. The current measured decreases from the compensated to delayed condition whereas the mean transcript abundance rises albeit only slightly. 
+
+
+![Ionic Currents Across Time](S:/Data_Daniel/ActiveProjects/mRNA24hLC/data/figures/IonicDelta.tiff)
+
+![K Channel mRNA Counts](S:/Data_Daniel/ActiveProjects/mRNA24hLC/data/figures/kchannels.tiff)
+
+## Next Steps
+
+
+

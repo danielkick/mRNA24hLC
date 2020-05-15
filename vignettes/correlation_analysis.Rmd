@@ -1,0 +1,188 @@
+---
+title: "Untitled"
+author: "Daniel R. Kick"
+date: "June 11, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+M.c.24 <- as.data.frame(read.csv("inst/extdata/Control24hr.CSV"))
+M.tea.24 <- as.data.frame(read.csv("inst/extdata/TEA24hr.CSV"))
+M.tea.0 <- as.data.frame(read.csv("inst/extdata/TEAAcute.CSV"))
+M.ttx.24 <- as.data.frame(read.csv("inst/extdata/TTX24hr.CSV"))
+
+M.c.24[["CONDITION"]] <- "Control_24"
+M.tea.24[["CONDITION"]] <- "TEA_24"
+M.tea.0[["CONDITION"]] <- "TEA_0"
+M.ttx.24[["CONDITION"]] <- "TTX_24"
+
+M <- full_join(M.c.24, M.tea.0) %>% full_join(M.tea.24) %>% full_join(M.ttx.24)
+M[, "CELL"] <- as.factor(M[, "CELL"])
+M[, "TREATMENT"] <- as.factor(M[, "TREATMENT"])
+M[, "CONDITION"] <- as.factor(M[, "CONDITION"])
+```
+
+```{r}
+names <- c("CAV1", "CAV2", "SHAL", "BKKCa",
+"CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1",
+"INX2", "INX3", "INX4", "INX5")
+
+for (i in 1:length(names)){
+  for (j in i:length(names)){
+  
+    plt <- ggplot(M, aes(x = M[[names[i]]], M[[names[j]]]))+
+      geom_point()+
+      geom_smooth(method = lm, se = FALSE)+
+      facet_grid(.~CONDITION)+
+      labs(x = names[1], y = names[2])
+    
+    use.path <- paste0("C:/Users/drk8b9/Desktop/r_out/", names[i], "vs" ,names[j], ".pdf")
+    ggsave(use.path,
+           plot = last_plot())
+  }
+}
+```
+
+
+
+```{r eval=FALSE}
+#pd <- readxl::read_xlsx("S:/Data_Daniel/correlation_outlier_test/data/PD.xlsx")
+gm <- readxl::read_xlsx("S:/Data_Daniel/correlation_outlier_test/data/GM.xlsx")
+
+#GM CTRL CACNAV VS SHAKER fake correlation
+
+ggplot(gm, aes(x = CACNAB, Shaker))+
+  geom_point()+
+  geom_smooth(method = lm, se = FALSE)
+
+M <- gm[, c("CACNAB", "Shaker")]
+M <- na.omit(M)
+
+out <- as.data.frame(matrix(nrow = (nrow(M)), ncol = 1))
+
+for (i in 1:nrow(M)){
+  out[i,1] <- cor(M[-i,1], M[-i,2], method = c("pearson"))
+}
+
+ggplot(out, aes(x = V1))+
+  geom_histogram()+
+  geom_vline(xintercept = cor(pd$CACNAB, pd$Shaker, 
+                              use = c("pairwise.complete.obs"), 
+                              method = c("pearson")),
+             color = "red")
+
+out[out$V1 > 0.8, ]
+
+i = 1
+while (out[i,1] < 0.8){
+  i <- i+1
+}
+
+gm[gm$CACNAB == as.numeric(M[8,"CACNAB"]) &
+     gm$Shaker == as.numeric(M[8,"Shaker"]),]
+
+```
+
+
+```{r}
+data_pd <- readxl::read_xlsx("S:/Data_Daniel/correlation_outlier_test/data/Activity qPCR for Daniel_v2.xlsx", sheet = "PD")
+#data_gm <- readxl::read_xlsx("S:/Data_Daniel/correlation_outlier_test/data/Activity qPCR for Daniel_v2.xlsx", sheet = "GM")
+```
+
+```{r}
+M <- data_pd[, c("CACNAB", "Shaker")]
+M <- na.omit(M)
+ggplot(M, aes(x = CACNAB, Shaker))+
+  geom_point()+
+  geom_smooth(method = lm, se = FALSE)
+```
+#M using univariate outlier detection:
+```{r}
+#1.5 IQR
+M <- cbind(M, as.data.frame(list(out.x = rep(FALSE, times = nrow(M)), out.y = rep(FALSE, times = nrow(M)) )))
+
+
+quantile(M$CACNAB, .25) - IQR(M$CACNAB) 
+
+M[M$CACNAB >= quantile(M$CACNAB, .75) + IQR(M$CACNAB) |
+    M$CACNAB <= quantile(M$CACNAB, .25) - IQR(M$CACNAB), "out.x"] <- TRUE
+
+M[M$Shaker >= quantile(M$Shaker, .75) + IQR(M$Shaker) |
+    M$Shaker <= quantile(M$Shaker, .25) - IQR(M$Shaker), "out.y"] <- TRUE
+
+ggplot(M, aes(x = CACNAB, Shaker))+
+  geom_point(aes(color = M$out.x | M$out.y))+
+  geom_smooth(method = lm, se = FALSE)
+```
+
+```{r}
+fm <- lm(Shaker ~ CACNAB, data = M)
+cooksd <- cooks.distance(fm)
+
+ggplot(M, aes(x = CACNAB, Shaker))+
+  geom_point(aes(color = cooksd > 4*mean(cooksd, na.rm = TRUE)))+
+  geom_smooth(method = lm, se = FALSE)
+```
+
+
+```{r}
+#https://stackoverflow.com/questions/4666590/remove-outliers-from-correlation-coefficient-calculation?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+res <- resid(fm)
+cutoff <- 0.1
+res.qt <- quantile(res, probs = c((cutoff/2), (1-(cutoff/2))))
+res.color <- rep(TRUE, times = nrow(M))
+res.color[res >= res.qt[1] & res <= res.qt[2]] <- FALSE
+
+ggplot(M, aes(x = CACNAB, Shaker))+
+  geom_point(aes(color = res.color))+
+  geom_smooth(method = lm, se = FALSE)
+```
+
+
+Next, we fit the linear model and extract the residuals:
+
+res <- resid(mod <- lm(Y ~ X, data = dat))
+
+The quantile() function can give us the required quantiles of the residuals. You suggested retaining 90% of the data, so we want the upper and lower 0.05 quantiles:
+
+res.qt <- quantile(res, probs = c(0.05,0.95))
+
+Select those observations with residuals in the middle 90% of the data:
+
+want <- which(res >= res.qt[1] & res <= res.qt[2])
+
+We can then visualise this, with the red points being those we will retain:
+
+plot(dat, type = "n")
+points(dat[-want,], col = "black", pch = 21, bg = "black", cex = 0.8)
+points(dat[want,], col = "red", pch = 21, bg = "red", cex = 0.8)
+abline(mod, col = "blue", lwd = 2)
+
+
+
+
+
+
+
+
+#M using cook's distance (note, we can do this for each pairwise comparison or for a multilevel model of ALL the data)
+```{r}
+fm <- lm(Shaker ~ CACNAB, data = M)
+cooksd <- cooks.distance(fm)
+cooksd <- as.data.frame(cooksd)
+cooksd <- cbind(cooksd, index = seq(from = 1, to = nrow(cooksd), by = 1))
+
+ggplot(cooksd, aes(x = index, y = cooksd))+
+  geom_point()+
+  geom_hline(yintercept = 4*mean(cooksd$cooksd, na.rm = TRUE), color = "red")
+
+outliers.index <- cooksd$cooksd > 4*mean(cooksd$cooksd, na.rm = TRUE)
+
+M[outliers.index,]
+
+```

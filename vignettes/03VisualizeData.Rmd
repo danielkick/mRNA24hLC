@@ -1,0 +1,993 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(here)
+library(readxl)
+library(tidyverse)
+
+theme_set(ggplot2::theme_minimal())
+
+# ref ----
+# c(
+#   ## Ion Channels ====
+#   #Kv
+#   "Shab", "Shaker", "Shal", "Shaw1", "Shaw2",
+#   "KCNQ1", "KCNQ2", 
+#   "KCNH1", "KCNH2", "KCNH3",
+#   #K
+#   "BKKCa", "SKKCa", 
+#   "KCNT1", "IRK", "KCNK1", "KCNK2", 
+#   #Ca
+#   "CaV1", "CaV2", "CaV3", 
+#   #Na
+#   "CbNaV", 
+#   "NALCN", 
+#   #Hyp/CyclNuc Activated/Gated
+#   "IH", 
+#   ## CNGs
+#   
+#   #TRPs
+#   "TRP-A1", "TRP-A-like", "TRP-M1", "TRP-M3", "TRP-M-like", 
+#   ##-V5, -V6, -Pyrexia
+#   
+#   
+#   #Biogenic amine activated
+#   "HisCL", 
+#   
+#   ## Receptors Biogenic Amines ====
+#   #octopamine
+#   
+#   #dopamine
+#   "DAR1A", "DAR2",  "Dopa-1Br",
+#   #serotonin
+#   "HTR1A", "HTR2", "HTR7", "5HTr-1Br",  
+#   
+#   #histamine
+#   "His-1r", "His-2r", "His-3r", 
+#   #gaba
+#   "GABAB-R1",
+#   "LCCH3r",
+#   "RDLr", 
+#   "mGABA2", "mGABA3", 
+#   
+#   ## Receptors Glutamate/Acetylcholine ====
+#   #metabotropic glutamate receptors
+#   "mGluR1", "mGluR2", "mGluR4", "mGluR5", "mGluR7",
+#   #kainate-like receptors
+#   "Kainate-1A", "Kainate-1B", "Kainate-2A", "Kainate-2B", "Kainate-2C",
+#   #NMDA-like receptors
+#   "NMDA-1A", "NMDA-1B", "NMDA-2A", "NMDA-2B", "NMDA-2-like", 
+#   #glutamate-gated chloride channel
+#   "GluCl",
+#   #acetylcholine receptors
+#   "mACHrA", "mACHrB", 
+#   
+#   # Crustacean cardioactive peptide receptor ===
+#   "CCAPr", 
+#   
+#   #Acetylcholinesterase
+#   "ACHE", 
+#   # Actylcholine catalyst
+#   "ChAT", 
+#   
+#   #vesicular ach transporter
+#   "vAChT", 
+#   #vesicular glut transporter
+#   "vGluT", 
+#   
+#   ## Innexins ====
+#   "INX1", "INX2", "INX3", "INX4", "INX5"
+# )
+
+
+c("X18S", 
+  "BkkCa", 
+  "CaV1", "CaV2", "CaV3", 
+  "CbNaV", 
+  "Ih", 
+  "Inx1", "Inx2", "Inx3", "Inx4", "Inx5", 
+  "Kcnh1", "Kcnh2", "Kcnh3", "Kcnk1", 
+  "Kcnk2", "Kcnq1", "Kcnq2", "Kcnt1", 
+  "Nalcn", 
+  "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
+  "SkkCa", 
+  "Dar1A", "Dar2", 
+  "Htr1A", "Htr2", "Htr7", 
+  "Kainate1A", "Kainate1B", "Kainate2A", "Kainate2B", "Kainate2C", 
+  "Nmda1A", "Nmda1B", "Nmda2A", "Nmda2B", "Nmda2Like", 
+  "Ache", 
+  "CcaPr", 
+  "ChAt", 
+  "GababR1", 
+  "GluCl", "HisCl", "Lcch3R", 
+  "MGluR1", "MGluR2", "MGluR4", "MGluR5", "MGluR7", 
+  "RdLr", 
+  "TrpA1", "TrpALike", "TrpM1", "TrpM3", "TrpMLike", 
+  "VAChT", "VGluT", "MAcHrA", "MAcHrB", "MGaba2", "MGaba3", 
+  "His1R", "His2R", "His3R", "X5HTr1Br", "Dopa1Br", "Irk", "Cav1", "Cav2")
+
+```
+
+```{r}
+load(here("data", "ionic.rds"))
+load(here("data", "tevc.rds"))
+load(here("data", "tecc.rds"))
+load(here("data", "mrna.rds"))
+```
+
+# ionic ~ mrna?
+
+## Make a joint dataset
+```{r}
+M <- left_join(ionic, mrna)
+
+M <- M[!is.na(M$X18S), ]
+
+MeasuredmRNA <- c("X18S", "BkkCa", "CaV1", "CaV2", "CaV3", "CbNaV", "Ih", "Inx1", "Inx2", "Inx3", "Inx4", "Inx5", "Kcnh1", "Kcnh2", "Kcnh3", "Kcnk1", "Kcnk2", "Kcnq1", "Kcnq2", "Kcnt1", "Nalcn", "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", "SkkCa", "Dar1A", "Dar2", "Htr1A", "Htr2", "Htr7", "Kainate1A", "Kainate1B", "Kainate2A", "Kainate2B", "Kainate2C", "Nmda1A", "Nmda1B", "Nmda2A", "Nmda2B", "Nmda2Like", "Ache", "CcaPr", "ChAt", "GababR1", "GluCl", "HisCl", "Lcch3R", "MGluR1", "MGluR2", "MGluR4", "MGluR5", "MGluR7", "RdLr", "TrpA1", "TrpALike", "TrpM1", "TrpM3", "TrpMLike", "VAChT", "VGluT", "MAcHrA", "MAcHrB", "MGaba2", "MGaba3", "His1R", "His2R", "His3R", "X5HTr1Br", "Dopa1Br", "Irk", "Cav1", "Cav2")
+
+# temp.plts <- map(seq_along(MeasuredmRNA), function(i){
+#   ggplot(M, aes_string(MeasuredmRNA[i], y = "Ihtk.0", color = "Time"))+
+#   geom_smooth(method = "lm", se = F)+
+#   geom_point()
+# })
+# 
+# cowplot::plot_grid(plotlist = temp.plts)
+# 
+# mrna
+```
+
+## Clean up data cols
+```{r}
+PercentNotNA <- map(MeasuredmRNA, function(i){
+  mean(!is.na(M[[i]]))
+}) %>% unlist()
+
+ThresholdPercentNotNA <- 0.6
+MeasuredmRNA <- MeasuredmRNA[PercentNotNA >= ThresholdPercentNotNA] # use in map call
+MeasuredKCurrents <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope") # use in map call
+```
+
+## How well does this work for currents we know something about?
+Ia ~ Shal
+```{r}
+# TEXTING WITH DAVE
+temp <- filter(M, Time == "Baseline") %>%
+  mutate(flag = ifelse(Ia.0 < 75 & Shal < 300, T, F))
+
+library(ggpmisc) # for labeling through stat_poly_eq
+scatter_w_wo_flag <- function(temp = mutate(filter(M, Time == "Baseline"), flag = ifelse(Ia.0 < 75 & Shal < 300, T, F)),
+                              X = "Shal", 
+                              Y = "Ia.0"){
+  # Duplicate so we have dataset 1, 2 (introduces duplicates)
+  temp <- rbind(temp[temp$flag == T, ], mutate(temp, flag = F))
+  
+  formula1 <- y ~ x
+  
+  plt <- ggplot(temp, aes_string(X, Y, color = "flag"))+
+    geom_smooth(data = temp, method = lm, se = F, fullrange = T)+
+    geom_point(data = temp)+
+    geom_point(data = temp, color = "black", shape = 1)+
+    geom_point(data = temp[temp$flag, ])+
+    ggpmisc::stat_poly_eq(aes(label =  paste(stat(eq.label), "*\" with \"*", 
+                                             stat(rr.label), "*\", \"*", 
+                                             stat(f.value.label), "*\", and \"*",
+                                             stat(p.value.label), "*\".\"",
+                                             sep = "")),
+                          formula = formula1, parse = TRUE, size = 4)+
+    
+    scale_color_manual(values = c("darkgray", "black"))+
+    theme_bw()+
+    theme(legend.position = "")
+  
+  return(plt)
+}
+
+scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
+                                flag = ifelse(Ia.0 < 75 & Shal < 300, T, F)
+                                ),
+                  X = "Shal", 
+                  Y = "Ia.0")
+
+
+# broom::tidy(lm(Ia.0 ~ Shal, temp))
+# broom::tidy(lm(Ia.0 ~ Shal, temp[temp$flag, ]))
+```
+
+
+Ia ~ Shaker
+```{r}
+scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
+                                flag = ifelse(Ia.0 < 75 & Shaker < 1e10, T, F)
+                                ),
+                  X = "Shaker", 
+                  Y = "Ia.0")
+```
+
+Ia ~ Shal + Shaker
+```{r}
+temp <- filter(M, Time == "Baseline") %>% 
+  mutate(flag = ifelse(Ia.0 < 75 & Shaker < 1e10, T, F)) %>% 
+           mutate(flag = ifelse(flag != F & (Ia.0 < 75 & Shal < 300), T, F))
+
+# What's the best model?
+library(AICcmodavg)
+# no rm points
+aictab(cand.set = list(
+  lm(Ia.0 ~ Shal, temp),
+  lm(Ia.0 ~ Shaker, temp),
+  lm(Ia.0 ~ Shal+Shaker, temp),
+  lm(Ia.0 ~ Shal*Shaker, temp)
+))
+
+# rm points
+aictab(cand.set = list(
+  lm(Ia.0 ~ Shal, temp[temp$flag, ]),
+  lm(Ia.0 ~ Shaker, temp[temp$flag, ]),
+  lm(Ia.0 ~ Shal+Shaker, temp[temp$flag, ]),
+  lm(Ia.0 ~ Shal*Shaker, temp[temp$flag, ])
+))
+```
+
+
+```{r}
+# Are these measures redundant? 
+ggplot(temp, aes(Shal, Shaker))+
+  geom_smooth(method = lm)+
+  geom_point()
+
+# Does normalizing change things much?
+# Convert to Z scores
+temp$Ia.0 <- (temp$Ia.0 - mean(temp$Ia.0, na.rm = T)) / sd(temp$Ia.0, na.rm = T)
+temp$Shal <- (temp$Shal - mean(temp$Shal, na.rm = T)) / sd(temp$Shal, na.rm = T)
+temp$Shaker <- (temp$Shaker - mean(temp$Shaker, na.rm = T)) / sd(temp$Shaker, na.rm = T)
+
+
+broom::tidy(lm(Ia.0 ~ Shal+Shaker, temp))
+broom::tidy(lm(Ia.0 ~ Shal+Shaker, temp[temp$flag, ]))
+
+broom::tidy(lm(Ia.0 ~ Shal*Shaker, temp))
+broom::tidy(lm(Ia.0 ~ Shal*Shaker, temp[temp$flag, ]))
+```
+
+
+IHTK ~ Bkkca
+```{r}
+scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
+                                flag = ifelse(BkkCa < 3000, T, F)
+                                ),
+                  X = "BkkCa", 
+                  Y = "Ihtk.0")
+```
+
+How might we exclude outliers? Cooks Distance? Iterated Cooks?
+```{r}
+temp <- filter(M, Time == "Baseline") %>%
+  mutate(flag = ifelse(BkkCa < 3000, T, F))
+
+fm <- lm(Ihtk.0 ~ BkkCa, temp)
+
+temp$cooksd <- cooks.distance(fm)
+
+ggplot(temp, aes_string("BkkCa", "Ihtk.0", color = "flag"))+
+  geom_smooth(method = lm, se = F, color = "gray")+
+  geom_smooth(data = temp[temp$flag == T, ], method = lm, se = F, fullrange = T)+
+  geom_point(aes(color = cooksd < (mean(cooks.distance(fm))*2.2) ))+
+  scale_color_manual(values = c("gray", "black"))+
+  theme_bw()+
+  theme(legend.position = "")
+
+# broom::tidy(lm(Ihtk.0 ~ BkkCa, temp))
+# broom::tidy(lm(Ihtk.0 ~ BkkCa, temp[temp$flag, ]))
+broom::tidy(lm(Ihtk.0 ~ BkkCa, temp[temp$cooksd < (mean(cooks.distance(fm))*4) , ]))
+# temp %>% filter(flag == F)
+
+```
+
+IHTK ~ Skkca
+```{r}
+scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
+                                flag = ifelse(T, T, F)
+                                ),
+                  X = "SkkCa", 
+                  Y = "Ihtk.0")
+```
+
+
+How do K channels predict IKv intercepts?
+```{r}
+filter(M, Time == "Baseline") %>% 
+  select(Ihtk.0, Ihtk.Slope, Ia.0, Ia.Slope, 
+         #Kv
+         Shab, Shaker, Shal, Shaw1, Shaw2,
+         Kcnq1, Kcnq2,
+         Kcnh1, Kcnh2, Kcnh3,
+         #K
+         BkkCa, SkkCa,
+         Kcnt1, Irk, Kcnk1, Kcnk2
+  ) %>% 
+  pivot_longer(cols = c(
+    #Kv
+    "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
+    "Kcnq1", "Kcnq2",
+    "Kcnh1", "Kcnh2", "Kcnh3", 
+    #K
+    "BkkCa", "SkkCa", 
+    "Kcnt1", "Irk", "Kcnk1", "Kcnk2"
+  ), names_to = "mRNA", values_to = "Count") %>% 
+  pivot_longer(cols = c("Ihtk.0", 
+                        # "Ihtk.Slope", 
+                        "Ia.0"#, 
+                        # "Ia.Slope"
+                        ),
+               names_to = "Key", values_to = "Value") %>% 
+  ggplot(aes(x = Count, y = Value))+
+  geom_smooth(method = lm, se = F)+
+  geom_point()+
+  # facet_wrap(Key ~ mRNA, nrow = 4, scales = "free")
+  facet_grid(Key ~ mRNA)+
+  theme_bw()
+  
+
+PlotList <- 
+map(c(
+  #Kv
+  "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
+  "Kcnq1", "Kcnq2",
+  "Kcnh1", "Kcnh2", "Kcnh3", 
+  #K
+  "BkkCa", "SkkCa", 
+  "Kcnt1", "Irk", "Kcnk1", "Kcnk2"
+), function(X){
+  map(c("Ihtk.0", 
+        # "Ihtk.Slope", 
+        "Ia.0"#, 
+        # "Ia.Slope"
+  ), function(Y){
+    ggplot(filter(M, Time == "Baseline"), aes_string(X, Y))+
+      geom_smooth(method = lm, se = F)+
+      geom_point()+
+      theme_bw()
+  })
+})
+  
+PlotList <- transpose(PlotList)  
+
+library(cowplot)
+cowplot::plot_grid(plotlist = PlotList[[1]])
+
+cowplot::plot_grid(plotlist = PlotList[[2]])
+```
+
+
+## Linear models -- what predicts ionics?
+```{r}
+KCurrent = "Ihtk.0"
+mRNA = "BkkCa"
+# Which have relationships at baseline?
+
+fm.list <- map(MeasuredKCurrents, function(KCurrent){
+  map(MeasuredmRNA, function(mRNA){
+    lm(as.formula(paste0(KCurrent, " ~ ", mRNA)), data = filter(M, Time == "Baseline"))
+  })
+})
+
+
+p.list <- map(fm.list, function(ListLvl1){
+  map(ListLvl1, function(ListLvl2){
+    broom::tidy(ListLvl2)[2, "p.value"] # non-intercept p
+  }) %>% unlist()
+})
+
+p.df <- do.call(cbind, p.list) %>% as.data.frame()
+
+names(p.df) <- MeasuredKCurrents
+p.df$mRNA <- MeasuredmRNA
+
+p <- 
+p.df %>% 
+  gather(iK, pValue, MeasuredKCurrents) %>% 
+  ggplot(aes(x = mRNA, y = -log10(pValue), color = -log10(pValue) >= -log10(0.05)))+
+  geom_hline(yintercept = -log10(0.05), color = "gray", linetype = "dashed")+
+  # geom_point()+
+  geom_segment(aes(x = mRNA, xend = mRNA, y = 0, yend = -log10(pValue)), size = 2)+
+  facet_grid(iK~.)+
+  scale_color_manual(values = c("black", "firebrick"))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "")
+
+# 
+# broom::tidy(lm(Ia.0 ~ Kainate1A, data = filter(M, Time == "Baseline")))
+# filter(M, Time == "Baseline") %>% 
+#   ggplot(aes(x = Kainate1A, y = Ia.0))+
+#   geom_point()
+# 
+# 
+# broom::tidy(lm(Ihtk.0 ~ Shaw2, data = filter(M, Time == "Baseline")))
+# p1 <- filter(M, Time == "Baseline") %>% 
+#   ggplot(aes(x = Shaw2, y = Ihtk.0))+
+#   geom_point()
+# 
+# broom::tidy(lm(Ihtk.0 ~ Kcnh1, data = filter(M, Time == "Baseline")))
+# p2 <- filter(M, Time == "Baseline") %>% 
+#   ggplot(aes(x = Kcnh1, y = Ihtk.0))+
+#   geom_point()
+# 
+# library(patchwork)
+# p1/p2
+```
+
+## PCA what loads with ionics?
+```{r}
+library(factoextra)
+# library(missMDA) # for imputePCA 
+library("FactoMineR") #PCA
+
+MNumericOnly <- filter(M, Time == "Baseline")
+MNumericOnly <- MNumericOnly[, c(MeasuredKCurrents, MeasuredmRNA)]
+
+ResPCA <- PCA(MNumericOnly, scale.unit = T)
+
+get_eig(ResPCA)
+
+fviz_screeplot(ResPCA, addlabels = T)
+
+fviz_pca_biplot(ResPCA, repel = T)
+# Ihtk.Slope, Ihtk.0, Ia.0, Ia.Slope, and Kainate1A are all loading together (roughly)
+
+fviz_pca_var(ResPCA, 
+             col.var = "contrib",
+             # gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping
+             )
+```
+
+## What correlates with ionics?
+```{r}
+library(corrr)
+
+MCorrr <- MNumericOnly %>% 
+  correlate()
+
+temp <- MCorrr %>% 
+  as_tibble() %>% 
+  select(rowname, Ihtk.0, Ihtk.Slope, Ia.0, Ia.Slope) %>% 
+  gather(colname, Cor, c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")) 
+
+# temp$rowname <- as.factor(temp$rowname) 
+#TODO fix ordering
+
+temp %>% 
+  ggplot(aes(rowname, Cor))+
+  geom_segment(aes(x = rowname, xend = rowname, y = 0, yend = Cor))+
+  geom_point()+
+  ylim(-1,1)+
+  facet_grid(colname~.)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+
+
+rplot(MCorrr)
+
+# You have to zoom or the chords don't show up. ¯\_(ツ)_/¯
+network_plot(MCorrr, min_cor = .7)
+
+
+library(ggcorrplot)
+
+MCorr <- cor(MNumericOnly)
+
+pMat <- cor_pmat(MNumericOnly)
+
+
+library(RColorBrewer)
+ggcorrplot(MCorr, 
+           colors = RColorBrewer::brewer.pal(7, "PuOr")[c(1, 4 ,7)]#,
+           # p.mat = pMat
+           # lab = T
+           )
+
+# library(GGally)
+# GGally::ggscatmat(MNumericOnly)
+
+  
+
+```
+
+
+
+
+
+
+
+# from untitled 2
+
+
+
+```{r}
+#TODO read in ionic
+
+
+```
+
+Marginal plot
+```{r}
+# p <- ionic %>% filter(!is.na(Ihtk.0) & !is.na(Ia.0)) %>% 
+#   ggplot(aes(Ihtk.0, Ia.0, group = Condition, color = Condition))+
+#   # geom_smooth(method = "lm", se = F)+
+#     geom_point(size = 2)+
+#     theme_minimal()+
+#   theme(legend.position = "bottom")
+# 
+# p <- ggExtra::ggMarginal(
+#   p,
+#   type = 'density',
+#   margins = 'both',
+#   size = 5,
+#   groupColour = TRUE, groupFill = TRUE
+# )
+# 
+# ggsave(plot = p, filename = "Ionic0M.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+# p <- ionic %>% filter(!is.na(Ihtk.Slope) & !is.na(Ia.Slope)) %>% 
+#   ggplot(aes(Ihtk.Slope, Ia.Slope, group = Condition, color = Condition))+
+#   # geom_smooth(method = "lm", se = F)+
+#     geom_point(size = 2)+
+#     theme_minimal()+
+#   theme(legend.position = "bottom")
+# 
+# p <- ggExtra::ggMarginal(
+#   p,
+#   type = 'density',
+#   margins = 'both',
+#   size = 5,
+#   groupColour = TRUE, groupFill = TRUE
+# )
+# 
+# ggsave(plot = p, filename = "IonicDM.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+# cowplot::plot_grid(plotlist = 
+# map(c("Ihtk.0", "Ia.0", "Ihtk.Slope", "Ia.Slope"), function(i){
+#     ggplot(ionic, aes(x = Condition, group = Condition, fill = Condition))+
+#   # geom_smooth(method = "lm", se = F)+
+#     geom_boxplot(aes_string(y = i), width = 0.1)+
+#     ggbeeswarm::geom_beeswarm(aes_string(y = i), shape = 1)+
+#     # geom_point(size = 2)+
+#     stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "line")+
+#     stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "point", size = 4, shape = 4)+
+#     theme_minimal()+
+#   theme(legend.position = "")+
+#   labs(x = "", y = "", title = i)
+# })
+# 
+# )
+# 
+# ggsave(plot = last_plot(), filename = "IonicDelta.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition, Cell) %>% 
+  tally()
+
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ia.0, Ia.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition, Cell) %>% 
+  tally()
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition) %>% 
+  tally()
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ia.0, Ia.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition) %>% 
+  tally()
+
+
+
+```
+
+
+### from untitled2 assumes df = brians joined data
+
+
+```{r}
+# install.packages("corrr")
+library(corrr)
+
+x <- df %>% 
+  filter(Pharm == "tea" & Condition == "Delayed") %>% 
+  select( -c(UID, Pharm, Condition)) %>% 
+correlate() # Create correlation data frame (cor_df)
+
+x %>% 
+  rearrange() %>%  # rearrange by correlations
+  shave() # Shave off the upper triangle for a clean result
+
+rplot(x)
+
+# You have to zoom or the chord don't show up. ¯\_(ツ)_/¯
+network_plot(x, min_cor = .7)
+```
+
+
+```{r}
+x %>% 
+  gather(mrna, cor, 2:ncol(.)) %>% 
+  ggplot(aes(rowname, mrna, fill = cor))+
+  geom_tile()+
+  scale_fill_gradient2(low = "Red", mid = "White", high = "Blue")
+
+library("corrplot")
+
+x <- as.data.frame(x)
+
+rownames(x) <- x$rowname
+
+corrplot::corrplot(
+  as.matrix(select(x, -rowname)), method = "color", order = "hclust", 
+  addrect = 3,
+  na.label = " "
+  )
+
+# corrplot.mixed(as.matrix(select(x, -rowname)), upper = "color")
+
+cowplot::plot_grid(plotlist = list(pp, pp))
+
+# install.packages("ggcorrplot")
+library(ggcorrplot)
+
+
+
+df <- df %>% mutate(Set = paste(Pharm, Condition))
+
+
+Sets <- unique(df$Set)
+
+baseline <- df %>% filter(Set == "none Baseline") %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+  baseline <- as.data.frame(baseline)
+  rownames(baseline) <- baseline$rowname
+  baseline <- baseline %>% select(-rowname)
+
+
+cowplot::plot_grid(plotlist = 
+map(Sets, function(i){
+  temp <- df %>% filter(Set == i) %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+  temp <- as.data.frame(temp)
+  rownames(temp) <- temp$rowname
+  temp <- temp %>% select(-rowname)
+  
+  # temp <- temp-baseline
+  
+  ggcorrplot(temp)+labs(title = i)
+})
+)
+
+
+
+```
+
+
+
+
+##Attempts at visualizing correlations
+```{r}
+treatments <- unique(M$TREATMENT)
+mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
+
+
+cor.list <- map(treatments, function(i){
+  temp <- M[M$TREATMENT == i, ]  
+  cor(temp[, mrnas], temp[, mrnas], use = "pairwise.complete.obs", method = "spearman")
+})
+names(cor.list) <- treatments
+
+library("corrplot")
+walk(treatments, function(i){
+  print(i)
+  corrplot(cor.list[[i]], method = "color")
+})
+
+
+corrplot(cor.list$`24h-CONTROL`, method = "color")
+
+#corrplot((cor.list$`4AP24h` - cor.list$Control), method = "color")
+
+walk(treatments[-3], function(i){
+  print(i)
+gplots::heatmap.2((cor.list[[i]] - cor.list$`TEA-Acute`),
+  cellnote = round((cor.list[[i]] - cor.list$`TEA-Acute`), digits = 2),  # same data set for cell labels
+  #main = "Correlation", # heat map title
+  notecol="black",      # change font color of cell labels to black
+  density.info="none",  # turns off density plot inside color legend
+  trace="none",         # turns off trace lines inside the heat map
+  #margins =c(12,9),     # widens margins around plot
+  #col=my_palette,       # use on color palette defined earlier
+  #breaks=col_breaks,    # enable color transition at specified limits
+  dendrogram="none",     # only draw a row dendrogram
+  Colv="NA")            # turn off column clustering
+})
+
+library("PerformanceAnalytics")
+chart.Correlation(temp[, mrnas], histogram=TRUE, pch=19)
+```
+
+
+### vis with line plot?
+```{r}
+N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
+N$cor <- ""
+
+walk(1:length(cor.list), function(i){
+  temp <- as.data.frame(cor.list[[i]])
+  temp$cor <- rownames(temp)
+  temp$TREATMENT <- treatments[i]
+  N <<- full_join(N, temp) 
+})
+N <- N[-1, ]
+#N <- gather(N, )
+```
+
+```{r}
+ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
+  geom_point()+
+  geom_line()
+```
+
+
+```{r}
+# make network plots
+library(corrplot)
+library(psych)
+library(qgraph)
+temp <- cor.list[[1]]
+
+mk_plt <- function(use.matrix, use.name){
+  qgraph(use.matrix,
+  # minimum= 0,
+  vsize = 5,
+  # border.color="#006600",
+  title = use.name,
+  label.font = 4,
+  # edge.color="black",
+  border.width = 4,
+  esize = 7,
+  curveAll = TRUE,
+  curveDefault = 0.5,
+  curveShape = -2,
+  # color= "#006600",
+  node.width = 1.5,
+  # border.color= "black",
+  # borders=TRUE,
+  # border.color= "black",
+  # layout= "circle",
+  fade = FALSE,
+  labels = colnames(use.matrix) # , labels=TRUE
+)
+}
+
+walk(1:length(cor.list), function(i){
+  mk_plt(cor.list[[i]], treatements[i])
+})
+```
+
+
+###
+
+
+
+# Deep dive on the effects of TEA
+## Electrophysiology
+
+## Molecular bio
+
+## Merging and processing
+
+### Quality control and outlier analysis
+
+### Characterizing the baseline
+
+### 
+### Compare Brian's and My molecular data
+
+
+
+
+```{r}
+M <- readxl::read_excel(here("inst", "extdata", "LCTEAhr0hr1hr24.xlsx"))
+
+M.long <- M %>% 
+  gather(mRNA, Count, 5:75)
+
+M.long %>% 
+  ggplot(aes(mRNA, Count))+
+  geom_jitter()+
+  scale_y_log10()
+
+
+M.long <-
+M.long %>%
+  mutate(type =
+             ifelse(mRNA %in% c(
+               ## Ion Channels ====
+               #Kv
+               "Shab", "Shaker", "Shal", "Shaw1", "Shaw2",
+               "KCNQ1", "KCNQ2",
+               "KCNH1", "KCNH2", "KCNH3",
+               #K
+               "BKKCa", "SKKCa",
+               "KCNT1", "IRK", "KCNK1", "KCNK2",
+               #Ca
+               "CaV1", "CaV2", "CaV3",
+               #Na
+               "CbNaV",
+               "NALCN",
+               #Hyp/CyclNuc Activated/Gated
+               "IH",
+               #TRPs
+               "TRP-A1", "TRP-A-like", "TRP-M1", "TRP-M3", "TRP-M-like",
+               #Biogenic amine activated
+               "HisCL"
+             ),
+             "IonChannel",
+             ifelse(mRNA %in% c(
+               ## Receptors Biogenic Amines ====
+               #octopamine
+               #dopamine
+               "DAR1A", "DAR2",  "Dopa-1Br",
+               #serotonin
+               "HTR1A", "HTR2", "HTR7", "5HTr-1Br",
+               #histamine
+               "His-1r", "His-2r", "His-3r",
+               #gaba
+               "GABAB-R1",
+               "LCCH3r",
+               "RDLr",
+               "mGABA2", "mGABA3",
+               ## Receptors Glutamate/Acetylcholine ====
+               #metabotropic glutamate receptors
+               "mGluR1", "mGluR2", "mGluR4", "mGluR5", "mGluR7",
+               #kainate-like receptors
+               "Kainate-1A", "Kainate-1B", "Kainate-2A", "Kainate-2B", "Kainate-2C",
+               #NMDA-like receptors
+               "NMDA-1A", "NMDA-1B", "NMDA-2A", "NMDA-2B", "NMDA-2-like",
+               #glutamate-gated chloride channel
+               "GluCl",
+               #acetylcholine receptors
+               "mACHrA", "mACHrB",
+               # Crustacean cardioactive peptide receptor ===
+               "CCAPr"
+             ),
+             "Receptor",
+
+             ifelse(mRNA %in% c(
+               ## Innexins ====
+               "INX1", "INX2", "INX3", "INX4", "INX5"
+             ),
+             "Innexin",
+
+             ifelse(mRNA %in% c(
+               #Acetylcholinesterase
+               "ACHE",
+               # Actylcholine catalyst
+               "ChAT",
+               #vesicular ach transporter
+               "vAChT",
+               #vesicular glut transporter
+               "vGluT"
+             ),
+             "Misc",
+             NA
+             )))))
+
+ggplot(filter(M, type != "Innexin"), aes(mRNA, Count, color = type))+
+  geom_jitter()
+
+ggplot(filter(M, type == "Innexin" & mRNA != "INX5"), aes(mRNA, Count, color = type))+
+  geom_jitter()
+
+ggplot(filter(M, type == "Innexin" & mRNA == "INX5"), aes(mRNA, Count))+
+  geom_jitter()
+```
+
+```{r}
+
+temp <- M %>% 
+  filter(TEA == 0) %>% 
+  select(names(M[!names(M) %in% c("Sample", "TEA", "Experiment", "Cell")])) 
+
+numeric.cols <- sapply(temp, class) == "numeric"
+temp <- temp[numeric.cols]
+
+# z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
+# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
+# fviz_pca_var(z, col.var="contrib",
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE # Avoid text overlapping
+#              )
+
+
+library(factoextra)
+library(missMDA) # for imputePCA 
+library("FactoMineR") #PCA
+
+df = temp[, -"IH"]
+missMDA::imputePCA(df, ncp = 2) # using two components
+
+res.pca <- PCA(df,  graph = FALSE)
+# Extract eigenvalues/variances
+get_eig(res.pca)
+# Visualize eigenvalues/variances
+fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, 50))
+# Extract the results for variables
+var <- get_pca_var(res.pca)
+var
+
+# Graph of variables: default plot
+fviz_pca_var(res.pca, col.var = "black")
+
+# Control variable colors using their contributions
+fviz_pca_var(res.pca, col.var="contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping
+             )
+
+```
+
+```{r}
+# df <- EDA.r %>%
+#   filter(Time == 40) %>%
+#   select("r11", "r12", "r1", "rc", "cc", "rmp",
+#    "Mean.Min.V", "Mean.Max.V", "Mean.Med.V", "Mean.Mean.V",
+#     "Mean.Duration", "Mean.On.Duration", "Mean.Duty.Cycle",
+#     "Percent.Shift", "Onset.Delay", "P.Onset.Delay", "Cor",
+#     "Mean.AUC", "Min.AUC", "Mean.AUC.mV.S", "Min.AUC.mV.S")
+# 
+# 
+# z <- prcomp(~., data = df, center = TRUE, scale. = TRUE)
+# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
+# fviz_pca_var(z, col.var="contrib",
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE # Avoid text overlapping
+#              )
+
+# z <- prcomp(~ Fat + Lactose, data = M, center = TRUE, scale. = TRUE)
+#
+# str(z)
+# summary(z)
+# biplot(z)
+
+
+
+```
+## What structure is there in the dataset?
+
+
+## What correspondence between ephys ~ mRNA is there?
+
+## How can we extend this to the data Brian Collected?

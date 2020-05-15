@@ -1,0 +1,944 @@
+---
+title: "Untitled"
+author: "Daniel R. Kick"
+date: "July 17, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(here)
+library(tidyverse)
+library("xlsx")
+
+shrug <- function(){
+  cat("¯\\_(ツ)_/¯")  }
+
+
+iv_linear <- function(input.df = temp,
+                             min.mV = -35,
+                             max.mV = 5,
+                             ch.i = "S2Max",
+                             ch.v = "S1Max"){
+  
+  # input.df = temp
+  # min.mV = -81
+  # max.mV = -39
+  # ch.i = "S2Max"
+  # ch.v = "S1Max"
+  
+  input.df <- as.data.frame(input.df)
+  
+        # input.df <- input.df[!is.na(input.df[[ch.v]]), ]
+  
+  if (nrow(input.df[!is.na(input.df[[ch.v]]), ]) > 1 ){
+      input.df <- input.df %>% rename(CH.I = ch.i) %>% rename(CH.V = ch.v)
+  
+  fm <- lm(CH.I ~ CH.V, input.df[input.df$CH.V >= min.mV & input.df$CH.V <= max.mV, ], na.action = "na.omit")
+  
+  }
+  return(list(intercept = fm$coefficients[[1]],
+       slope = fm$coefficients[[2]]))  
+
+}
+```
+
+```{r}
+# write file name from spreadsheet
+mk_filename <- function(
+  metadata.file = metadata,
+  use.row = 1){
+  filename <- paste0(
+    as.character(
+      metadata.file[use.row, "Experiment"]
+    ),
+    "_",
+    paste0(
+      rep("0", (4-length(metadata.file[use.row, "Recording"]))), collapse = ""),
+    as.character(
+      metadata.file[1, "Recording"]
+    ),
+    ".abf"
+  )
+  return(filename)
+}
+
+```
+
+## Build metadata
+```{r}
+use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+non.metadata <- c("TECC", "TEVC", "IA", "IHTK")
+metadata <- c("MetadataEphys")
+
+use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
+
+# Read in manual metadata for comparsions
+man.metadata <- read_excel(use.file.path, 
+                           sheet = metadata)  
+
+# Read in data
+M <- purrr::map(non.metadata, function(i){
+read_excel(use.file.path, 
+           sheet = i)  
+}) 
+names(M) <- non.metadata
+
+# Remove the relevant portions, i.e. the filenames and sheet names
+M <- map(1:length(M), function(i){
+  temp <- M[[i]] %>% select(FileName) %>% unique()
+  temp <- temp %>% mutate(Type = as.character(names(M)[i]))
+  return(temp)
+})
+
+# Combine into a single df
+made.metadata <- data.frame()
+walk(M, function(i){
+  made.metadata <<- rbind(made.metadata, i)
+})
+
+# Massage to make it look like the manual metadata
+made.metadata <- made.metadata %>% 
+  mutate(FileName = str_remove(made.metadata$FileName, ".abf")) %>% 
+  separate(., FileName, c("Experiment", "Recording"), sep = "_") %>% 
+  mutate(Recording = as.numeric(Recording))
+
+made.metadata$Data <- T
+man.metadata$MData <- T
+
+man.metadata <- man.metadata %>% rename(type = Type)
+
+all.metadata <- left_join(made.metadata, man.metadata)
+
+all.metadata <- all.metadata %>% arrange(Experiment, Recording)
+
+# Interpolate metadata
+
+# install.packages("xlsx")
+library("xlsx")
+
+# xlsx::write.xlsx(made.metadata, 
+#                  file = "S:/Data_Daniel/ActiveProjects/mRNA24hLC/inst/extdata/ManualDataEphys.xlsx",
+#                  sheetName = "MadeMetadata", 
+#                  append = T)
+
+xlsx::write.xlsx(all.metadata, 
+                 file = use.file.path,
+                 sheetName = "AllMetadata", 
+                 append = T)
+
+
+```
+
+
+
+## Check metadata file vs data files
+
+```{r}
+
+
+
+```
+
+
+
+# load
+```{r}
+metadata <- read_excel(use.file.path,
+                       sheet = "MetadataEphys")  
+
+ia <- read_excel(
+use.file.path,
+  sheet = "IA"
+)
+
+ihtk <- read_excel(
+use.file.path,
+  sheet = "IHTK"
+)
+
+tecc <- read_excel(
+use.file.path,
+  sheet = "TEVC"
+)
+
+tevc <- read_excel(
+use.file.path,
+  sheet = "TECC"
+)
+```
+
+## IA data
+```{r}
+# ia <- ia %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed") &
+#                       Pharm %in% c("none", "tea"))
+
+ia <- separate(ia, FileName, c("Experiment", "Recording"), sep = "_") %>% mutate(Recording = as.numeric(Recording))
+
+
+ia <- right_join(x = 
+  select(metadata, Pharm, Condition, #Notes, 
+         In4,   In9, Experiment, Recording),
+  y = ia)# %>% filter(Experiment != "0")
+
+temp1 <- ia %>% select(-c(In9, S3Max, S4Max, S3Mean, S4Mean, Signal3, Signal4))
+temp2 <- ia %>% select(-c(In4, S1Max, S2Max, S1Mean, S2Mean, Signal1, Signal2))
+
+names(temp2) <- names(temp1)
+
+ia <- full_join(temp1, temp2) %>% mutate(Cell = as.factor(In4))
+
+ia %>% 
+  # filter(Pharm != "4ap") %>% 
+  ggplot(aes(S1Max, S2Max, color = Cell))+
+  geom_point()+
+  facet_grid(Condition ~ Experiment)+
+  theme_bw()
+
+ia$intercept <- NA %>% as.numeric() 
+ia$slope <- NA %>% as.numeric()
+
+ia <- ia %>% mutate(iter.var = paste(Experiment, Cell, Condition, sep =  "_"))
+iter.over <- ia$iter.var %>% unique()
+
+walk(1:length(iter.over), function(i){
+  print(i)
+  temp.df <- ia[ia$iter.var == iter.over[i], ]
+  # temp <- select(temp, -c(leak, leak.sub))
+  if(length(na.omit(temp.df$S2Max)) >1 &
+     length(na.omit(temp.df$S1Max)) >1){
+    
+    temp.fm <- iv_linear(input.df = temp.df,
+                         min.mV = -35,
+                         max.mV = 5,
+                         ch.i = "S2Max",
+                         ch.v = "S1Max")
+    if (length(temp.fm) > 0 ){
+      ia[ia$iter.var == iter.over[i], "intercept"] <<- temp.fm$intercept
+      ia[ia$iter.var == iter.over[i], "slope"] <<- temp.fm$slope    
+    }}
+})
+```
+
+```{r}
+ia %>% 
+  ggplot(aes(Condition, intercept))+
+  geom_point()+
+  theme_minimal()
+```
+
+
+
+## IHTK data (not leak substracted)
+```{r}
+ihtk <- ihtk %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed") &
+                      Pharm %in% c("none", "tea"))
+
+ihtk <- separate(ihtk, FileName, c("Experiment", "Recording"), sep = "_") %>% mutate(Recording = as.numeric(Recording))
+
+
+ihtk <- right_join(x = 
+  select(metadata, Pharm, Condition, #Notes, 
+         In4,   In9, Experiment, Recording),
+  y = ihtk)# %>% filter(Experiment != "0")
+
+temp1 <- ihtk %>% select(-c(In9, S3Max, S4Max, S3Mean, S4Mean, Signal3, Signal4))
+temp2 <- ihtk %>% select(-c(In4, S1Max, S2Max, S1Mean, S2Mean, Signal1, Signal2))
+
+names(temp2) <- names(temp1)
+
+ihtk <- full_join(temp1, temp2) %>% mutate(In4 = as.factor(In4)) %>% rename(Cell = In4)
+
+ihtk %>% 
+  filter(Pharm != "4ap") %>% 
+  ggplot(aes(S1Max, S2Max, color = Cell))+
+  geom_point()+
+  facet_grid(Condition ~ Experiment)+
+  theme_bw()
+```
+
+```{r}
+subtract_leak_df <- function(input.df = temp,
+                             min.mV = -81,
+                             max.mV = -39,
+                             ch.i = "S2Max",
+                             ch.v = "S1Max"){
+  
+  # input.df = temp
+  # min.mV = -81
+  # max.mV = -39
+  # ch.i = "S2Max"
+  # ch.v = "S1Max"
+  
+  input.df <- as.data.frame(input.df)
+  
+        # input.df <- input.df[!is.na(input.df[[ch.v]]), ]
+  
+  if (nrow(input.df[!is.na(input.df[[ch.v]]), ]) > 1 ){
+      input.df <- input.df %>% rename(CH.I = ch.i) %>% rename(CH.V = ch.v)
+  
+  fm <- lm(CH.I ~ CH.V, input.df[input.df$CH.V >= min.mV & input.df$CH.V <= max.mV, ], na.action = "na.omit")
+  
+  input.df <- input.df %>% mutate(leak = predict(object = fm, newdata = input.df), na.action = "na.omit")
+  input.df <- input.df %>% mutate(leak.sub = CH.I - leak)
+  
+  # input.df <- input.df %>% rename(ch.i = CH.I) %>% rename(ch.v = CH.V)
+  
+  names(input.df)[names(input.df) == "CH.I"] <- ch.i
+  names(input.df)[names(input.df) == "CH.V"] <- ch.v
+  
+  
+  # input.df %>% select(S1Max, S2Max, leak, leak.sub) %>% gather(type, value, 2:4) %>% ggplot(aes(x = S1Max, y = value, color = type))+geom_point()
+  
+
+  }
+  return(input.df)  
+
+}
+
+ihtk <- ihtk %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed"))
+
+ihtk <- ihtk[!is.na(ihtk[["Experiment"]]) & 
+         !is.na(ihtk[["Cell"]]) &
+         !is.na(ihtk[["Condition"]]), ] 
+
+ihtk <- ihtk %>% 
+  mutate(iter.var = paste(Experiment, Cell, Condition, sep =  "_")) %>% 
+  mutate(leak = NA) %>% 
+  mutate(leak.sub = NA)
+
+
+iter.over <- ihtk$iter.var %>% unique()
+
+walk(1:length(iter.over), function(i){
+  print(i)
+  temp <- ihtk[ihtk$iter.var == iter.over[i], ]
+  temp <- select(temp, -c(leak, leak.sub))
+  
+  temp <- subtract_leak_df(input.df = temp,
+                     min.mV = -81,
+                     max.mV = -39,
+                     ch.i = "S2Max",
+                     ch.v = "S1Max")
+  if(nrow(temp)>1){
+    ihtk[ihtk$iter.var == iter.over[i], ] <<- temp      
+  }
+})
+
+ihtk <- ihtk %>% mutate(leak = as.numeric(leak)) 
+ihtk$leak.sub <- ihtk$S2Max - ihtk$leak
+
+
+ihtk %>% ggplot()+
+   geom_line(aes(x = S1Max, y = leak, color = Cell), linetype = "dashed")+
+   geom_point(aes(x = S1Max, y = leak.sub, color = Cell))+
+   geom_line(aes(x = S1Max, y = S2Max, color = Cell))+
+  facet_grid(Condition ~ Experiment)+
+  theme_bw()
+
+ggsave(plot = last_plot(), filename = "IonicExample.tiff", path = here("data", "figures"))
+
+# ihtk %>% 
+#   filter(Experiment == "190716") %>% 
+#   ggplot()+
+#    geom_line(aes(x = S1Max, y = leak, color = Cell), linetype = "dashed")+
+#    geom_point(aes(x = S1Max, y = leak.sub, color = Cell))+
+#    geom_line(aes(x = S1Max, y = S2Max, color = Cell))+
+#   facet_grid(Condition ~ Cell)+
+#   theme_bw()
+```
+
+Fit Roughly linear portion from 
+```{r}
+
+
+
+ihtk$intercept <- NA %>% as.numeric() 
+ihtk$slope <- NA %>% as.numeric()
+
+walk(1:length(iter.over), function(i){
+  print(i)
+  temp.df <- ihtk[ihtk$iter.var == iter.over[i], ]
+  # temp <- select(temp, -c(leak, leak.sub))
+  if(nrow(temp.df) > 1){
+    temp.fm <- iv_linear(input.df = temp.df,
+                         min.mV = -35,
+                         max.mV = 5,
+                         ch.i = "S2Max",
+                         ch.v = "S1Max")
+    if (length(temp.fm) > 0 ){
+      ihtk[ihtk$iter.var == iter.over[i], "intercept"] <<- temp.fm$intercept
+      ihtk[ihtk$iter.var == iter.over[i], "slope"] <<- temp.fm$slope    
+    }}
+})
+
+
+```
+
+
+```{r}
+ihtk %>% 
+  ggplot(aes(Condition, intercept))+
+  geom_point()+
+  theme_minimal()
+
+ihtk %>% 
+  ggplot(aes(Condition, slope))+
+  geom_point()+
+  theme_minimal()
+```
+
+# join ephys into combined df
+```{r}
+temp1 <- ihtk %>% select(Pharm, Condition, Cell, Experiment, intercept, slope) %>% filter(!duplicated(.)) %>% 
+  rename(Ihtk.0 = intercept) %>% rename(Ihtk.Slope = slope)
+temp2 <- ia %>% select(Pharm, Condition, Cell, Experiment, intercept, slope) %>% filter(!duplicated(.)) %>% 
+  rename(Ia.0 = intercept) %>% rename(Ia.Slope = slope)
+
+ionic <- full_join(temp1, temp2) %>% 
+  filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% 
+  mutate(Condition = factor(Condition, levels = c("Baseline", "Compensated", "Delayed")))
+
+
+
+```
+
+
+```{r}
+p <- ionic %>% filter(!is.na(Ihtk.0) & !is.na(Ia.0)) %>% 
+  ggplot(aes(Ihtk.0, Ia.0, group = Condition, color = Condition))+
+  # geom_smooth(method = "lm", se = F)+
+    geom_point(size = 2)+
+    theme_minimal()+
+  theme(legend.position = "bottom")
+
+p <- ggExtra::ggMarginal(
+  p,
+  type = 'density',
+  margins = 'both',
+  size = 5,
+  groupColour = TRUE, groupFill = TRUE
+)
+
+ggsave(plot = p, filename = "Ionic0M.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+p <- ionic %>% filter(!is.na(Ihtk.Slope) & !is.na(Ia.Slope)) %>% 
+  ggplot(aes(Ihtk.Slope, Ia.Slope, group = Condition, color = Condition))+
+  # geom_smooth(method = "lm", se = F)+
+    geom_point(size = 2)+
+    theme_minimal()+
+  theme(legend.position = "bottom")
+
+p <- ggExtra::ggMarginal(
+  p,
+  type = 'density',
+  margins = 'both',
+  size = 5,
+  groupColour = TRUE, groupFill = TRUE
+)
+
+ggsave(plot = p, filename = "IonicDM.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+cowplot::plot_grid(plotlist = 
+map(c("Ihtk.0", "Ia.0", "Ihtk.Slope", "Ia.Slope"), function(i){
+    ggplot(ionic, aes(x = Condition, group = Condition, fill = Condition))+
+  # geom_smooth(method = "lm", se = F)+
+    geom_boxplot(aes_string(y = i), width = 0.1)+
+    ggbeeswarm::geom_beeswarm(aes_string(y = i), shape = 1)+
+    # geom_point(size = 2)+
+    stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "line")+
+    stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "point", size = 4, shape = 4)+
+    theme_minimal()+
+  theme(legend.position = "")+
+  labs(x = "", y = "", title = i)
+})
+
+)
+
+ggsave(plot = last_plot(), filename = "IonicDelta.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition, Cell) %>% 
+  tally()
+
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ia.0, Ia.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition, Cell) %>% 
+  tally()
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition) %>% 
+  tally()
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ia.0, Ia.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition) %>% 
+  tally()
+
+
+
+```
+
+
+# Mol Bio
+```{r eval=FALSE, include=FALSE}
+M.none.B <- as.data.frame(read.csv("inst/extdata/Control.csv"))
+M.tea.C <- as.data.frame(read.csv("inst/extdata/TEAAcute.CSV"))
+M.tea.D <- as.data.frame(read.csv("inst/extdata/TEA24hr.CSV"))
+
+M.none.B <- M.none.B %>% 
+  rename(UID = CELL) %>% 
+  mutate(Pharm = "none") %>% 
+  mutate(Condition = "Baseline") %>% 
+  select(-TREATMENT)
+
+M.tea.C <- M.tea.C %>% 
+  rename(UID = CELL) %>% 
+  mutate(Pharm = "tea") %>% 
+  mutate(Condition = "Compensated") %>% 
+  select(-TREATMENT)
+
+M.tea.D <- M.tea.D %>% 
+  rename(UID = CELL) %>% 
+  mutate(Pharm = "tea") %>% 
+  mutate(Condition = "Delayed") %>% 
+  select(-TREATMENT)
+
+mrna <- full_join(M.none.B, M.tea.C) %>% full_join(., M.tea.D)
+
+mrna.names <- mrna %>% select(-c(UID, Pharm, Condition)) %>% names()
+mrna.names <- mrna.names[mrna.names %in% c("BKKCa", "SHAL", "Shaker")]
+
+#, "Shab", "Shaw1", "Shaw2")]
+
+cowplot::plot_grid(plotlist = 
+map(mrna.names, function(i){
+    ggplot(mrna, aes(x = Condition, group = Condition, fill = Condition))+
+  # geom_smooth(method = "lm", se = F)+
+    geom_boxplot(aes_string(y = i), width = 0.1)+
+    ggbeeswarm::geom_beeswarm(aes_string(y = i), shape = 1)+
+    # geom_point(size = 2)+
+    stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "line")+
+    stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "point", size = 4, shape = 4)+
+    theme_minimal()+
+  theme(legend.position = "")+
+  labs(x = "", y = "", title = i)
+}), ncol = 3
+)
+
+ggsave(plot = last_plot(), filename = "kchannels.tiff", path = here("data", "figures"))
+# cowplot::plot_grid(plotlist = map(c("BKKCa", "Shaker", "Shab", "Shaw1", "Shaw2"), function(i){
+#   ggplot(mrna, aes_string("CONDITION", i))+
+#     geom_violin()+
+#     geom_point()+
+#     stat_summary(fun.y = "mean", geom = "point", size = 3, color = "red", shape = 15)+
+#     theme_minimal()
+# })
+# )
+
+
+
+
+
+
+```
+
+
+```{r}
+# load all of brian's cells
+BriansCells <- list.files(here("inst", "extdata", "BriansCells"))
+
+df <- data.frame()
+walk(BriansCells, function(i){
+  df <<- rbind(df, read.csv(here("inst", "extdata", "BriansCells",i)))
+})
+
+df <- df %>% mutate(Pharm = "") %>% mutate(Condition = "")
+
+
+update.df.labels <- data.frame(stringsAsFactors=FALSE,
+                               Treatment = c("4AP24h", "Control", "24h-CONTROL", "TEA-24h", "TEA-Acute",
+                                             "TTX-24h"),
+                               Pharm = c("AP", "none", "none", "tea", "tea", "ttx"),
+                               Condition = c("Delayed", "Baseline", "Delayed", "Delayed", "Compensated",
+                                             "Delayed")
+)
+
+walk(1:nrow(update.df.labels), function(i){
+  up.t <- update.df.labels[i, "Treatment"]
+  up.p <- update.df.labels[i, "Pharm"]
+  up.c <- update.df.labels[i, "Condition"]
+  
+  df[df$TREATMENT == up.t, "Pharm"] <<- up.p
+  df[df$TREATMENT == up.t, "Condition"] <<- up.c
+})
+
+df <- df %>% rename(UID = CELL) %>% select(-TREATMENT)
+df <- as_tibble(df)
+# mutate(var = replace(var, var != "Candy", "Not Candy"))
+```
+
+
+```{r}
+# install.packages("corrr")
+library(corrr)
+
+x <- df %>% 
+  filter(Pharm == "tea" & Condition == "Delayed") %>% 
+  select( -c(UID, Pharm, Condition)) %>% 
+correlate() # Create correlation data frame (cor_df)
+
+x %>% 
+  rearrange() %>%  # rearrange by correlations
+  shave() # Shave off the upper triangle for a clean result
+
+rplot(x)
+
+# You have to zoom or the chord don't show up. ¯\_(ツ)_/¯
+network_plot(x, min_cor = .7)
+```
+
+
+```{r}
+x %>% 
+  gather(mrna, cor, 2:ncol(.)) %>% 
+  ggplot(aes(rowname, mrna, fill = cor))+
+  geom_tile()+
+  scale_fill_gradient2(low = "Red", mid = "White", high = "Blue")
+
+library("corrplot")
+
+x <- as.data.frame(x)
+
+rownames(x) <- x$rowname
+
+corrplot::corrplot(
+  as.matrix(select(x, -rowname)), method = "color", order = "hclust", 
+  addrect = 3,
+  na.label = " "
+  )
+
+# corrplot.mixed(as.matrix(select(x, -rowname)), upper = "color")
+
+cowplot::plot_grid(plotlist = list(pp, pp))
+
+# install.packages("ggcorrplot")
+library(ggcorrplot)
+
+
+
+df <- df %>% mutate(Set = paste(Pharm, Condition))
+
+
+Sets <- unique(df$Set)
+
+baseline <- df %>% filter(Set == "none Baseline") %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+  baseline <- as.data.frame(baseline)
+  rownames(baseline) <- baseline$rowname
+  baseline <- baseline %>% select(-rowname)
+
+
+cowplot::plot_grid(plotlist = 
+map(Sets, function(i){
+  temp <- df %>% filter(Set == i) %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+  temp <- as.data.frame(temp)
+  rownames(temp) <- temp$rowname
+  temp <- temp %>% select(-rowname)
+  
+  # temp <- temp-baseline
+  
+  ggcorrplot(temp)+labs(title = i)
+})
+)
+
+
+
+```
+
+
+
+
+##Attempts at visualizing correlations
+```{r}
+treatments <- unique(M$TREATMENT)
+mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
+
+
+cor.list <- map(treatments, function(i){
+  temp <- M[M$TREATMENT == i, ]  
+  cor(temp[, mrnas], temp[, mrnas], use = "pairwise.complete.obs", method = "spearman")
+})
+names(cor.list) <- treatments
+
+library("corrplot")
+walk(treatments, function(i){
+  print(i)
+  corrplot(cor.list[[i]], method = "color")
+})
+
+
+corrplot(cor.list$`24h-CONTROL`, method = "color")
+
+#corrplot((cor.list$`4AP24h` - cor.list$Control), method = "color")
+
+walk(treatments[-3], function(i){
+  print(i)
+gplots::heatmap.2((cor.list[[i]] - cor.list$`TEA-Acute`),
+  cellnote = round((cor.list[[i]] - cor.list$`TEA-Acute`), digits = 2),  # same data set for cell labels
+  #main = "Correlation", # heat map title
+  notecol="black",      # change font color of cell labels to black
+  density.info="none",  # turns off density plot inside color legend
+  trace="none",         # turns off trace lines inside the heat map
+  #margins =c(12,9),     # widens margins around plot
+  #col=my_palette,       # use on color palette defined earlier
+  #breaks=col_breaks,    # enable color transition at specified limits
+  dendrogram="none",     # only draw a row dendrogram
+  Colv="NA")            # turn off column clustering
+})
+
+library("PerformanceAnalytics")
+chart.Correlation(temp[, mrnas], histogram=TRUE, pch=19)
+```
+
+
+### vis with line plot?
+```{r}
+N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
+N$cor <- ""
+
+walk(1:length(cor.list), function(i){
+  temp <- as.data.frame(cor.list[[i]])
+  temp$cor <- rownames(temp)
+  temp$TREATMENT <- treatments[i]
+  N <<- full_join(N, temp) 
+})
+N <- N[-1, ]
+#N <- gather(N, )
+```
+
+```{r}
+ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
+  geom_point()+
+  geom_line()
+```
+
+
+```{r}
+# make network plots
+library(corrplot)
+library(psych)
+library(qgraph)
+temp <- cor.list[[1]]
+
+mk_plt <- function(use.matrix, use.name){
+  qgraph(use.matrix,
+  # minimum= 0,
+  vsize = 5,
+  # border.color="#006600",
+  title = use.name,
+  label.font = 4,
+  # edge.color="black",
+  border.width = 4,
+  esize = 7,
+  curveAll = TRUE,
+  curveDefault = 0.5,
+  curveShape = -2,
+  # color= "#006600",
+  node.width = 1.5,
+  # border.color= "black",
+  # borders=TRUE,
+  # border.color= "black",
+  # layout= "circle",
+  fade = FALSE,
+  labels = colnames(use.matrix) # , labels=TRUE
+)
+}
+
+walk(1:length(cor.list), function(i){
+  mk_plt(cor.list[[i]], treatements[i])
+})
+```
+
+
+
+
+
+
+
+
+## TECC
+ - Rin
+ - maybe cc
+ 
+ 
+## TEVC
+ - Maybe igj
+
+
+
+
+# Find what data is missing from each sheet
+
+```{r eval=FALSE, include=FALSE}
+ihtk <- ihtk %>% mutate(FileName = paste0(FileName, ".abf"))
+ia <- ia %>% mutate(FileName = paste0(FileName, ".abf"))
+
+
+
+
+# Add FileName to help merge
+metadata$FileName <- NA
+walk(1:nrow(metadata), function(i){
+  metadata[i, "FileName"] <<- mk_filename(
+  metadata.file = metadata,
+  use.row = i)
+})
+
+
+
+
+
+
+
+find_missing_entries <- function(
+  data.file = ihtk,
+  sheet = "ihtk",
+  metadata.file = metadata,
+  error.path = "inst/extdata"
+){
+  # find those that are not in metadata
+  uniq.d <- unique(data.file$FileName)
+  uniq.m <- unique(metadata.file$FileName)
+  
+  # the following metadata is not represented in the data
+  m.i.d <- data.frame("MissingInData" = uniq.m[!(uniq.m %in% uniq.d)] )
+  
+  if (nrow(m.i.d) > 0){
+    warning("Metadata entries found that were not in the data file.")
+    warning(paste0("Writing error file at ", as.character(here(error.path, "MissingInMetadata.csv"))))
+    m.i.d <- m.i.d %>% separate(., MissingInData, c("Experiment", "Recording"), sep = "_")
+    m.i.d$Recording <- m.i.d$Recording %>% str_remove(".abf") %>% as.numeric()
+    m.i.d$Type <- sheet
+    if(!file.exists(here(error.path, "MissingInData.csv"))){
+      
+    }else if (file.exists(here(error.path, "MissingInData.csv"))){
+      old.m.i.d <- read.csv(here(error.path, "MissingInData.csv"))
+      m.i.d <- rbind(old.m.i.d[,-1], m.i.d) # need to drop the rownum col
+    }
+    write.csv(m.i.d, here(error.path, "MissingInData.csv"))
+  }
+  
+  # the following data is not represented in the metadata
+  m.i.m <- data.frame("MissingInMetadata" = uniq.d[!(uniq.d %in% uniq.m)] )
+  
+  if (nrow(m.i.m) > 0){
+    warning("Data entries found that were not in metadata.")
+    warning(paste0("Writing error file at ", as.character(here(error.path, "MissingInMetadata.csv"))))
+    m.i.m <- m.i.m %>% separate(., MissingInMetadata, c("Experiment", "Recording"), sep = "_")
+    m.i.m$Recording <- m.i.m$Recording %>% str_remove(".abf") %>% as.numeric()
+    m.i.m$Type <- sheet
+    
+    if(!file.exists(here(error.path, "MissingInMetadata.csv"))){
+      
+    }else if (file.exists(here(error.path, "MissingInMetadata.csv"))){
+      old.m.i.m <- read.csv(here(error.path, "MissingInMetadata.csv"))
+      m.i.m <- rbind(old.m.i.m[, -1], m.i.m)# need to drop the rownum col
+    }
+    write.csv(m.i.m, here(error.path, "MissingInMetadata.csv"))
+    
+    # update.in.r <- readline(prompt="Update metadata in R? Y/N: ")
+    # while (!(update.in.r %in% c("Y", "y", "N", "n"))){
+    #   update.in.r <- readline(prompt="Update metadata in R? Y/N: ")
+    # }
+    # # interactive update
+    # if (update.in.r %in% c("Y", "y")){
+    #   print("Updating in r is a planned but not present feature. Please fork the repository or contact the package maintainer.")
+    #   # m.i.m %>% mutate()
+    #   # 
+    #   # cbind(m.i.m, 
+    #   # metadata.file[0, ]
+    #   # )
+    #   
+    #   # let user enter each desired value
+    #   # return metadata. Writing into xlsx will be more hastle than it's worth
+    #   # Not focusing on this now, it'll be easier for me ATM to do this updating in excel.
+    # }
+    # no update
+  }
+  
+}
+
+find_missing_entries(
+  data.file = ihtk,
+  sheet = "IHTK",
+  metadata.file = metadata,
+  error.path = "inst/extdata"
+)
+
+find_missing_entries(
+  data.file = ia,
+  sheet = "IA",
+  metadata.file = metadata,
+  error.path = "inst/extdata"
+)
+
+find_missing_entries(
+  data.file = tecc,
+  sheet = "TECC",
+  metadata.file = metadata,
+  error.path = "inst/extdata"
+)
+
+find_missing_entries(
+  data.file = tevc,
+  sheet = "TEVC",
+  metadata.file = metadata,
+  error.path = "inst/extdata"
+)
+
+
+#idk why but this seems to not be joining them.
+
+
+
+
+
+
+
+
+
+
+```
+
+
+
+
+

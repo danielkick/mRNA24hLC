@@ -1,0 +1,600 @@
+---
+title: "Untitled"
+author: "Daniel R. Kick"
+date: "June 11, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+```
+
+```{r}
+get_col_non_iqr_outliers <- function(use.df, use.col, use.iqr.mult = 1.5){
+  iqr.bool <- (use.df[,use.col] >= quantile(use.df[,use.col], na.rm = TRUE)[2] - use.iqr.mult*IQR(use.df[,use.col], na.rm = TRUE)) &
+    (use.df[,use.col] <= quantile(use.df[,use.col], na.rm = TRUE)[4] + use.iqr.mult*IQR(use.df[,use.col], na.rm = TRUE))
+  return(iqr.bool)
+}
+
+get_col_non_sd_outliers <- function(use.df, use.col, use.sd.mult = 3){
+  sd.bool <- (use.df[, use.col] < mean(use.df[, use.col], na.rm = TRUE) + use.sd.mult*sd(use.df[, use.col], na.rm = TRUE)) & 
+    (use.df[, use.col] > mean(use.df[, use.col], na.rm = TRUE) - use.sd.mult*sd(use.df[, use.col], na.rm = TRUE))
+  return(sd.bool)
+}
+
+get_cols_non_cooksd_outliers <- function(use.df, use.col.one, use.col.two, use.cooksd.mult = 4){
+  fm <- lm(use.df[,use.col.one] ~ use.df[, use.col.two], data = use.df)
+  cooksd <- cooks.distance(fm)
+  cooksd.bool <- cooksd < use.cooksd.mult*mean(cooksd, na.rm = TRUE) #observations to keep
+  return(cooksd.bool)
+}
+
+get_cols_non_quantile_outliers <- function(use.df,
+                                           use.col.one,
+                                           use.col.two,
+                                           use.outlier.prob = 0.1){
+  #https://stackoverflow.com/questions/4666590/remove-outliers-from-correlation-coefficient-calculation?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+  fm <- lm(use.df[,use.col.one] ~ use.df[, use.col.two], data = use.df)
+  res <- resid(fm)
+  res.qt <- quantile(res, probs = c((use.outlier.prob/2), (1-(use.outlier.prob/2))))
+  res.bool <- res >= res.qt[1] & res <= res.qt[2]
+  return(res.bool)
+}
+
+
+
+compare_cor_wo_outliers <- function(input.df = M.c.0,
+                                    data.cols = seq(3, to = ncol(M.c.0), by = 1),
+                                    cor.method = c("pearson"),
+                                    iqr.mult = 1.5,
+                                    sd.mult = 3,
+                                    cooksd.mult = 4,
+                                    outlier.prob = 0.1) {
+  final.cols <- c("col.one.name", "col.two.name", "raw.cor", "sd.cor", "iqr.cor", "cooksd.cor", "quantile.cor")
+  output <- as.data.frame(matrix(nrow = (sum(1:length(data.cols)) - length(data.cols)), ncol = length(final.cols)))
+  names(output) <- final.cols
+
+  row.index <- 1
+  for (first.index in 1:length(data.cols)) {
+    col.one <- data.cols[first.index]
+
+    for (second.index in (first.index):length(data.cols)) {
+      col.two <- data.cols[second.index]
+      if (col.one != col.two) {
+        # finding outliers with univariate method (X*sd() +/- mean)
+        sd.bool <- get_col_non_sd_outliers(input.df, col.one, use.sd.mult = sd.mult) & get_col_non_sd_outliers(input.df, col.two, use.sd.mult = sd.mult)
+        # finding outliers with univariate method (X*IQR +/- q3/q1)
+        iqr.bool <- get_col_non_iqr_outliers(input.df, col.one, use.iqr.mult = iqr.mult) & get_col_non_iqr_outliers(input.df, col.two, use.iqr.mult = iqr.mult)
+        # Finding outliers with cooks distance
+        cooksd.bool <- get_cols_non_cooksd_outliers(input.df, col.one, col.two, use.cooksd.mult = cooksd.mult)
+        # Finding outliers by removing X% of the data with the greatest residuals
+        res.bool <- get_cols_non_quantile_outliers(input.df, col.one, col.two, use.outlier.prob = outlier.prob)
+      
+
+        col.one.name <- names(input.df)[col.one]
+        col.two.name <- names(input.df)[col.two]
+        raw.cor <- cor(input.df[, col.one], input.df[, col.two],
+                       method = cor.method,
+                       use = "pairwise.complete.obs") # raw
+        
+        sd.cor <- cor(input.df[sd.bool, col.one], input.df[sd.bool, col.two],
+                      method = cor.method,
+                      use = "pairwise.complete.obs") # with sd
+        
+        iqr.cor <- cor(input.df[iqr.bool, col.one], input.df[iqr.bool, col.two],
+                       method = cor.method,
+                       use = "pairwise.complete.obs") # with IQR
+        
+        cooksd.cor <- cor(input.df[cooksd.bool, col.one], input.df[cooksd.bool, col.two],
+                          method = cor.method, 
+                          use = "pairwise.complete.obs") # with cooks distance
+        
+        quantile.cor <- cor(input.df[res.bool, col.one], input.df[res.bool, col.two],
+                            method = cor.method,
+                            use = "pairwise.complete.obs") # with a percent of the data removed
+
+        output[row.index, ] <- c(col.one.name, col.two.name, raw.cor, sd.cor, iqr.cor, cooksd.cor, quantile.cor)
+        row.index <- row.index + 1
+      }
+    }
+  }
+  output <- output %>% mutate(raw.cor = as.numeric(raw.cor)) %>%
+    mutate(sd.cor = as.numeric(sd.cor)) %>%
+    mutate(iqr.cor = as.numeric(iqr.cor)) %>% 
+    mutate(cooksd.cor = as.numeric(cooksd.cor)) %>% 
+    mutate(quantile.cor = as.numeric(quantile.cor))
+  return(output)
+}
+```
+
+```{r}
+M <- as.data.frame(readxl::read_excel("C:/Users/drk8b9/Desktop/PD_180620.xlsx"))
+
+#geting mature data with iqr
+rm_outliers <- function(input.df = M[M$Condition == "TC",],
+            data.cols = 3:6,
+            iqr.mult = 1.5){
+  for(i in data.cols){
+    outlier.bool <- input.df[,i] < (quantile(input.df[,i])[2] - iqr.mult*IQR(input.df[,i])) | 
+      input.df[,i] > (quantile(input.df[,i])[4] + iqr.mult*IQR(input.df[,i]))
+    input.df[outlier.bool, i] <- NA
+  }
+  return(input.df)
+}
+
+test <- M[M$Condition == "TC", 3:ncol(M)]
+test <- test[,1:6]
+
+pairs(test[, 1:6])
+
+pairs(rm_outliers(input.df = test, data.cols = 3:ncol(test), iqr.mult = 1.5))
+
+
+#Does the correlation coef stop changing if we run cooksd multiple times?
+#A <- M[M$Condition == "TC", c("Sample", "Shal", "Shab")]
+#iter.1 <- get_cols_non_cooksd_outliers(input.df <- A,
+#                             col.one <- c("Shal"),
+#                             col.two <- c("Shab"))
+#as.data.frame(iter.1) 
+
+#B <- A[A$Sample != "PD-24TC14", ]
+#iter.2 <- get_cols_non_cooksd_outliers(input.df <- B,
+#                             col.one <- c("Shal"),
+#                             col.two <- c("Shab"))
+#as.data.frame(iter.2)
+# <- B[B$Sample != "PD-24TC1",]
+#iter.3 <- get_cols_non_cooksd_outliers(input.df <- C,
+#                             col.one <- c("Shal"),
+#                             col.two <- c("Shab"))
+#as.data.frame(iter.3)
+#D <- C[C$Sample != "PD-24TC5",]
+#iter.4 <- get_cols_non_cooksd_outliers(input.df <- D,
+#                             col.one <- c("Shal"),
+#                             col.two <- c("Shab"))
+#mean(iter.4)
+#cor(D$Shal, D$Shab)
+#ggplot(D, aes(Shal,Shab))+geom_point()#+xlim(300, 2000)+ylim(40,180)
+
+
+
+input.df <- M[M$Condition == "TC",]
+col.one <- c("Shal")
+col.two <- c("Shab")
+cor.method <- c("pearson")
+
+cor.method = c("pearson")
+iqr.mult = 1.5
+sd.mult = 3
+cooksd.mult = 4
+outlier.prob = 0.1
+
+
+
+
+
+# finding outliers with univariate method (X*sd() +/- mean)
+sd.bool <- get_col_non_sd_outliers(input.df, col.one, use.sd.mult = sd.mult) & 
+  get_col_non_sd_outliers(input.df, col.two, use.sd.mult = sd.mult)
+# finding outliers with univariate method (X*IQR +/- q3/q1)
+iqr.bool <- get_col_non_iqr_outliers(input.df, col.one, use.iqr.mult = iqr.mult) &
+  get_col_non_iqr_outliers(input.df, col.two, use.iqr.mult = iqr.mult)
+# Finding outliers with cooks distance
+cooksd.bool <- get_cols_non_cooksd_outliers(input.df, col.one, col.two, use.cooksd.mult = cooksd.mult)
+# Finding outliers by removing X% of the data with the greatest residuals
+res.bool <- get_cols_non_quantile_outliers(input.df, col.one, col.two, use.outlier.prob = outlier.prob)
+
+bool.name.array <- c("sd","iqr","cooksd","quantile")
+bool.list <- list(sd.bool, iqr.bool, cooksd.bool, res.bool)
+
+walk(1:length(bool.list), function(i){
+  retain.data <- bool.list[[i]]
+  title.prefix <- bool.name.array[i]
+  plot(
+  ggplot(input.df, aes_string(x = col.one, y = col.two))+
+    geom_smooth(method = lm, se = FALSE, color = "darkred", linetype = "dashed")+
+    geom_smooth(data = input.df[retain.data, ], method = lm, se = FALSE, color = "blue", linetype = "dashed")+
+    geom_point(aes(color = retain.data), size = 2)+
+    labs(title = paste(title.prefix,
+      as.character(round(cor(input.df[,col.one], input.df[,col.two], method = cor.method), digits = 3)),
+                   "%>%", 
+      as.character(round(cor(input.df[retain.data,col.one], input.df[retain.data,col.two], method = cor.method), digits = 3))))+
+    theme(legend.position = "bottom")
+  )
+
+})
+
+
+
+
+```
+ 
+```{r plot PD cors}
+
+input.df <- compare_cor_wo_outliers(M[M$Condition == "C",], 
+                                    data.cols = 3:ncol(M),
+                                    cor.method = c("pearson"),
+                                    iqr.mult = 1.5,
+                                    sd.mult = 3,
+                                    cooksd.mult = 4,
+                                    outlier.prob = 0.1)
+
+
+
+#input.df <- cor.df
+
+
+#plt.list <- map(4:6, function(i){
+plt.list <- map(4:7, function(i){
+  ggplot(input.df, aes(x =  raw.cor, y = input.df[,i]))+
+    geom_hline(yintercept = 0, linetype = 2)+
+    geom_vline(xintercept = 0, linetype = 2)+
+    geom_point(shape = 1)+
+    geom_smooth()+
+    xlim(-1,1)+
+    ylim(-1,1)+
+    labs(title = paste("raw.cor","vs",as.character(names(input.df)[i])),
+         y = as.character(names(input.df)[i]))
+})
+
+plot_grid(plotlist = plt.list)
+
+#convert to distance to raw.cor
+#for(i in 4:7){
+#  input.df[,i] <- input.df[,"raw.cor"] - input.df[,i]
+#}
+
+
+#Reshape data with a unique identifier for each comparison
+long.cor <- input.df
+long.cor$comparison.number <- 1:nrow(long.cor)
+long.cor <- long.cor %>% gather(cor.type, cor.value, 3:7)
+
+ggplot(long.cor, aes(x = cor.type, y = cor.value))+
+  geom_boxplot(aes(fill = cor.type))+
+  #geom_line(aes(group = comparison.number), alpha = 0.2)+
+  scale_x_discrete(limits=c("raw.cor", "sd.cor", "iqr.cor", "cooksd.cor", "quantile.cor"))
+
+ggplot(long.cor, aes(x = cor.value, fill = cor.type))+
+  geom_density(alpha = 0.5)
+
+ggplot(long.cor, aes(x = cor.value, fill = cor.type))+
+#  geom_histogram(alpha = 0.5)+
+  geom_density(alpha = 0.5)+
+  facet_grid(cor.type ~ .)
+
+#walk(1:length(df.list), function(x){
+#  write.csv(compare_cor_wo_outliers(input.df = df.list[[x]],
+#                                    data.cols = seq(3, to = ncol(M.c.0), by = 1),
+#                                    iqr.mult = 1.5,
+#                                    sd.mult = 3,
+#                                    cooksd.mult = 4),
+#          file = paste0("C:/Users/Daniel/Desktop/",df.names[[x]],".csv"))
+#})
+
+```
+
+#Import and combine LC data
+
+```{r LC data}
+dfs <- map(c("Control.CSV",
+"Control24hr.CSV",
+"TEAAcute.CSV",
+"TEA24hr.CSV",
+"TTX24hr.CSV",
+"AP24HR.CSV"), function(i){
+  as.data.frame(read.csv(paste0("inst/extdata/",i)))
+})
+
+walk(1:6, function(i){
+  dfs[[i]][["Pharm"]] <<- c("None", "None", "TEA", "TEA", "TTX", "AP")[i]
+  dfs[[i]][["Time"]]      <<- c(0, 24, 0, 24, 24, 24)[i]
+})
+
+#Make recipient df
+M <- as.data.frame(matrix(NA, nrow = 0, ncol = ncol(dfs[[1]]) ))
+names(M) <- names(dfs[[1]])
+walk(dfs, function(i){
+  M <<- rbind(M, i)
+})
+
+M$Pharm <- as.factor(M$Pharm)
+M$Time <- as.factor(M$Time)
+```
+
+```{r}
+M.long <- gather(M, mrna, count, 3:16)
+M.long <- M.long[!is.na(M.long$mrna),]
+
+mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
+
+my.list <- map(1:length(mrnas), function(i){
+  ggplot(M.long[M.long$count < 4e10 & M.long$mrna == mrnas[i], ], aes(x = TREATMENT, y = count))+
+    geom_boxplot(aes(fill = TREATMENT))+
+    geom_point()+
+    theme(legend.position = "")+
+    labs(title = mrnas[i], x= "", y = "")+ 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+})
+
+cowplot::plot_grid(plotlist = my.list)
+```
+
+
+
+```{r process LC, eval=FALSE, include=FALSE}
+df.list <- list(M.c.0, M.c.24, M.tea.0, M.tea.24, M.ttx.24, M.ap.24)
+df.names <- c("Control.0", "Control.24", "TEA.0", "TEA.24", "TTX.24", "AP.24")
+
+cor.dif.list <- map(1:length(df.list), function(x){
+  compare_cor_wo_outliers(input.df = df.list[[x]],
+                                    data.cols = seq(3, to = ncol(M.c.0), by = 1),
+                                    iqr.mult = 1.5,
+                                    sd.mult = 3,
+                                    cooksd.mult = 4)})
+
+### merge into one df #########################################################
+cor.df <- data.frame()
+for(i in 1:length(cor.dif.list)){
+  cor.dif.list[[i]][,"Condition"] <- df.names[i]
+  cor.df <- rbind(cor.df, cor.dif.list[[i]])
+}
+
+cor.df <- cor.df %>% mutate(raw.cor = as.numeric(raw.cor)) %>% mutate(sd.cor = as.numeric(sd.cor)) %>%
+  mutate(iqr.cor = as.numeric(iqr.cor)) %>% mutate(cooksd.cor = as.numeric(cooksd.cor))
+
+```
+
+##Attempts at visualizing correlations
+```{r}
+treatments <- unique(M$TREATMENT)
+mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
+
+
+cor.list <- map(treatments, function(i){
+  temp <- M[M$TREATMENT == i, ]  
+  cor(temp[, mrnas], temp[, mrnas], use = "pairwise.complete.obs", method = "spearman")
+})
+names(cor.list) <- treatments
+
+library("corrplot")
+walk(treatments, function(i){
+  print(i)
+  corrplot(cor.list[[i]], method = "color")
+})
+
+
+corrplot(cor.list$`24h-CONTROL`, method = "color")
+
+#corrplot((cor.list$`4AP24h` - cor.list$Control), method = "color")
+
+walk(treatments[-3], function(i){
+  print(i)
+gplots::heatmap.2((cor.list[[i]] - cor.list$`TEA-Acute`),
+  cellnote = round((cor.list[[i]] - cor.list$`TEA-Acute`), digits = 2),  # same data set for cell labels
+  #main = "Correlation", # heat map title
+  notecol="black",      # change font color of cell labels to black
+  density.info="none",  # turns off density plot inside color legend
+  trace="none",         # turns off trace lines inside the heat map
+  #margins =c(12,9),     # widens margins around plot
+  #col=my_palette,       # use on color palette defined earlier
+  #breaks=col_breaks,    # enable color transition at specified limits
+  dendrogram="none",     # only draw a row dendrogram
+  Colv="NA")            # turn off column clustering
+})
+
+library("PerformanceAnalytics")
+chart.Correlation(temp[, mrnas], histogram=TRUE, pch=19)
+```
+
+
+### vis with line plot?
+```{r}
+N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
+N$cor <- ""
+
+walk(1:length(cor.list), function(i){
+  temp <- as.data.frame(cor.list[[i]])
+  temp$cor <- rownames(temp)
+  temp$TREATMENT <- treatments[i]
+  N <<- full_join(N, temp) 
+})
+N <- N[-1, ]
+#N <- gather(N, )
+```
+
+```{r}
+ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
+  geom_point()+
+  geom_line()
+```
+
+
+```{r}
+# make network plots
+library(corrplot)
+library(psych)
+library(qgraph)
+temp <- cor.list[[1]]
+
+mk_plt <- function(use.matrix, use.name){
+  qgraph(use.matrix,
+  # minimum= 0,
+  vsize = 5,
+  # border.color="#006600",
+  title = use.name,
+  label.font = 4,
+  # edge.color="black",
+  border.width = 4,
+  esize = 7,
+  curveAll = TRUE,
+  curveDefault = 0.5,
+  curveShape = -2,
+  # color= "#006600",
+  node.width = 1.5,
+  # border.color= "black",
+  # borders=TRUE,
+  # border.color= "black",
+  # layout= "circle",
+  fade = FALSE,
+  labels = colnames(use.matrix) # , labels=TRUE
+)
+}
+
+walk(1:length(cor.list), function(i){
+  mk_plt(cor.list[[i]], treatements[i])
+})
+```
+
+
+
+
+
+
+
+### Bayes
+```{r}
+input.df$Phase <- as.factor(input.df$Phase)
+input.df$Amp <- as.factor(input.df$Amp)
+library(BANOVA)
+set.seed(400)
+bfm1 <- BANOVA.Normal(response.var ~ Time * Phase + Time * Amp, 
+                      l1_hyper = c(1, 1, 0.0001), 
+                      data = input.df, 
+                      id = input.df$interact, 
+                      burnin = 5000, 
+                      sample = 1000, 
+                      thin = 10)
+
+
+app_3 <- BANOVA.Normal(attitude ~ owner + age + gender + selfbrand * conspic, l1_hyper = c(1, 1, 0.0001), data = ipadstudy, id = ipadstudy$id, burnin = 5000, sample = 1000, thin = 10)
+
+```
+
+
+
+```{r}
+#https://www.r-bloggers.com/easily-generate-correlated-variables-from-any-distribution-without-copulas/
+library(MASS)
+ 
+# We will use the command mvrnorm to draw a matrix of variables
+ 
+# Let's keep it simple, 
+mu <- rep(0,4)
+Sigma <- matrix(.7, nrow=4, ncol=4) + diag(4)*.3
+ 
+rawvars <- mvrnorm(n=10000, mu=mu, Sigma=Sigma)
+ 
+cov(rawvars); cor(rawvars)
+# We can see our normal sample produces results very similar to our 
+
+#specified covariance levels.
+ 
+# No lets transform some variables
+pvars <- pnorm(rawvars)
+ 
+# Through this process we already have 
+cov(pvars); cor(pvars)
+# We can see that while the covariances have dropped significantly, 
+
+# the simply correlations are largely the same.
+ 
+plot(rawvars[,1], pvars[,2], main="Normal of Var 1 with probabilities of Var 2")
+
+hist(rawvars[,1])
+
+hist(rawvars[,2])
+```
+
+```{r}
+library(rjags)
+x <- 1:100
+y <-  x + 10*rnorm(100)
+sim <- data.frame(x = x,
+                  y = y)
+
+sim_lm <- lm(y ~ x, sim)
+
+coef(sim_lm)
+summary(sim_lm)$sigma
+```
+
+```{r}
+
+#Define
+sim_model <- "model{
+# Likelihood model for Y[i]
+for(i in 1:length(Y)) {
+Y[i] ~ dnorm(m[i], s^(-2))
+m[i] <- a + b * X[i]
+}
+# Prior models for a, b, s
+a ~ dnorm(0, 200^(-2))
+b ~ dnorm(1, 0.5^(-2))
+s ~ dunif(0, 20)
+}"
+
+#Compile
+sim_jags <- jags.model(textConnection(sim_model),
+data = list(X = sim$x, Y = sim$y),
+inits = list(.RNG.name = "base::Wichmann-Hill", .RNG.seed = 2018))
+
+#Simulate
+sim_sim <- coda.samples(model = sim_jags,
+variable.names = c("a", "b", "s"),
+n.iter = 10000)
+
+plot(sim_sim)
+```
+
+
+```{r}
+ionic <- M[M$Time == 0, c("htk.peak.nA", "a.peak.nA")]
+ionic <- ionic %>% na.omit()
+
+
+
+#Define
+sim_model <- "model{
+# Likelihood model for Y[i]
+for(i in 1:length(Y)) {
+Y[i] ~ dnorm(m[i], s^(-2))
+m[i] <- a + b * X[i]
+}
+# Prior models for a, b, s
+a ~ dnorm(0, 200^(-2))
+b ~ dnorm(1, 0.5^(-2))
+s ~ dunif(0, 20)
+}"
+
+#Compile
+sim_jags <- jags.model(textConnection(sim_model),
+data = list(X = ionic$htk.peak.nA, Y = ionic$a.peak.nA),
+inits = list(.RNG.name = "base::Wichmann-Hill", .RNG.seed = 2018),
+n.chains = 1)
+
+#Simulate
+sim_sim <- coda.samples(model = sim_jags,
+variable.names = c("a", "b", "s"),
+n.iter = 10000)
+
+plot(sim_sim)
+
+tt <- sim_sim[[1]]
+tt <- tt %>% as.data.frame()
+
+ggplot(ionic, aes(x = `htk.peak.nA`, y = `a.peak.nA`))+
+  geom_abline(intercept = tt[1:100, 1], slope = tt[1:100, 2], color = "steelblue", size = 0.25)+
+  geom_point()+
+  geom_abline(intercept = mean(tt[, 1]), slope = mean(tt[, 2]), color = "firebrick", size = 2)+
+  theme(legend.position = "")+
+  coord_capped_cart(bottom = "both", left = "both") +
+    theme(panel.border = element_blank(), axis.line = element_line())
+  
+plot(sim_sim)  
+  
+  
+  geom_abline(intercept = as.numeric(tt[1:20, 1]), slope = tt(sim_sim[1:20, 2]), color = "gray", size = 0.25)
+```
+
