@@ -83,34 +83,6 @@ theme_set(ggplot2::theme_minimal())
 #   ## Innexins ====
 #   "INX1", "INX2", "INX3", "INX4", "INX5"
 # )
-
-
-c("X18S", 
-  "BkkCa", 
-  "CaV1", "CaV2", "CaV3", 
-  "CbNaV", 
-  "Ih", 
-  "Inx1", "Inx2", "Inx3", "Inx4", "Inx5", 
-  "Kcnh1", "Kcnh2", "Kcnh3", "Kcnk1", 
-  "Kcnk2", "Kcnq1", "Kcnq2", "Kcnt1", 
-  "Nalcn", 
-  "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
-  "SkkCa", 
-  "Dar1A", "Dar2", 
-  "Htr1A", "Htr2", "Htr7", 
-  "Kainate1A", "Kainate1B", "Kainate2A", "Kainate2B", "Kainate2C", 
-  "Nmda1A", "Nmda1B", "Nmda2A", "Nmda2B", "Nmda2Like", 
-  "Ache", 
-  "CcaPr", 
-  "ChAt", 
-  "GababR1", 
-  "GluCl", "HisCl", "Lcch3R", 
-  "MGluR1", "MGluR2", "MGluR4", "MGluR5", "MGluR7", 
-  "RdLr", 
-  "TrpA1", "TrpALike", "TrpM1", "TrpM3", "TrpMLike", 
-  "VAChT", "VGluT", "MAcHrA", "MAcHrB", "MGaba2", "MGaba3", 
-  "His1R", "His2R", "His3R", "X5HTr1Br", "Dopa1Br", "Irk", "Cav1", "Cav2")
-
 ```
 
 ```{r}
@@ -118,6 +90,8 @@ load(here("data", "ionic.rds"))
 load(here("data", "tevc.rds"))
 load(here("data", "tecc.rds"))
 load(here("data", "mrna.rds"))
+
+mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) # tables from Northcutt 2016 and annotations
 ```
 
 # ionic ~ mrna?
@@ -126,9 +100,9 @@ load(here("data", "mrna.rds"))
 ```{r}
 M <- left_join(ionic, mrna)
 
-M <- M[!is.na(M$X18S), ]
+M <- M[!is.na(M$x18s), ]
 
-MeasuredmRNA <- c("X18S", "BkkCa", "CaV1", "CaV2", "CaV3", "CbNaV", "Ih", "Inx1", "Inx2", "Inx3", "Inx4", "Inx5", "Kcnh1", "Kcnh2", "Kcnh3", "Kcnk1", "Kcnk2", "Kcnq1", "Kcnq2", "Kcnt1", "Nalcn", "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", "SkkCa", "Dar1A", "Dar2", "Htr1A", "Htr2", "Htr7", "Kainate1A", "Kainate1B", "Kainate2A", "Kainate2B", "Kainate2C", "Nmda1A", "Nmda1B", "Nmda2A", "Nmda2B", "Nmda2Like", "Ache", "CcaPr", "ChAt", "GababR1", "GluCl", "HisCl", "Lcch3R", "MGluR1", "MGluR2", "MGluR4", "MGluR5", "MGluR7", "RdLr", "TrpA1", "TrpALike", "TrpM1", "TrpM3", "TrpMLike", "VAChT", "VGluT", "MAcHrA", "MAcHrB", "MGaba2", "MGaba3", "His1R", "His2R", "His3R", "X5HTr1Br", "Dopa1Br", "Irk", "Cav1", "Cav2")
+MeasuredmRNA <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]
 
 # temp.plts <- map(seq_along(MeasuredmRNA), function(i){
 #   ggplot(M, aes_string(MeasuredmRNA[i], y = "Ihtk.0", color = "Time"))+
@@ -153,15 +127,15 @@ MeasuredKCurrents <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope") # use in map 
 ```
 
 ## How well does this work for currents we know something about?
-Ia ~ Shal
+Ia ~ shal
 ```{r}
 # TEXTING WITH DAVE
 temp <- filter(M, Time == "Baseline") %>%
-  mutate(flag = ifelse(Ia.0 < 75 & Shal < 300, T, F))
+  mutate(flag = ifelse(Ia.0 < 75 & shal < 300, T, F))
 
 library(ggpmisc) # for labeling through stat_poly_eq
-scatter_w_wo_flag <- function(temp = mutate(filter(M, Time == "Baseline"), flag = ifelse(Ia.0 < 75 & Shal < 300, T, F)),
-                              X = "Shal", 
+scatter_w_wo_flag <- function(temp = mutate(filter(M, Time == "Baseline"), flag = ifelse(Ia.0 < 75 & shal < 300, T, F)),
+                              X = "shal", 
                               Y = "Ia.0"){
   # Duplicate so we have dataset 1, 2 (introduces duplicates)
   temp <- rbind(temp[temp$flag == T, ], mutate(temp, flag = F))
@@ -188,92 +162,92 @@ scatter_w_wo_flag <- function(temp = mutate(filter(M, Time == "Baseline"), flag 
 }
 
 scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
-                                flag = ifelse(Ia.0 < 75 & Shal < 300, T, F)
+                                flag = ifelse(Ia.0 < 75 & shal < 300, T, F)
                                 ),
-                  X = "Shal", 
+                  X = "shal", 
                   Y = "Ia.0")
 
 
-# broom::tidy(lm(Ia.0 ~ Shal, temp))
-# broom::tidy(lm(Ia.0 ~ Shal, temp[temp$flag, ]))
+# broom::tidy(lm(Ia.0 ~ shal, temp))
+# broom::tidy(lm(Ia.0 ~ shal, temp[temp$flag, ]))
 ```
 
 
-Ia ~ Shaker
+Ia ~ shaker
 ```{r}
 scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
-                                flag = ifelse(Ia.0 < 75 & Shaker < 1e10, T, F)
+                                flag = ifelse(Ia.0 < 75 & shaker < 1e10, T, F)
                                 ),
-                  X = "Shaker", 
+                  X = "shaker", 
                   Y = "Ia.0")
 ```
 
-Ia ~ Shal + Shaker
+Ia ~ shal + shaker
 ```{r}
 temp <- filter(M, Time == "Baseline") %>% 
-  mutate(flag = ifelse(Ia.0 < 75 & Shaker < 1e10, T, F)) %>% 
-           mutate(flag = ifelse(flag != F & (Ia.0 < 75 & Shal < 300), T, F))
+  mutate(flag = ifelse(Ia.0 < 75 & shaker < 1e10, T, F)) %>% 
+           mutate(flag = ifelse(flag != F & (Ia.0 < 75 & shal < 300), T, F))
 
 # What's the best model?
 library(AICcmodavg)
 # no rm points
 aictab(cand.set = list(
-  lm(Ia.0 ~ Shal, temp),
-  lm(Ia.0 ~ Shaker, temp),
-  lm(Ia.0 ~ Shal+Shaker, temp),
-  lm(Ia.0 ~ Shal*Shaker, temp)
+  lm(Ia.0 ~ shal, temp),
+  lm(Ia.0 ~ shaker, temp),
+  lm(Ia.0 ~ shal+shaker, temp),
+  lm(Ia.0 ~ shal*shaker, temp)
 ))
 
 # rm points
 aictab(cand.set = list(
-  lm(Ia.0 ~ Shal, temp[temp$flag, ]),
-  lm(Ia.0 ~ Shaker, temp[temp$flag, ]),
-  lm(Ia.0 ~ Shal+Shaker, temp[temp$flag, ]),
-  lm(Ia.0 ~ Shal*Shaker, temp[temp$flag, ])
+  lm(Ia.0 ~ shal, temp[temp$flag, ]),
+  lm(Ia.0 ~ shaker, temp[temp$flag, ]),
+  lm(Ia.0 ~ shal+shaker, temp[temp$flag, ]),
+  lm(Ia.0 ~ shal*shaker, temp[temp$flag, ])
 ))
 ```
 
 
 ```{r}
 # Are these measures redundant? 
-ggplot(temp, aes(Shal, Shaker))+
+ggplot(temp, aes(shal, shaker))+
   geom_smooth(method = lm)+
   geom_point()
 
 # Does normalizing change things much?
 # Convert to Z scores
 temp$Ia.0 <- (temp$Ia.0 - mean(temp$Ia.0, na.rm = T)) / sd(temp$Ia.0, na.rm = T)
-temp$Shal <- (temp$Shal - mean(temp$Shal, na.rm = T)) / sd(temp$Shal, na.rm = T)
-temp$Shaker <- (temp$Shaker - mean(temp$Shaker, na.rm = T)) / sd(temp$Shaker, na.rm = T)
+temp$shal <- (temp$shal - mean(temp$shal, na.rm = T)) / sd(temp$shal, na.rm = T)
+temp$shaker <- (temp$shaker - mean(temp$shaker, na.rm = T)) / sd(temp$shaker, na.rm = T)
 
 
-broom::tidy(lm(Ia.0 ~ Shal+Shaker, temp))
-broom::tidy(lm(Ia.0 ~ Shal+Shaker, temp[temp$flag, ]))
+broom::tidy(lm(Ia.0 ~ shal+shaker, temp))
+broom::tidy(lm(Ia.0 ~ shal+shaker, temp[temp$flag, ]))
 
-broom::tidy(lm(Ia.0 ~ Shal*Shaker, temp))
-broom::tidy(lm(Ia.0 ~ Shal*Shaker, temp[temp$flag, ]))
+broom::tidy(lm(Ia.0 ~ shal*shaker, temp))
+broom::tidy(lm(Ia.0 ~ shal*shaker, temp[temp$flag, ]))
 ```
 
 
-IHTK ~ Bkkca
+IHTK ~ bkkca
 ```{r}
 scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
-                                flag = ifelse(BkkCa < 3000, T, F)
+                                flag = ifelse(bkkca < 3000, T, F)
                                 ),
-                  X = "BkkCa", 
+                  X = "bkkca", 
                   Y = "Ihtk.0")
 ```
 
 How might we exclude outliers? Cooks Distance? Iterated Cooks?
 ```{r}
 temp <- filter(M, Time == "Baseline") %>%
-  mutate(flag = ifelse(BkkCa < 3000, T, F))
+  mutate(flag = ifelse(bkkca < 3000, T, F))
 
-fm <- lm(Ihtk.0 ~ BkkCa, temp)
+fm <- lm(Ihtk.0 ~ bkkca, temp)
 
 temp$cooksd <- cooks.distance(fm)
 
-ggplot(temp, aes_string("BkkCa", "Ihtk.0", color = "flag"))+
+ggplot(temp, aes_string("bkkca", "Ihtk.0", color = "flag"))+
   geom_smooth(method = lm, se = F, color = "gray")+
   geom_smooth(data = temp[temp$flag == T, ], method = lm, se = F, fullrange = T)+
   geom_point(aes(color = cooksd < (mean(cooks.distance(fm))*2.2) ))+
@@ -281,86 +255,89 @@ ggplot(temp, aes_string("BkkCa", "Ihtk.0", color = "flag"))+
   theme_bw()+
   theme(legend.position = "")
 
-# broom::tidy(lm(Ihtk.0 ~ BkkCa, temp))
-# broom::tidy(lm(Ihtk.0 ~ BkkCa, temp[temp$flag, ]))
-broom::tidy(lm(Ihtk.0 ~ BkkCa, temp[temp$cooksd < (mean(cooks.distance(fm))*4) , ]))
+# broom::tidy(lm(Ihtk.0 ~ bkkca, temp))
+# broom::tidy(lm(Ihtk.0 ~ bkkca, temp[temp$flag, ]))
+broom::tidy(lm(Ihtk.0 ~ bkkca, temp[temp$cooksd < (mean(cooks.distance(fm))*4) , ]))
 # temp %>% filter(flag == F)
 
 ```
 
-IHTK ~ Skkca
+IHTK ~ skkca
 ```{r}
 scatter_w_wo_flag(temp = mutate(filter(M, Time == "Baseline"), 
                                 flag = ifelse(T, T, F)
                                 ),
-                  X = "SkkCa", 
+                  X = "skkca", 
                   Y = "Ihtk.0")
 ```
 
 
 How do K channels predict IKv intercepts?
 ```{r}
-filter(M, Time == "Baseline") %>% 
-  select(Ihtk.0, Ihtk.Slope, Ia.0, Ia.Slope, 
-         #Kv
-         Shab, Shaker, Shal, Shaw1, Shaw2,
-         Kcnq1, Kcnq2,
-         Kcnh1, Kcnh2, Kcnh3,
-         #K
-         BkkCa, SkkCa,
-         Kcnt1, Irk, Kcnk1, Kcnk2
-  ) %>% 
-  pivot_longer(cols = c(
-    #Kv
-    "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
-    "Kcnq1", "Kcnq2",
-    "Kcnh1", "Kcnh2", "Kcnh3", 
-    #K
-    "BkkCa", "SkkCa", 
-    "Kcnt1", "Irk", "Kcnk1", "Kcnk2"
-  ), names_to = "mRNA", values_to = "Count") %>% 
-  pivot_longer(cols = c("Ihtk.0", 
-                        # "Ihtk.Slope", 
-                        "Ia.0"#, 
-                        # "Ia.Slope"
-                        ),
-               names_to = "Key", values_to = "Value") %>% 
-  ggplot(aes(x = Count, y = Value))+
-  geom_smooth(method = lm, se = F)+
-  geom_point()+
-  # facet_wrap(Key ~ mRNA, nrow = 4, scales = "free")
-  facet_grid(Key ~ mRNA)+
-  theme_bw()
-  
+# TODO redo this using the info in mRNAInfo 
+# TODO use next block as inspiration.
 
-PlotList <- 
-map(c(
-  #Kv
-  "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
-  "Kcnq1", "Kcnq2",
-  "Kcnh1", "Kcnh2", "Kcnh3", 
-  #K
-  "BkkCa", "SkkCa", 
-  "Kcnt1", "Irk", "Kcnk1", "Kcnk2"
-), function(X){
-  map(c("Ihtk.0", 
-        # "Ihtk.Slope", 
-        "Ia.0"#, 
-        # "Ia.Slope"
-  ), function(Y){
-    ggplot(filter(M, Time == "Baseline"), aes_string(X, Y))+
-      geom_smooth(method = lm, se = F)+
-      geom_point()+
-      theme_bw()
-  })
-})
-  
-PlotList <- transpose(PlotList)  
-
-library(cowplot)
-cowplot::plot_grid(plotlist = PlotList[[1]])
-
-cowplot::plot_grid(plotlist = PlotList[[2]])
+# filter(M, Time == "Baseline") %>% 
+#   select(Ihtk.0, Ihtk.Slope, Ia.0, Ia.Slope, 
+#          #Kv
+#          shab, shaker, shal, shaw1, shaw2,
+#          kcnq1, kcnq2,
+#          kcnh1, kcnh2, kcnh3,
+#          #k
+#          bkkca, skkca,
+#          kcnt1, irk, kcnk1, kcnk2
+#   ) %>% 
+#   pivot_longer(cols = c(
+#     #kv
+#     "shab", "shaker", "shal", "shaw1", "shaw2", 
+#     "kcnq1", "kcnq2",
+#     "kcnh1", "kcnh2", "kcnh3", 
+#     #k
+#     "bkkca", "skkca", 
+#     "kcnt1", "irk", "kcnk1", "kcnk2"
+#   ), names_to = "mRNA", values_to = "Count") %>% 
+#   pivot_longer(cols = c("Ihtk.0", 
+#                         # "Ihtk.Slope", 
+#                         "Ia.0"#, 
+#                         # "Ia.Slope"
+#                         ),
+#                names_to = "Key", values_to = "Value") %>% 
+#   ggplot(aes(x = Count, y = Value))+
+#   geom_smooth(method = lm, se = F)+
+#   geom_point()+
+#   # facet_wrap(Key ~ mRNA, nrow = 4, scales = "free")
+#   facet_grid(Key ~ mRNA)+
+#   theme_bw()
+#   
+# 
+# PlotList <- 
+# map(c(
+#   #Kv
+#   "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
+#   "Kcnq1", "Kcnq2",
+#   "Kcnh1", "Kcnh2", "Kcnh3", 
+#   #K
+#   "BkkCa", "SkkCa", 
+#   "Kcnt1", "Irk", "Kcnk1", "Kcnk2"
+# ), function(X){
+#   map(c("Ihtk.0", 
+#         # "Ihtk.Slope", 
+#         "Ia.0"#, 
+#         # "Ia.Slope"
+#   ), function(Y){
+#     ggplot(filter(M, Time == "Baseline"), aes_string(X, Y))+
+#       geom_smooth(method = lm, se = F)+
+#       geom_point()+
+#       theme_bw()
+#   })
+# })
+#   
+# PlotList <- transpose(PlotList)  
+# 
+# library(cowplot)
+# cowplot::plot_grid(plotlist = PlotList[[1]])
+# 
+# cowplot::plot_grid(plotlist = PlotList[[2]])
 ```
 
 
@@ -390,7 +367,7 @@ p.df$mRNA <- MeasuredmRNA
 
 p <- 
 p.df %>% 
-  gather(iK, pValue, MeasuredKCurrents) %>% 
+  gather(iK, pValue, all_of(MeasuredKCurrents)) %>% 
   ggplot(aes(x = mRNA, y = -log10(pValue), color = -log10(pValue) >= -log10(0.05)))+
   geom_hline(yintercept = -log10(0.05), color = "gray", linetype = "dashed")+
   # geom_point()+
