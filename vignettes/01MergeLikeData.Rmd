@@ -602,23 +602,31 @@ TEAOverTime <- TEAOverTime[, c(MetadataCols, names(TEAOverTime)[!(names(TEAOverT
 ```
 
 ```{r}
+# Make everything lower to ensure easy merging.
+names(TEAOverTime)[!(names(TEAOverTime) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))] <- tolower(names(TEAOverTime)[!(names(TEAOverTime) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))])
+
+names(BriansDf)[!(names(BriansDf) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))] <- tolower(names(BriansDf)[!(names(BriansDf) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))])
+
+
+
+
+
+
 mrna <- full_join(TEAOverTime, BriansDf)
 ```
 
 Rename gene names so they're consistent and easy to lookup with `./inst/extdata/mRNAInfo.xlsx`
 ```{r}
 mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) # tables from Northcutt 2016 and annotations
-
 ToCorrect <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]
-ToCorrect <- tolower(ToCorrect)
-
+# ToCorrect <- tolower(ToCorrect)
 
 # Get the names InData and the corresponding output names
-SwapNames <- mRNAInfo[tolower(mRNAInfo$InData) %in% ToCorrect, c("InData", "RGeneName")]
-SwapNames$InData <- tolower(SwapNames$InData)
+SwapNames <- mRNAInfo[mRNAInfo$InDataLower %in% ToCorrect, c("InDataLower", "RGeneName")]
+# SwapNames$InData <- tolower(SwapNames$InData)
 
 for (i in 1:nrow(SwapNames)){
-  ToCorrect[ToCorrect == as.character(SwapNames[i, "InData"])] <- as.character(SwapNames[i, "RGeneName"])  
+  ToCorrect[ToCorrect == as.character(SwapNames[i, "InDataLower"])] <- as.character(SwapNames[i, "RGeneName"])  
 }
 
 names(mrna) <- c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell", ToCorrect)
