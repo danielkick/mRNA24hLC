@@ -1,0 +1,149 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(reticulate)
+```
+
+```{r}
+conda_list()
+
+Sys.which("python")
+# use_python("/usr/local/bin/python")
+
+# "C:/Users/Daniel/Anaconda3/"
+
+use_condaenv(condaenv = 'Anaconda3', required = TRUE)
+```
+
+# in cmd ran "where python"
+
+# followed instructions to allow conda call from cmd
+# "conda init cmd.exe"
+
+```{r}
+source_python('C:/Users/Daniel/Desktop/BrianTest/TestSim.py')
+```
+
+
+
+```{r}
+shell("conda activate base")
+shell("cd Python")
+shell("python PredictVoltage.py")
+
+getwd()
+# setwd("../Python/")
+# 
+# setwd("../Python/")
+# 
+# shell("cd .\\Python\\")
+
+
+shell("dir")
+
+
+shell("cd D:\\Box Sync\\AllWorkProjects\\mRNA24hLC\\Python\\ ")
+
+shell("python PredictVoltageTrace.py")
+
+shell("python ..\\Python\\PredictVoltageTrace.py")
+
+shell("python C:\Users\Daniel\Desktop\BrianTest\TestSim.py")
+```
+
+
+
+
+
+
+```{r}
+shell("conda activate base")
+shell("python ./Python/touch.py")
+
+shell("python ./Python/PredictVoltageTrace.py")
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+library(reticulate)
+conda_list()
+
+use_condaenv(condaenv = 'Anaconda3', required = TRUE)
+py_run_string('import umap')
+
+```
+
+
+```{python}
+import pandas as pd
+```
+
+```{python}
+import numpy as np
+
+from brian2 import *
+```
+
+
+```{python}
+
+start_scope()
+N = 100
+tau = 10*ms
+# the number is V_inf. The unless refactory is needed to pause eq
+#eqs = '''
+#dv/dt = (1-v)/tau : 1 (unless refractory)
+#'''
+
+eqs = '''
+dv/dt = (1-v)/tau : 1
+'''
+
+G = NeuronGroup(N, eqs, 
+                threshold='v>0.8', reset='v = 0',
+                method='exact')
+#G = NeuronGroup(1, eqs, method='euler')
+G.v = 'rand()'
+
+M = StateMonitor(G, 'v', record=True) # holds all values form neuron while sim runs. group recording from, varable recorded. record=0 means all variables from cell 0.
+spikemon = SpikeMonitor(G)
+
+## Run Sim ====
+run(100*ms)
+
+## Def Output ====
+"""
+plot(M.t/ms, M.v[0], 'C0', label = "Brian")
+plot(M.t/ms, 1-exp(-M.t/tau), 'C1--',label='Analytic') 
+xlabel('Time (ms)')
+ylabel('v');
+"""
+
+
+
+#print('Spike times: %s' % spikemon.t[:])
+
+
+plot(spikemon.t/ms, spikemon.i, '.k')
+xlabel('Time (ms)')
+ylabel('Neuron index');
+
+```
