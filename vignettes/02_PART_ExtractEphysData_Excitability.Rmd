@@ -11,7 +11,7 @@ library(zoo)
 library(readABF)
 library(here)
 
-heme_set(ggplot2::theme_minimal())
+theme_set(ggplot2::theme_minimal())
 
 # Really just a wrapper for loadABF()
 readABF_as_matrix <- function(
@@ -238,10 +238,634 @@ finding missing files in shared drive w/o microsoft search
 
 ```
 
+## Working through and example -- 
+```{r Custom Functions}
+# now works for multiple sweeps
+readABF_as_matrix2 <- function(
+  path = "",
+  channels = c("IN 4", "IN 9"), # "all" is also acceptable
+  relative.time = T
+){
+  
+  trace <- readABF::readABF(file = path)
+  
+  start.time <- trace$header$recTime[1]
+  end.time <- trace$header$recTime[2]
+  
+  temp_list <- map(seq(1, length(trace$data)), function(i){
+    # obs <- nrow(trace$data[[i]])
+    
+    if (mean(channels %in% trace$channelNames) == 1){
+      temp <- trace$data[[i]][, (trace$channelNames %in% channels)]
+      temp <- cbind(temp, rep(i, nrow(temp)))
+      temp <- as.matrix(temp)
+      colnames(temp) <- c(trace$channelNames[trace$channelNames %in% channels], "Sweep")
+      return(temp)
+    } else if (channels == "all"){
+      temp <- trace$data[[i]]
+      temp <- cbind(temp, rep(i, nrow(temp)))
+      temp <- as.matrix(temp)
+      colnames(temp) <- c(trace$channelNames, "Sweep")
+      
+      return(temp)
+    } else {
+      current_options <- paste(as.array(trace$channelNames), sep =", ")
+      warning(paste("Provided Channels do not exist. \nPlease select 'all' or select from the following existing channels:\n"))
+      warning(current_options)
+      
+      temp <- NA
+      return(temp)
+    }
+    
+  })
+  
+  if(sum(is.na(temp_list)) > 0){
+    warning("Exiting due to missing Sweep or improper channel selection.")
+    return(NULL)
+  } else {
+    temp <- do.call(rbind, temp_list)
+    
+  }
+  
+  if (relative.time == F){
+    temp <- cbind(temp, Time = seq(from = start.time,
+                                   to = end.time,
+                                   length.out = nrow(temp)))
+    return(temp)
+  } else if (relative.time == T){
+    temp <- cbind(temp, Time = seq(from = 0,
+                                   to = end.time-start.time,
+                                   length.out = nrow(temp)))
+    return(temp)
+  } else {
+    warning("Exiting due to 'relative.time' being neither 'T' or 'F'.")
+    return(NULL)
+  }
+}
+
+place_params_for_predict_voltage_trace <- function(tau = 10.0,
+                                                   Rin = 1.0){
+  write.table(tau, file = "./temp/measured_tau.txt", sep = "", row.names = F, col.names = F)
+  write.table(Rin, file = "./temp/measured_Rin.txt", sep = "", row.names = F, col.names = F)
+}
+
+place_data_for_predict_voltage_trace <- function(input.df = temp[temp$sweep==1, ],
+                                                 Time.ch = "Time",
+                                                 Inj.ch = "In7",
+                                                 ...){
+  input.df <- input.df[, c(Time.ch, Inj.ch)]
+  names(input.df) <- c("Time", "Inj")
+  write.csv(input.df,
+            file = "./temp/current_inj.csv",
+            row.names = F
+  )
+}
+
+#TODO the second half of the recording has no current injection!
+#ggplot()+geom_path(data = predicted_response, aes(Time, predicted), color = "blue")
+
+run_predict_voltage_trace.py <- function(){
+  shell("conda activate base")
+  shell("python ./Python/predict_voltage_trace.py")
+}
+
+retrieve_predicted_voltage <- function(){
+  return(
+    cbind(read.csv("./temp/time_steps.csv"), 
+          read.csv("./temp/predicted_voltage.csv"))
+    )
+}
+
+
+
+```
+
+
+
+## Show traces we're working with
+```{r}
+# Cleaner
+# "190903_0025.abf" # FI
+# "190903_0023.abf" # epsp
+# "190903_0021.abf" # gj na
+# "190903_0020.abf" # gj tevc
+
+file_list <- list(FI = "190903_0025.abf",
+                  EPSP = "190903_0023.abf",
+                  GJCC = "190903_0021.abf", 
+                  GJVC = "190903_0020.abf")
+
+trace_list <- map(seq_along(file_list), function(i){
+  temp <- readABF_as_matrix2(path = paste0("C:/Users/Daniel/Documents/Trace_Holding/", file_list[[i]]),
+                     channels = "all",
+                     relative.time = T) %>%
+    as.data.frame() %>% 
+    janitor::clean_names(case = "upper_camel") %>% 
+    mutate(Sweep = as.factor(Sweep)) %>% 
+    group_by(Sweep) %>% 
+    mutate(MinTime = min(Time, na.rm = T)) %>% 
+    mutate(Time = Time - MinTime) %>% 
+    select(-MinTime)
+})
+
+names(trace_list) <- c("FI", "EPSP", "GJCC", "GJVC")
+
+## GJVC: get Ig, Ileak====
+temp <- trace_list$GJVC
+### Setup
+i_leak <- temp[seq(1, nrow(temp), by = 1), ] %>%
+  filter(Time > 0.75) %>%
+  mutate(In4 = as.numeric(In4)) %>%
+  mutate(In7 = as.numeric(In7))
+
+i_leak <- i_leak %>% 
+  mutate(Segment = ifelse(Time >= 0.8 & Time <= 1.0, "PreStep", 
+                          ifelse(Time >= 1.2 & Time <= 1.25, "Step", 
+                                 "NA" ))) %>% 
+  group_by(Sweep, Segment) %>% 
+  mutate(In4Mean = mean(In4, na.rm = T),
+         In7Mean = mean(In7, na.rm = T),
+         In9Mean = mean(In9, na.rm = T),
+         In12Mean = mean(In12, na.rm = T))
+
+### Ig 
+i_leak[seq(1, nrow(i_leak), length.out = 1000), ] %>% 
+  gather("key", "value", c("In4", "In9")) %>% 
+  ggplot(aes(Time, value, color = Segment, group = Sweep))+
+  geom_path()+
+  facet_grid(.~key)
+
+i_g <- i_leak %>% 
+  select(Sweep, Segment, In4Mean, 
+         #In7Mean, 
+         # In9Mean, 
+         In12Mean
+         ) %>% 
+  filter(Segment != "NA") %>% 
+  distinct() %>% 
+  pivot_wider(names_from = "Segment", 
+              values_from = c("In4Mean", "In12Mean")) %>% 
+  mutate(In4Mean_Step = In4Mean_Step - In4Mean_PreStep,
+         In12Mean_Step = In12Mean_Step - In12Mean_PreStep) %>% 
+  select(Sweep, In4Mean_Step, In12Mean_Step) %>%
+  rename(In4Mean = In4Mean_Step, In12Mean = In12Mean_Step) %>% 
+  filter(abs(In4Mean) >= 4) 
+
+i_g %>% 
+  ggplot(aes(In4Mean, In12Mean))+
+  geom_smooth(method = lm)+
+  geom_point()
+
+In4_to_In9_Ig <- as.numeric(broom::tidy(lm(In12Mean ~ In4Mean, data = i_g))[2, "estimate"])
+
+
+### Ileak
+i_leak %>% 
+  ggplot(aes(Time, In4, color = Segment, group = Sweep))+
+  geom_path()
+
+i_leak <- i_leak %>% 
+  ungroup() %>%
+  select(Sweep, Segment, In4Mean, In7Mean) %>% 
+  filter(Segment != "NA") %>% 
+  distinct() %>% 
+  filter(abs(In4Mean + 60) > 3 )
+  
+fm <- lm(In4Mean ~ In7Mean, data = i_leak)
+
+In4_R <- as.numeric(broom::tidy(fm)[2, "estimate"])
+
+
+
+
+
+## GJCC: get R_C, C ====
+temp <- trace_list$GJCC
+
+temp_plt <- temp[seq(1, nrow(temp), by = 1), ] %>% 
+  filter(Sweep == 4) %>%
+  mutate(In4 = as.numeric(In4)) %>% 
+  mutate(In7 = as.numeric(In7))
+
+### test minpack.lm ####
+# install.packages("minpack.lm")
+library(minpack.lm)
+temp_plt %>% 
+  ggplot(aes(Time, In4, color = Sweep))+
+  geom_vline(xintercept = 3.0775)+
+  geom_vline(xintercept = 4.5775)+
+  geom_path()+
+  xlim(3, 5)
+  
+
+### Proof of principle 1 fit. ####
+# https://stackoverflow.com/questions/26560849/exponential-regression-with-nls-in-r
+# https://stats.stackexchange.com/questions/160552/why-is-nls-giving-me-singular-gradient-matrix-at-initial-parameter-estimates
+#https://rpubs.com/mengxu/exponential-model
+
+time_length <- 1.5
+data_subset <- temp_plt[temp_plt$Time >= 3.0775 & temp_plt$Time <= 3.0772+time_length, ]
+
+
+
+# data_offset_y <- min(data_subset$In4) - 10
+# data_subset$In4 <- data_subset$In4 - data_offset_y
+
+data_offset_x <- min(data_subset$Time)
+data_subset$Time <- data_subset$Time - data_offset_x
+
+
+### 1 term fit ####
+fm <- nlsLM(
+  In4 ~ a*exp(b*Time) + c, 
+  data = data_subset, 
+  start = list(a = 1, b = -0.01, c = 10)
+  )
+
+
+tidy_fm <- broom::tidy(fm)
+
+
+temp <- data.frame(x = seq(0, 1.5, length.out = 100)) %>% 
+  mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])
+         )
+
+
+data_subset %>% 
+  ggplot(aes(Time, In4))+
+  geom_path(size = 2, color = "white")+
+  geom_path(data = temp, aes(x = x, y = y1), size = 1, color = "yellow")+
+  see::theme_blackboard()
+
+
+# V(t) = Vmax*(1-e^(-t/tau)) # rise
+# V(t) = Vmax*(e^(-t/tau)) # fall
+
+Vmax = -123
+
+
+
+Vmax = 10
+tau = 2 # smaller == faster
+
+nsteps = 100
+testdf <- data.frame(Time = seq(0, 100, length.out = nsteps), 
+                     Vmax = NA,
+                     Vrest = -10,
+                     Rin = 1,
+                     Inj_nA = rep(c(0,0), each = nsteps/2),
+                     V = 0)
+
+testdf$Vmax = (testdf$Rin*testdf$Inj_nA)+testdf$Vrest
+
+for (i in seq(2, nrow(testdf))){
+  # at each step, is vmax > | < v(t-1)?
+  if (testdf[i-1, "V"] < testdf[i, "Vmax"]){
+    # if greater apply rise formula   
+    # testdf[i, "V"] <- Vmax*(1-exp(-testdf[i, "Time"] / tau)) # rise
+    testdf[i, "V"] <- testdf[i, "Vmax"]*(1-exp(-testdf[i, "Time"] / tau)) # rise
+    
+  } else if (testdf[i-1, "V"] > testdf[i, "Vmax"]){
+    # if lesser  apply fall formula
+    # testdf[i, "V"] <- Vmax*exp(-testdf[i, "Time"] / tau) # fall
+    testdf[i, "V"] <- testdf[i, "Vmax"]*(-exp(-testdf[i, "Time"] / tau)) # fall
+    
+  } else {
+    testdf[i, "V"] <- testdf[i, "Vmax"]
+  }
+  
+  
+
+
+}
+testdf %>% 
+  ggplot(aes(x = Time, y = V))+lemon::geom_pointline()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+testdf <- temp_plt[temp_plt$Time >= 2.0775 & temp_plt$Time <= 3.0772+time_length, ] %>% 
+  ungroup() %>% 
+  dplyr::select(Time, In7, In4) %>%
+  mutate(In4_p = NA, 
+         Fit = -50.8,
+         In4_target = NA)
+
+
+
+
+fit_time_array <- testdf[testdf$Time >= 3.0772 & testdf$Time <= 3.0772+time_length, "Time"]
+fit_time_array <- fit_time_array - min(fit_time_array) # ensure we're applying it to the right time length
+testdf[testdf$Time >= 3.0772 & testdf$Time <= 3.0772+time_length, "Fit"] <- as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * fit_time_array) + as.numeric(tidy_fm[3, "estimate"])
+
+
+In4_rest = -50.8
+In4_Rin = (-123-In4_rest)/-6
+rec_timestep <- testdf[2, "Time"] - testdf[1, "Time"]
+
+testdf[1, "In4_p"] <- testdf[1, "In4"]
+
+
+# as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * rec_timestep) + as.numeric(testdf[i, "In7"])*In4_Rin
+
+testdf$In4_target <- testdf$In7*In4_Rin + In4_rest
+# testdf[i, "In4_target"] <- (In4_rest + (as.numeric(testdf[i, "In7"])*In4_Rin)) 
+
+i=2
+for (i in seq(2, nrow(testdf))){
+  testdf[i, "In4_p"] <- as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * rec_timestep) + as.numeric(testdf[i, "In4_target"]) + as.numeric(testdf[i-2, "In4_p"])  
+}
+
+
+
+testdf %>% 
+  ggplot(aes(Time, In4))+
+  geom_path(size = 2, color = "white")+
+  geom_path(aes(y = Fit), size = 1, color = "yellow")+
+  geom_path(aes(y = In4_target), size = 1, color = "orange")+
+  geom_path(aes(y = In4_p), size = 1, color = "red")+
+  see::theme_blackboard()
+
+
+
+### redo with more complicated model ####
+# fm <- nlsLM(
+#   In4 ~ a*exp(b*Time) + c*exp(d*Time)+ e, 
+#   data = data_subset, 
+#   start = list(a = 1, b = -0.01, c = 1, d = -0.1, e = 10)
+#   )
+# 
+# data_subset %>% 
+#   ggplot(aes(Time, In4))+
+#   geom_path()+
+#   geom_path(data = data.frame(In4 = predict(fm, data_subset),
+#                               Time = data_subset$Time), color = "red")
+# 
+# tidy_fm <- broom::tidy(fm)
+# 
+# 
+# temp <- data.frame(x = seq(0, 1.5, length.out = 100)) %>% 
+#   mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x),
+#          y2 = as.numeric(tidy_fm[3, "estimate"])*exp(as.numeric(tidy_fm[4, "estimate"]) * x),
+#          y3 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])*exp(as.numeric(tidy_fm[4, "estimate"]) * x) + as.numeric(tidy_fm[5, "estimate"])
+#          )
+# 
+# 
+# data_subset %>% 
+#   ggplot(aes(Time, In4))+
+#   geom_path(size = 2, color = "white")+
+#   geom_path(data = temp, aes(x = x, y = y1), size = 1, color = "yellow")+ # slower exponential term (tau0) is the membrane time constant
+#   geom_path(data = temp, aes(x = x, y = y2), size = 1, color = "orange")+
+#   geom_path(data = temp, aes(x = x, y = y3), size = 1, color = "red")+
+#   see::theme_abyss()
+
+### ####
+
+# 
+# temp <- data_subset %>% dplyr::select()
+# temp
+# 
+# mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])
+#          )
+
+
+
+
+
+In4_tau0 <- as.numeric(tidy_fm[2, "estimate"])
+# fm <- nlsLM(
+#   # In4 ~ a*exp(-b*In7)+c, 
+#   In4 ~ a*exp(-b*In7)+c*exp(-d*In7)+e, 
+#   data=data_subset, 
+#   # start=list(a=1, b=1, c=50),  
+#   start=list(a=1, b=1, c=1, d=1, e=50),  
+#   algorithm = "LM",
+#   control = nls.lm.control(maxiter = 1000))
+
+In4_R
+In4_tau0
+
+
+In4_Rin = -123/-6
+
+Inj_nA <- -6
+v_rest = 83.5# -49.6
+
+
+data_subset$In4_p <- NA
+data_subset$In4_delta <- NA
+data_subset <- data_subset[, c("In4_delta", "In4_p", "In4", "In7", "Time")]
+
+
+
+data_subset[1, "In4_p"] <- data_subset[1, "In4"]
+i=2
+
+data_subset[i-1, "In4_p"]*exp(-1*((data_subset[i, "Time"] - data_subset[i-1, "Time"]) / (In4_tau0)))
+
+
+data_subset %>% 
+  ggplot(aes(Time, In4))+
+  geom_path(size = 2, color = "white")+
+  geom_path(aes(y = In4_p), size = 1, color = "yellow")+
+  see::theme_abyss()
+
+
+
+# Q = CV
+# dQ/dt = C*(dV/dt)
+# I_c (capacitive current)
+# I_c = C*(dV/dt)
+
+# delta_V (across resistor) = IR
+# E is vRest
+# V - E = IR
+# I_R = current across resistor
+# I_R = (V-E) / R
+
+# I_c + I_R = 0
+
+#R*C*(dv/dt) = E - V
+
+
+
+
+
+
+
+
+
+# tau * V'(t) = V_Cl - V(t) + I_stim(t) / (Area * g_CL)
+# tau == C_mem / g_Cl
+
+# V_Cl == rest?
+
+# cell of radius 10 μm
+# Cm =1 μF/cm2
+# gCl =0.3 mS/cm2
+# subject to a 20 ms, 10 pA current injection
+
+
+V_t = +10
+V_rest = -68
+I_stim = 0#.0001
+max_time = 0.1
+nsteps = 10
+
+temp <- data.frame(Time = seq(0, max_time, length.out = nsteps),
+           mV = NA)
+temp[1, "mV"] <- V_t
+
+
+
+for (i in 2:nrow(temp)){
+  cell_area = (pi*10)^2 * (1/10000)
+  v_prime =  (V_rest - V_t + (I_stim/(cell_area*0.3)) ) / (1/0.3) # div by tau
+  temp[i, "mV"] <- v_prime
+  V_t <- v_prime+V_t
+}
+
+
+
+cumsum(x = temp$mV)
+
+temp %>% 
+  ggplot(aes(x = Time, y = mV))+
+  geom_path()
+
+
+
+
+
+
+# ### what is the effect of the length of time used? ####
+
+# 
+# test_lengths <-   seq(0.01, (4.57760 - 3.0774), length.out = 12)
+# 
+# test_length_fit <- map(test_lengths, function(time_length){
+#     # time_length <- 0.02
+# data_subset <- temp_plt[temp_plt$Time >= 3.0772 & temp_plt$Time <= 3.0772+time_length, ]
+# 
+# #TODO exponential fit here is very poor. 
+# # lm(log(In4) ~ In7, data = data_subset)
+# data_offset_y <- min(data_subset$In4) - 10
+# data_subset$In4 <- data_subset$In4 - data_offset_y
+# 
+# data_offset_x <- min(data_subset$Time)
+# data_subset$Time <- data_subset$Time - data_offset_x
+# 
+# 
+# # redo with more complicated model
+# fm <- nlsLM(
+#   In4 ~ a*exp(b*Time) + c*exp(d*Time)+ e, 
+#   data = data_subset, 
+#   start = list(a = 1, b = -0.01, c = 1, d = -0.1, e = 10), 
+#   control = nls.lm.control(maxiter = 1000)
+#   )
+# 
+# return(fm)
+# })
+# 
+# data_subset <- temp_plt[temp_plt$Time >= 3.0772 & temp_plt$Time <= 3.0772+max(test_lengths), ]
+# data_offset_y <- min(data_subset$In4) - 10
+# data_subset$In4 <- data_subset$In4 - data_offset_y
+# 
+# data_offset_x <- min(data_subset$Time)
+# data_subset$Time <- data_subset$Time - data_offset_x
+# 
+# prediction_df <- map(seq_along(test_length_fit), function(i){
+#   fm <- test_length_fit[[i]]
+#   
+#   predict(fm, data_subset)
+# })
+# 
+# prediction_df <- as.data.frame(do.call(cbind, prediction_df))
+# names(prediction_df) <- as.character(test_lengths)
+# prediction_df <- cbind(Time = data_subset$Time, prediction_df)
+# 
+# 
+# library(gganimate)
+# plt_df <- gather(prediction_df, 
+#        key = "Duration", value = "In4", 
+#        as.character(test_lengths)) 
+# 
+# # plt_gif <- 
+# ggplot(data_subset, aes(Time, In4))+
+#   geom_point(color = "white")+
+#   # geom_point(color = "white")+ #aes(color = Duration))+
+#   geom_point(data = plt_df, aes(color = Duration))+
+#   brms::theme_black()+
+#   geom_point(data = plt_df, aes(x = as.numeric(Duration)), color = "white")+
+#   # labs(title = 'Duration Fit: {frame_time}', x = 'Seconds', y = 'Shifted mV') +
+#   transition_states(Duration) +
+#   ease_aes('linear')
+# 
+# 
+# # save as a GIF
+# animate(plt_gif, fps = 10, width = 750, height = 450)
+# anim_save("Curve_Fitting.gif")
+# test_length_fit <- do.call(rbind, test_length_fit) 
+# 
+# test_length_fit <- full_join(mutate(temp_plt, SampleDuration = 0), test_length_fit)
+# 
+# test_length_fit <- test_length_fit %>% 
+#   mutate(SampleDuration = as.factor(SampleDuration)) 
+# 
+# test_length_fit %>% 
+#   ggplot(aes(Time, In4, color = SampleDuration))+
+#   geom_line()+
+#   viridis::scale_color_viridis(discrete = T)+
+#   see::theme_blackboard()+
+#   theme(legend.position = "bottom")+
+#   xlim(3, 3.5)
+# 
+# 
+# 
+# ggplot(aes(Time, In4))+
+#   geom_path(data = temp_plt)+
+#   geom_path(data = test_length_fit[test_length_fit$SampleDuration == 0.01, ], color = "red")+
+#   xlim(3, 5)
+# 
+# 
+# insertList = list(a=1,b=-0.01,c=1,d=-0.01)
+# fm <- nls(In4 ~ a*exp(In7) + c*exp(d*In7), data = inj_current_data, start = insertList )
+
+
+```
+
+
+
+
 
 
 visualization:
 
+(epsp) How could we slice up the trace? 
 ```{r}
 ## Here's the stimulus used in the protocol ====
 # sweep duration should be 19.687 seconds
@@ -378,108 +1002,10 @@ ephys_meta <- ephys_meta %>%
 ```
 
 
-```{r}
-# now works for multiple sweeps
-readABF_as_matrix2 <- function(
-  path = "",
-  channels = c("IN 4", "IN 9"), # "all" is also acceptable
-  relative.time = T
-){
-  
-  trace <- readABF::readABF(file = path)
-  
-  start.time <- trace$header$recTime[1]
-  end.time <- trace$header$recTime[2]
-  
-  temp_list <- map(seq(1, length(trace$data)), function(i){
-    # obs <- nrow(trace$data[[i]])
-    
-    if (mean(channels %in% trace$channelNames) == 1){
-      temp <- trace$data[[i]][, (trace$channelNames %in% channels)]
-      temp <- cbind(temp, rep(i, nrow(temp)))
-      temp <- as.matrix(temp)
-      colnames(temp) <- c(trace$channelNames[trace$channelNames %in% channels], "Sweep")
-      return(temp)
-    } else if (channels == "all"){
-      temp <- trace$data[[i]]
-      temp <- cbind(temp, rep(i, nrow(temp)))
-      temp <- as.matrix(temp)
-      colnames(temp) <- c(trace$channelNames, "Sweep")
-      
-      return(temp)
-    } else {
-      current_options <- paste(as.array(trace$channelNames), sep =", ")
-      warning(paste("Provided Channels do not exist. \nPlease select 'all' or select from the following existing channels:\n"))
-      warning(current_options)
-      
-      temp <- NA
-      return(temp)
-    }
-    
-  })
-  
-  if(sum(is.na(temp_list)) > 0){
-    warning("Exiting due to missing Sweep or improper channel selection.")
-    return(NULL)
-  } else {
-    temp <- do.call(rbind, temp_list)
-    
-  }
-  
-  if (relative.time == F){
-    temp <- cbind(temp, Time = seq(from = start.time,
-                                   to = end.time,
-                                   length.out = nrow(temp)))
-    return(temp)
-  } else if (relative.time == T){
-    temp <- cbind(temp, Time = seq(from = 0,
-                                   to = end.time-start.time,
-                                   length.out = nrow(temp)))
-    return(temp)
-  } else {
-    warning("Exiting due to 'relative.time' being neither 'T' or 'F'.")
-    return(NULL)
-  }
-}
-
-place_params_for_predict_voltage_trace <- function(tau = 10.0,
-                                                   Rin = 1.0){
-  write.table(tau, file = "./temp/measured_tau.txt", sep = "", row.names = F, col.names = F)
-  write.table(Rin, file = "./temp/measured_Rin.txt", sep = "", row.names = F, col.names = F)
-}
-
-place_data_for_predict_voltage_trace <- function(input.df = temp[temp$sweep==1, ],
-                                                 Time.ch = "Time",
-                                                 Inj.ch = "In7",
-                                                 ...){
-  input.df <- input.df[, c(Time.ch, Inj.ch)]
-  names(input.df) <- c("Time", "Inj")
-  write.csv(input.df,
-            file = "./temp/current_inj.csv",
-            row.names = F
-  )
-}
-
-#TODO the second half of the recording has no current injection!
-#ggplot()+geom_path(data = predicted_response, aes(Time, predicted), color = "blue")
-
-run_predict_voltage_trace.py <- function(){
-  shell("conda activate base")
-  shell("python ./Python/predict_voltage_trace.py")
-}
-
-retrieve_predicted_voltage <- function(){
-  return(
-    cbind(read.csv("./temp/time_steps.csv"), 
-          read.csv("./temp/predicted_voltage.csv"))
-    )
-}
 
 
 
-```
-
-
+This is the way
 ```{r}
 M <- readABF_as_matrix2(path = "C:/Users/Daniel/Documents/Trace_Holding/190915_0019.abf", #190924_0022.abf",
                    channels = "all",
@@ -594,14 +1120,20 @@ t3 %>% gather(key = "Method", value = "mV", c("lm", "Vinf", "predicted")) %>%
 
 library(patchwork)
 
-(plt_left | plt_mid | plt_right) + plot_layout(widths = c(3, 1))
+(plt_left | plt_mid | plt_right) + plot_layout(widths = c(3, 3, 2))
 
 #TODO
 # works, now we need to automate the process. Maybe have a datasheet that we pull rin, tau from. 
 ```
 
+## Depricate below
 
+
+Previous way
 ```{r}
+
+#TODO delete after adaption -- copied 12.34, 20/07/27
+
 
 
 # Calculate, don't regress, mV ----
