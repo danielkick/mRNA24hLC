@@ -4,9 +4,18 @@
 .Ruserdata
 # Don't track ABFs -- large and static
 *.abf
+*.atf
+
 # Don't track human files for the time being.
 *.docx
 *.pptx
+
+*.png
+*.pdf
+*.gif
+*.tiff
+*.eps
 # Don't track files that are generated from the scripts
 /inst/extdata/EsynvmodData/*
 /data/*
+/temp/*
