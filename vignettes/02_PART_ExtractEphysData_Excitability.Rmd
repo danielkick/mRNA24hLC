@@ -11,6 +11,10 @@ library(zoo)
 library(readABF)
 library(here)
 
+library(broom)
+library(minpack.lm) # getting Tau
+library(patchwork)
+
 theme_set(ggplot2::theme_minimal())
 
 # Really just a wrapper for loadABF()
@@ -325,8 +329,20 @@ place_data_for_predict_voltage_trace <- function(input.df = temp[temp$sweep==1, 
 #ggplot()+geom_path(data = predicted_response, aes(Time, predicted), color = "blue")
 
 run_predict_voltage_trace.py <- function(){
-  shell("conda activate base")
-  shell("python ./Python/predict_voltage_trace.py")
+  # shell("conda activate base")
+  # shell("python ./Python/predict_voltage_trace.py")
+
+  # running above commands separately can cause
+    #   Traceback (most recent call last):
+    #   File "./Python/predict_voltage_trace.py", line 2, in <module>
+    #     from brian2 import *
+    # ModuleNotFoundError: No module named 'brian2'
+    # Warning message:
+    # In shell("python ./Python/predict_voltage_trace.py") :
+    #   'python ./Python/predict_voltage_trace.py' execution failed with error code 1
+  # Perhaps there is insufficent time for the first command to complete so the env is not activated.
+  # Combined it seems to work.
+  shell("conda activate base && python ./Python/predict_voltage_trace.py")
 }
 
 retrieve_predicted_voltage <- function(){
@@ -343,12 +359,40 @@ retrieve_predicted_voltage <- function(){
 
 
 ## Show traces we're working with
+###Load in data
 ```{r}
 # Cleaner
 # "190903_0025.abf" # FI
 # "190903_0023.abf" # epsp
 # "190903_0021.abf" # gj na
 # "190903_0020.abf" # gj tevc
+
+# GJCC
+# 190903_0021.abf
+  # In12
+  # 0.32820
+  # 1.82836
+  # 
+  # In7
+  # 3.07744
+  # 4.57760
+
+# GJVC
+# 190903_0020.abf
+  # IN12
+  # 0.27508
+  # 0.52516
+  # 
+  # IN7
+  # 1.02532
+  # 1.2754
+
+# FI
+# 190903_0025.abf
+  # 0.34742
+  # 2.34742
+
+
 
 file_list <- list(FI = "190903_0025.abf",
                   EPSP = "190903_0023.abf",
@@ -369,7 +413,10 @@ trace_list <- map(seq_along(file_list), function(i){
 })
 
 names(trace_list) <- c("FI", "EPSP", "GJCC", "GJVC")
+```
 
+###GJVC
+```{r}
 ## GJVC: get Ig, Ileak====
 temp <- trace_list$GJVC
 ### Setup
@@ -434,12 +481,11 @@ i_leak <- i_leak %>%
 fm <- lm(In4Mean ~ In7Mean, data = i_leak)
 
 In4_R <- as.numeric(broom::tidy(fm)[2, "estimate"])
+```
 
-
-
-
-
-## GJCC: get R_C, C ====
+###GJCC
+```{r}
+## GJCC: get CC, R_C, C, Rin ====
 temp <- trace_list$GJCC
 
 temp_plt <- temp[seq(1, nrow(temp), by = 1), ] %>% 
@@ -447,424 +493,230 @@ temp_plt <- temp[seq(1, nrow(temp), by = 1), ] %>%
   mutate(In4 = as.numeric(In4)) %>% 
   mutate(In7 = as.numeric(In7))
 
-### test minpack.lm ####
-# install.packages("minpack.lm")
-library(minpack.lm)
-temp_plt %>% 
-  ggplot(aes(Time, In4, color = Sweep))+
-  geom_vline(xintercept = 3.0775)+
-  geom_vline(xintercept = 4.5775)+
-  geom_path()+
-  xlim(3, 5)
-  
-
-### Proof of principle 1 fit. ####
-# https://stackoverflow.com/questions/26560849/exponential-regression-with-nls-in-r
-# https://stats.stackexchange.com/questions/160552/why-is-nls-giving-me-singular-gradient-matrix-at-initial-parameter-estimates
-#https://rpubs.com/mengxu/exponential-model
-
-time_length <- 1.5
-data_subset <- temp_plt[temp_plt$Time >= 3.0775 & temp_plt$Time <= 3.0772+time_length, ]
-
-
-
-# data_offset_y <- min(data_subset$In4) - 10
-# data_subset$In4 <- data_subset$In4 - data_offset_y
-
-data_offset_x <- min(data_subset$Time)
-data_subset$Time <- data_subset$Time - data_offset_x
-
-
-### 1 term fit ####
-fm <- nlsLM(
-  In4 ~ a*exp(b*Time) + c, 
-  data = data_subset, 
-  start = list(a = 1, b = -0.01, c = 10)
-  )
-
-
-tidy_fm <- broom::tidy(fm)
-
-
-temp <- data.frame(x = seq(0, 1.5, length.out = 100)) %>% 
-  mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])
-         )
-
-
-data_subset %>% 
-  ggplot(aes(Time, In4))+
-  geom_path(size = 2, color = "white")+
-  geom_path(data = temp, aes(x = x, y = y1), size = 1, color = "yellow")+
-  see::theme_blackboard()
-
-
-# V(t) = Vmax*(1-e^(-t/tau)) # rise
-# V(t) = Vmax*(e^(-t/tau)) # fall
-
-Vmax = -123
-
-
-
-Vmax = 10
-tau = 2 # smaller == faster
-
-nsteps = 100
-testdf <- data.frame(Time = seq(0, 100, length.out = nsteps), 
-                     Vmax = NA,
-                     Vrest = -10,
-                     Rin = 1,
-                     Inj_nA = rep(c(0,0), each = nsteps/2),
-                     V = 0)
-
-testdf$Vmax = (testdf$Rin*testdf$Inj_nA)+testdf$Vrest
-
-for (i in seq(2, nrow(testdf))){
-  # at each step, is vmax > | < v(t-1)?
-  if (testdf[i-1, "V"] < testdf[i, "Vmax"]){
-    # if greater apply rise formula   
-    # testdf[i, "V"] <- Vmax*(1-exp(-testdf[i, "Time"] / tau)) # rise
-    testdf[i, "V"] <- testdf[i, "Vmax"]*(1-exp(-testdf[i, "Time"] / tau)) # rise
-    
-  } else if (testdf[i-1, "V"] > testdf[i, "Vmax"]){
-    # if lesser  apply fall formula
-    # testdf[i, "V"] <- Vmax*exp(-testdf[i, "Time"] / tau) # fall
-    testdf[i, "V"] <- testdf[i, "Vmax"]*(-exp(-testdf[i, "Time"] / tau)) # fall
-    
-  } else {
-    testdf[i, "V"] <- testdf[i, "Vmax"]
-  }
-  
-  
-
-
-}
-testdf %>% 
-  ggplot(aes(x = Time, y = V))+lemon::geom_pointline()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-testdf <- temp_plt[temp_plt$Time >= 2.0775 & temp_plt$Time <= 3.0772+time_length, ] %>% 
-  ungroup() %>% 
-  dplyr::select(Time, In7, In4) %>%
-  mutate(In4_p = NA, 
-         Fit = -50.8,
-         In4_target = NA)
-
-
-
-
-fit_time_array <- testdf[testdf$Time >= 3.0772 & testdf$Time <= 3.0772+time_length, "Time"]
-fit_time_array <- fit_time_array - min(fit_time_array) # ensure we're applying it to the right time length
-testdf[testdf$Time >= 3.0772 & testdf$Time <= 3.0772+time_length, "Fit"] <- as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * fit_time_array) + as.numeric(tidy_fm[3, "estimate"])
-
-
-In4_rest = -50.8
-In4_Rin = (-123-In4_rest)/-6
-rec_timestep <- testdf[2, "Time"] - testdf[1, "Time"]
-
-testdf[1, "In4_p"] <- testdf[1, "In4"]
-
-
-# as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * rec_timestep) + as.numeric(testdf[i, "In7"])*In4_Rin
-
-testdf$In4_target <- testdf$In7*In4_Rin + In4_rest
-# testdf[i, "In4_target"] <- (In4_rest + (as.numeric(testdf[i, "In7"])*In4_Rin)) 
-
-i=2
-for (i in seq(2, nrow(testdf))){
-  testdf[i, "In4_p"] <- as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * rec_timestep) + as.numeric(testdf[i, "In4_target"]) + as.numeric(testdf[i-2, "In4_p"])  
-}
-
-
-
-testdf %>% 
-  ggplot(aes(Time, In4))+
-  geom_path(size = 2, color = "white")+
-  geom_path(aes(y = Fit), size = 1, color = "yellow")+
-  geom_path(aes(y = In4_target), size = 1, color = "orange")+
-  geom_path(aes(y = In4_p), size = 1, color = "red")+
-  see::theme_blackboard()
-
-
-
-### redo with more complicated model ####
-# fm <- nlsLM(
-#   In4 ~ a*exp(b*Time) + c*exp(d*Time)+ e, 
-#   data = data_subset, 
-#   start = list(a = 1, b = -0.01, c = 1, d = -0.1, e = 10)
-#   )
-# 
-# data_subset %>% 
-#   ggplot(aes(Time, In4))+
-#   geom_path()+
-#   geom_path(data = data.frame(In4 = predict(fm, data_subset),
-#                               Time = data_subset$Time), color = "red")
-# 
-# tidy_fm <- broom::tidy(fm)
-# 
-# 
-# temp <- data.frame(x = seq(0, 1.5, length.out = 100)) %>% 
-#   mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x),
-#          y2 = as.numeric(tidy_fm[3, "estimate"])*exp(as.numeric(tidy_fm[4, "estimate"]) * x),
-#          y3 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])*exp(as.numeric(tidy_fm[4, "estimate"]) * x) + as.numeric(tidy_fm[5, "estimate"])
-#          )
-# 
-# 
-# data_subset %>% 
-#   ggplot(aes(Time, In4))+
-#   geom_path(size = 2, color = "white")+
-#   geom_path(data = temp, aes(x = x, y = y1), size = 1, color = "yellow")+ # slower exponential term (tau0) is the membrane time constant
-#   geom_path(data = temp, aes(x = x, y = y2), size = 1, color = "orange")+
-#   geom_path(data = temp, aes(x = x, y = y3), size = 1, color = "red")+
-#   see::theme_abyss()
-
-### ####
-
-# 
-# temp <- data_subset %>% dplyr::select()
-# temp
-# 
-# mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])
-#          )
-
-
-
-
-
-In4_tau0 <- as.numeric(tidy_fm[2, "estimate"])
-# fm <- nlsLM(
-#   # In4 ~ a*exp(-b*In7)+c, 
-#   In4 ~ a*exp(-b*In7)+c*exp(-d*In7)+e, 
-#   data=data_subset, 
-#   # start=list(a=1, b=1, c=50),  
-#   start=list(a=1, b=1, c=1, d=1, e=50),  
-#   algorithm = "LM",
-#   control = nls.lm.control(maxiter = 1000))
-
-In4_R
-In4_tau0
-
-
-In4_Rin = -123/-6
-
-Inj_nA <- -6
-v_rest = 83.5# -49.6
-
-
-data_subset$In4_p <- NA
-data_subset$In4_delta <- NA
-data_subset <- data_subset[, c("In4_delta", "In4_p", "In4", "In7", "Time")]
-
-
-
-data_subset[1, "In4_p"] <- data_subset[1, "In4"]
-i=2
-
-data_subset[i-1, "In4_p"]*exp(-1*((data_subset[i, "Time"] - data_subset[i-1, "Time"]) / (In4_tau0)))
-
-
-data_subset %>% 
-  ggplot(aes(Time, In4))+
-  geom_path(size = 2, color = "white")+
-  geom_path(aes(y = In4_p), size = 1, color = "yellow")+
-  see::theme_abyss()
-
-
-
-# Q = CV
-# dQ/dt = C*(dV/dt)
-# I_c (capacitive current)
-# I_c = C*(dV/dt)
-
-# delta_V (across resistor) = IR
-# E is vRest
-# V - E = IR
-# I_R = current across resistor
-# I_R = (V-E) / R
-
-# I_c + I_R = 0
-
-#R*C*(dv/dt) = E - V
-
-
-
-
-
-
-
-
-
-# tau * V'(t) = V_Cl - V(t) + I_stim(t) / (Area * g_CL)
-# tau == C_mem / g_Cl
-
-# V_Cl == rest?
-
-# cell of radius 10 μm
-# Cm =1 μF/cm2
-# gCl =0.3 mS/cm2
-# subject to a 20 ms, 10 pA current injection
-
-
-V_t = +10
-V_rest = -68
-I_stim = 0#.0001
-max_time = 0.1
-nsteps = 10
-
-temp <- data.frame(Time = seq(0, max_time, length.out = nsteps),
-           mV = NA)
-temp[1, "mV"] <- V_t
-
-
-
-for (i in 2:nrow(temp)){
-  cell_area = (pi*10)^2 * (1/10000)
-  v_prime =  (V_rest - V_t + (I_stim/(cell_area*0.3)) ) / (1/0.3) # div by tau
-  temp[i, "mV"] <- v_prime
-  V_t <- v_prime+V_t
-}
-
-
-
-cumsum(x = temp$mV)
-
-temp %>% 
-  ggplot(aes(x = Time, y = mV))+
+# Show what the protocol looks like
+plt1 <- temp_plt[seq(1, nrow(temp_plt), length.out = 1000), ] %>% 
+  gather(key, value, c("In4", "In9")) %>% 
+  ggplot(aes(Time, value, color = key))+
   geom_path()
 
+plt2 <- temp_plt[seq(1, nrow(temp_plt), length.out = 1000), ] %>% 
+  gather(key, value, c("In7", "In12")) %>% 
+  mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
+  ggplot(aes(Time, value, color = key))+
+  geom_path()
+
+plt1/plt2
 
 
+# annotate
+temp <- temp %>% 
+   mutate(Segment = case_when(Time >= 0       & Time <= 0.32820 ~ "A", #"PreStepIn12",
+                              Time >= 1.32836 & Time <= 1.82836 ~ "B", #"StepIn12",
+                              Time >= 2.57744 & Time <= 3.07744 ~ "C", #"PreStepIn7",
+                              Time >= 4.07760 & Time <= 4.57760 ~ "D", #"StepIn7"
+                              ))
+```
+$$r_{11}=\frac{v_1}{i_1}$$
+$$r_{12}=\frac{v_2}{i_1}$$
+$$r_1= \frac{r_{11}*r_{22} - r_{12}^2}{r_{22} - r_{12}}$$
+$$r_c = \frac{r_{11}*r_{22} - r_{12}^2}{r_{12}}$$
+```{r}
+temp_resist <- temp %>% 
+  group_by(Sweep, Segment) %>% 
+  filter(!is.na(Segment)) %>% 
+  summarise(MeanIn4 = mean(In4, na.rm = T),
+            MeanIn7 = mean(In7, na.rm = T),
+            MeanIn9 = mean(In9, na.rm = T),
+            MeanIn12 = mean(In12, na.rm = T)) %>% 
+  pivot_wider(names_from = Segment, values_from = c("MeanIn4", "MeanIn7", "MeanIn9", "MeanIn12")) %>% 
+  mutate(In4_CC = MeanIn9_D/MeanIn4_D, #inj in In4
+         In4_R11 = MeanIn4_D/MeanIn7_D,
+         In4_R12 = MeanIn9_D/MeanIn7_D,
 
+         
+         In9_CC = MeanIn4_B/MeanIn9_B, #inj in In9
+         In9_R11 = MeanIn9_B/MeanIn12_B,
+         In9_R12 = MeanIn4_B/MeanIn12_B
+         ) %>% 
+  mutate(mean_R12 = (In4_R12+In9_R12)/2) %>% 
+  mutate(In4_R1 = ((In4_R11*In9_R11) - (mean_R12^2)) / (In9_R11-mean_R12),
+         In4_Rc = ((In4_R11*In9_R11) - (mean_R12^2)) / (mean_R12),
+         
+         In9_R1 = ((In9_R11*In4_R11) - (mean_R12^2)) / (In4_R11-mean_R12),
+         In9_Rc = ((In9_R11*In4_R11) - (mean_R12^2)) / (mean_R12)
+         ) %>% select(starts_with("In"))
+```
 
-
-# ### what is the effect of the length of time used? ####
-
-# 
-# test_lengths <-   seq(0.01, (4.57760 - 3.0774), length.out = 12)
-# 
-# test_length_fit <- map(test_lengths, function(time_length){
-#     # time_length <- 0.02
-# data_subset <- temp_plt[temp_plt$Time >= 3.0772 & temp_plt$Time <= 3.0772+time_length, ]
-# 
-# #TODO exponential fit here is very poor. 
-# # lm(log(In4) ~ In7, data = data_subset)
-# data_offset_y <- min(data_subset$In4) - 10
-# data_subset$In4 <- data_subset$In4 - data_offset_y
-# 
-# data_offset_x <- min(data_subset$Time)
-# data_subset$Time <- data_subset$Time - data_offset_x
-# 
-# 
-# # redo with more complicated model
-# fm <- nlsLM(
-#   In4 ~ a*exp(b*Time) + c*exp(d*Time)+ e, 
-#   data = data_subset, 
-#   start = list(a = 1, b = -0.01, c = 1, d = -0.1, e = 10), 
-#   control = nls.lm.control(maxiter = 1000)
-#   )
-# 
-# return(fm)
-# })
-# 
-# data_subset <- temp_plt[temp_plt$Time >= 3.0772 & temp_plt$Time <= 3.0772+max(test_lengths), ]
-# data_offset_y <- min(data_subset$In4) - 10
-# data_subset$In4 <- data_subset$In4 - data_offset_y
-# 
-# data_offset_x <- min(data_subset$Time)
-# data_subset$Time <- data_subset$Time - data_offset_x
-# 
-# prediction_df <- map(seq_along(test_length_fit), function(i){
-#   fm <- test_length_fit[[i]]
-#   
-#   predict(fm, data_subset)
-# })
-# 
-# prediction_df <- as.data.frame(do.call(cbind, prediction_df))
-# names(prediction_df) <- as.character(test_lengths)
-# prediction_df <- cbind(Time = data_subset$Time, prediction_df)
-# 
-# 
-# library(gganimate)
-# plt_df <- gather(prediction_df, 
-#        key = "Duration", value = "In4", 
-#        as.character(test_lengths)) 
-# 
-# # plt_gif <- 
-# ggplot(data_subset, aes(Time, In4))+
-#   geom_point(color = "white")+
-#   # geom_point(color = "white")+ #aes(color = Duration))+
-#   geom_point(data = plt_df, aes(color = Duration))+
-#   brms::theme_black()+
-#   geom_point(data = plt_df, aes(x = as.numeric(Duration)), color = "white")+
-#   # labs(title = 'Duration Fit: {frame_time}', x = 'Seconds', y = 'Shifted mV') +
-#   transition_states(Duration) +
-#   ease_aes('linear')
-# 
-# 
-# # save as a GIF
-# animate(plt_gif, fps = 10, width = 750, height = 450)
-# anim_save("Curve_Fitting.gif")
-# test_length_fit <- do.call(rbind, test_length_fit) 
-# 
-# test_length_fit <- full_join(mutate(temp_plt, SampleDuration = 0), test_length_fit)
-# 
-# test_length_fit <- test_length_fit %>% 
-#   mutate(SampleDuration = as.factor(SampleDuration)) 
-# 
-# test_length_fit %>% 
-#   ggplot(aes(Time, In4, color = SampleDuration))+
-#   geom_line()+
-#   viridis::scale_color_viridis(discrete = T)+
-#   see::theme_blackboard()+
-#   theme(legend.position = "bottom")+
-#   xlim(3, 3.5)
-# 
-# 
-# 
-# ggplot(aes(Time, In4))+
-#   geom_path(data = temp_plt)+
-#   geom_path(data = test_length_fit[test_length_fit$SampleDuration == 0.01, ], color = "red")+
-#   xlim(3, 5)
-# 
-# 
-# insertList = list(a=1,b=-0.01,c=1,d=-0.01)
-# fm <- nls(In4 ~ a*exp(In7) + c*exp(d*In7), data = inj_current_data, start = insertList )
-
-
+```{r}
+# V_rest
+temp %>% 
+  filter(Segment == "C") %>% 
+  group_by(Sweep) %>% 
+  summarise(In4_Vrest = min(In4, na.rm = T),
+            In9_Vrest = min(In9, na.rm = T))
 ```
 
 
+```{r}
+# Tau
+
+temp <- temp %>% 
+   mutate(Segment = case_when(Time >= 3.07744 & Time <= 4.57760 ~ "In4Step", #"PreStepIn7",
+                              Time >= 0.32820 & Time <= 1.82836 ~ "In9Step", #"StepIn7"
+                              ))  
+
+plt1 <- 
+temp[seq(1, nrow(temp), length.out = 1000), ] %>% 
+  gather(Key, Value, c("In4", "In9")) %>% 
+  ggplot(aes(Time, Value, color = Segment, group = interaction(Key, Sweep)))+
+  geom_path()
+
+plt2 <- 
+temp[seq(1, nrow(temp), length.out = 1000), ] %>% 
+  ungroup() %>% 
+  gather(key, value, c("In7", "In12")) %>% 
+  mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
+  ggplot(aes(Time, value, color = Segment, group = interaction(key, Sweep)))+
+  geom_path()
+
+plt1/plt2
+
+### test minpack.lm ####
+# install.packages("minpack.lm")
+library(minpack.lm)
+
+temp_in9 <- temp %>% 
+  filter(Segment == "In9Step") %>% 
+  mutate(Time = Time - min(Time, na.rm = T))
+
+fit_tau_1term_exp <- function(
+  df = temp_in9,
+  IV = "Time",
+  DV = "In9"
+){
+  ### 1 term fit ####
+  # ref 
+    # https://stackoverflow.com/questions/26560849/exponential-regression-with-nls-in-r
+    # https://stats.stackexchange.com/questions/160552/why-is-nls-giving-me-singular-gradient-matrix-at-initial-parameter-estimates
+    # https://rpubs.com/mengxu/exponential-model
+    
+  # If we want to extend it, here's the call to use. 
+    # fm <- nlsLM(
+    #   In9 ~ a*exp(b*Time) + c*exp(d*Time)+ e,
+    #   data = temp_in9,
+    #   start = list(a = 1, b = -0.01, c = 1, d = -0.1, e = 10)
+    #   )
+  
+  # and the error from the test case:
+    # Error in nlsModel(formula, mf, start, wts) : 
+    #   singular gradient matrix at initial parameter estimates
+    # In addition: Warning message:
+    # In nls.lm(par = start, fn = FCT, jac = jac, control = control, lower = lower,  :
+    #   lmdif: info = -1. Number of iterations has reached `maxiter' == 50.
+  
+  input_formula <- as.formula(
+    paste0(DV, " ~ a*exp(b*", IV, ") + c")
+  )
+  
+  fm <- nlsLM(
+    input_formula, 
+    data = df, 
+    start = list(a = 1, b = -0.01, c = 10)
+  )
+  
+  tidy_fm <- broom::tidy(fm)
+  
+  # Get fit to check goodness of fit
+  check_fit <- df[, c(IV, DV)]
+  check_fit$Fit <- as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * check_fit[[IV]]) + as.numeric(tidy_fm[3, "estimate"])
+  
+  return(list(fit = tidy_fm,
+              check_fit = check_fit))
+  
+}
+
+
+test_fits <- map(unique(temp_in9$Sweep), function(i){
+  fit_tau_1term_exp(df = filter(temp_in9, Sweep == i),
+                    IV = "Time",
+                    DV = "In9")  
+})
+
+test_fits_plts <- map(seq_along(test_fits), function(i){
+  ggplot()+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = Fit), color = "firebrick")+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = In9), alpha = 0.8)+
+    labs(subtitle = paste("tau =", as.character(
+      round(test_fits[[i]]$fit[2, 2], digits = 3)
+      )))
+})
+
+cowplot::plot_grid(plotlist = test_fits_plts)
+```
+
+#FI
+```{r}
+temp <- trace_list$FI
+
+downsample_data <- function(df = temp, 
+                            len = 5000){
+  return(df[seq(1, nrow(df), length.out = len), ])
+  }
+
+
+downsample_data(df = temp, len = 5000) %>% 
+  gather(key, value, c("In9", "In12")) %>% 
+  ungroup() %>% 
+  mutate(key = factor(.$key, levels = c("In9", "In12"))) %>% 
+  ggplot(aes(Time, value, group = Sweep))+
+  geom_line()+
+  facet_wrap(key~., scales = "free_y", ncol = 1)
 
 
 
+#r11 == ~15.3
+#r1 == ~17.9
 
-visualization:
+place_params_for_predict_voltage_trace(tau = 19.9, 
+                                       Rin = 15.3)
 
+# place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == 10, ], 
+#                                      Time.ch = "Time", 
+#                                      Inj.ch = "In12")
+# 
+# run_predict_voltage_trace.py()
+# 
+# predicted_response <- retrieve_predicted_voltage()
+
+predicted_response_list <- map(1:11, function(i){
+  place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
+                                       Time.ch = "Time", 
+                                       Inj.ch = "In12")
+  
+  run_predict_voltage_trace.py()
+  
+  predicted_response <- retrieve_predicted_voltage()
+  return(predicted_response)
+})
+
+
+my_plts <- map(
+  seq_along(predicted_response_list),
+  function(i){
+    ggplot()+
+      geom_line(data = predicted_response_list[[i]], aes(Time, predicted-56.5))+
+      geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "red")+
+      labs(x = "Seconds", y = "mV")+
+      coord_cartesian(y = c(-150, +120))
+  })
+
+# cowplot::plot_grid(plotlist = my_plts)
+
+
+my_plts[[11]] / my_plts[[11 - 2]] / my_plts[[1 + 2]] / my_plts[[1]]
+```
+
+###EPSP
 (epsp) How could we slice up the trace? 
 ```{r}
 ## Here's the stimulus used in the protocol ====
@@ -913,99 +765,53 @@ ggplot()+
 ```
 
 
+
 ```{r}
-to_use <- full_join(file_groups, files_df) %>% filter(Type == "epsp" & Group %in% c("Baseline", "compensated", "Delayed"))
+temp <- trace_list$EPSP
+
+downsample_data <- function(df = temp, 
+                            len = 5000){
+  return(df[seq(1, nrow(df), length.out = len), ])
+  }
 
 
-ephys_meta <- readxl::read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"), sheet = "MetadataEphys") #"TECC", "TEVC", "IA", "IHTK"
-
-ephys_meta <- ephys_meta %>% 
-  mutate(num_zeros = 4 - floor(log(Recording))) %>% 
-  mutate(num_zeros = ifelse(num_zeros == 3, "000", 
-                            ifelse(num_zeros == 2, "00", 
-                                   ifelse(num_zeros == 1, "0", NA)))) %>% 
-  mutate(files = paste0(Experiment, "_", num_zeros, as.character(Recording), ".abf" ))
-
-
-#
+downsample_data(df = temp, len = 5000) %>% 
+  gather(key, value, c("In9", "In12")) %>% 
+  ungroup() %>% 
+  mutate(key = factor(.$key, levels = c("In9", "In12"))) %>% 
+  ggplot(aes(Time, value, group = Sweep))+
+  geom_line()+
+  facet_wrap(key~., scales = "free_y", ncol = 1)
 
 
-# trace_list <- map(seq(1, nrow(to_use)), function(i){
-#   trace <- readABF_as_matrix(
-#     path = paste0(traces_dir, "/", as.character(to_use[i, "files"])),
-#     channels = c("IN 4", "IN 7", 
-#                  "IN 9", "IN 12"#, "IN 14"
-#     ))
-#   
-#   trace <- as.data.frame(trace) %>% 
-#     janitor::clean_names(case = "upper_camel") %>% 
-#     mutate(Time = Time - min(Time, na.rm = T),
-#            Experiment = to_use[i, "Experiment"],
-#            Group = to_use[i, "Group"],
-#            files = to_use[i, "files"]
-#     )
-#   
-#   if (ncol(trace) == 8){
-#      return(trace) 
-#   } else {
-#     return(
-#       data.frame(In4 = NA,
-#                  In7 = NA, 
-#                  In9 = NA, 
-#                  In12 = NA, 
-#                  Time = NA,
-#                  Experiment = to_use[i, "Experiment"],
-#                  Group = to_use[i, "Group"],
-#                  files = to_use[i, "files"])
-#       )
-#   }
-# })
 
-# trace_df <- do.call(rbind, trace_list) %>% pivot_longer(names_to = "Channel", values_to = "mV", c("In4", "In7", "In9", "In12"))
-# 
-# 
-# # find the low variance traces and drop them. Thesea are in the bath.
-# trace_dstats <- trace_df %>%
-#   group_by(files, Channel) %>%
-#   summarise(sd = sd(mV, na.rm = T),
-#             mean = mean(mV, na.rm = T),
-#             min = min(mV, na.rm =T),
-#             max = max(mV, na.rm = T)) %>%
-#   mutate(range = abs(max - min))
-# 
-# trace_df <- full_join(trace_df, trace_dstats)
-# 
-# 
-# trace_df$Channel <- factor(trace_df$Channel, levels = c("In4", "In9", "In7", "In12"))
-# # GROUP = "Baseline"
-# 
-# 
-# ## Big picture show everything ====
-# for (GROUP  in c("Baseline", "Compensated", "Delayed")){
-#   trace_df[seq(1, nrow(trace_df), by = 25), ] %>%
-#     filter(Group == GROUP) %>%
-#     mutate(colorvar = ifelse(Channel %in% c("In4", "In9"), "mV", "nA")) %>%
-#     filter(colorvar == "mV") %>%
-#     ggplot(aes(x = Time, y = mV, group = Channel, color = Channel))+
-#     # scattermore::geom_scattermore()+
-#     geom_path(alpha = 0.9)+
-#     theme_minimal()+
-#     theme(legend.position = "")+
-#     scale_color_brewer(palette = "Set1")+
-#     ylim(-70, -10)+
-#     facet_wrap(.~files, scales = "free")
-# 
-#   ggsave(here("figures", paste0("prelim_trace_vis_", GROUP, ".pdf")), width = 9, height = 9)
-# 
-# }
+#r11 == ~15.3
+#r1 == ~17.9
 
+place_params_for_predict_voltage_trace(tau = 19.9, 
+                                       Rin = 15.3)
+
+i=1
+place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
+                                       Time.ch = "Time", 
+                                       Inj.ch = "In12")
+  
+run_predict_voltage_trace.py()
+  
+predicted_response <- retrieve_predicted_voltage()
+
+
+ggplot()+
+  geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "red")+
+  geom_line(data = predicted_response, aes(Time, predicted-68), color = "black")+
+  labs(x = "Seconds", y = "mV")
+      
+
+  
 ```
 
 
-
-
-
-This is the way
+Proof of principle: Contrasting simulaiton with LIF to regression and VIR
 ```{r}
 M <- readABF_as_matrix2(path = "C:/Users/Daniel/Documents/Trace_Holding/190915_0019.abf", #190924_0022.abf",
                    channels = "all",
@@ -1126,817 +932,103 @@ library(patchwork)
 # works, now we need to automate the process. Maybe have a datasheet that we pull rin, tau from. 
 ```
 
-## Depricate below
-
-
-Previous way
+## Extend to batch processing
 ```{r}
+to_use <- full_join(file_groups, files_df) %>% filter(Type == "epsp" & Group %in% c("Baseline", "compensated", "Delayed"))
 
-#TODO delete after adaption -- copied 12.34, 20/07/27
 
+ephys_meta <- readxl::read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"), sheet = "MetadataEphys") #"TECC", "TEVC", "IA", "IHTK"
 
+ephys_meta <- ephys_meta %>% 
+  mutate(num_zeros = 4 - floor(log(Recording))) %>% 
+  mutate(num_zeros = ifelse(num_zeros == 3, "000", 
+                            ifelse(num_zeros == 2, "00", 
+                                   ifelse(num_zeros == 1, "0", NA)))) %>% 
+  mutate(files = paste0(Experiment, "_", num_zeros, as.character(Recording), ".abf" ))
 
-# Calculate, don't regress, mV ----
-# Test:
-# "190918_0025.abf" # FI
-# "190918_0019.abf" # epsp
-# "190918_0021.abf" # gj na
-# "190918_0009.abf" # gj tevc
 
-# Cleaner
-# "190903_0025.abf" # FI
-# "190903_0023.abf" # epsp
-# "190903_0021.abf" # gj na
-# "190903_0020.abf" # gj tevc
+#
 
 
-file_list <- list(FI = "190903_0025.abf",
-             EPSP = "190903_0023.abf",
-             GJCC = "190903_0021.abf", 
-             GJVC = "190903_0020.abf")
-
-trace_list <- map(seq_along(file_list), function(i){
-  temp <- readABF_as_matrix2(path = paste0("C:/Users/Daniel/Documents/Trace_Holding/", file_list[[i]]),
-                     channels = "all",
-                     relative.time = T) %>%
-    as.data.frame() %>% 
-    janitor::clean_names(case = "upper_camel") %>% 
-    mutate(Sweep = as.factor(Sweep)) %>% 
-    group_by(Sweep) %>% 
-    mutate(MinTime = min(Time, na.rm = T)) %>% 
-    mutate(Time = Time - MinTime) %>% 
-    select(-MinTime)
-})
-
-names(trace_list) <- c("FI", "EPSP", "GJCC", "GJVC")
-
-## GJVC: get Ig, Ileak, C ====
-temp <- trace_list$GJVC
-### Ig 
-#TODO
-
-### Ileak
-i_leak <- temp[seq(1, nrow(temp), by = 1), ] %>%
-  filter(Time > 0.75) %>%
-  mutate(In4 = as.numeric(In4)) %>%
-  mutate(In7 = as.numeric(In7))
-
-i_leak <- i_leak %>% 
-  mutate(Segment = ifelse(Time >= 0.8 & Time <= 1.0, "PreStep", 
-                          ifelse(Time >= 1.2 & Time <= 1.25, "Step", 
-                                 "NA" ))) %>% 
-  group_by(Sweep, Segment) %>% 
-  mutate(In4Mean = mean(In4, na.rm = T),
-         In7Mean = mean(In7, na.rm = T))
-
-i_leak %>% 
-  ggplot(aes(Time, In4, color = Segment))+
-  geom_path()
-
-i_leak <- i_leak %>% 
-  ungroup() %>%
-  select(Sweep, Segment, In4Mean, In7Mean) %>% 
-  filter(Segment != "NA") %>% 
-  distinct() %>% 
-  filter(abs(In4Mean + 60) > 3 )
-  
-fm <- lm(In4Mean ~ In7Mean, data = i_leak)
-
-In4_R <- as.numeric(broom::tidy(fm)[2, "estimate"])
-
-
-
-
-
-### Capacitance
-
-# temp_plt <- temp[seq(1, nrow(temp), by = 1), ] %>% 
-#   filter(Sweep == 1) %>%
-#   mutate(In4 = as.numeric(In4)) %>% 
-#   mutate(In7 = as.numeric(In7))
-# 
-# 
-# # capacitance
-# plt.1.1 <- temp_plt %>% 
-#   ggplot(aes(Time, In4))+
-#   geom_path()+
-#   xlim(1.0, 1.5)
-# 
-# 
-# plt.2.2 <- 
-# temp_plt %>% 
-#   ggplot(aes(Time, In7))+
-#   geom_ribbon(data = temp_plt[temp_plt$Time >=1.0253215, ], aes(xmin = Time, xmax = Time, ymax = -20.40344, ymin = In7), fill = "gray", alpha = 0.8)+
-#   geom_hline(yintercept = mean(unlist(temp_plt[temp_plt$Time >= 1.028 & temp_plt$Time <= 1.030, "In7"])), color = "blue")+
-#   geom_hline(yintercept = mean(unlist(temp_plt[temp_plt$Time >= 1 & temp_plt$Time <= 1.024, "In7"])), color = "red")+
-#   geom_path()+
-#   xlim(1.0225, 1.03)+
-#   ylim(-1010, 200)
-# 
-# 
-# plt.2.1 <- 
-# temp_plt %>% 
-#   ggplot(aes(Time, In7))+
-#   geom_ribbon(data = temp_plt[temp_plt$Time >=1.0253215, ], aes(xmin = Time, xmax = Time, ymax = -20.40344, ymin = In7), fill = "gray", alpha = 0.8)+
-#   geom_hline(yintercept = mean(unlist(temp_plt[temp_plt$Time >= 1.028 & temp_plt$Time <= 1.030, "In7"])), color = "blue")+
-#   geom_hline(yintercept = mean(unlist(temp_plt[temp_plt$Time >= 1 & temp_plt$Time <= 1.024, "In7"])), color = "red")+
-#   geom_path()+
-#   xlim(1.0, 1.5)+
-#   ylim(-1010, 200)
-# 
-# 
-# library(patchwork)
-# 
-# (plt.1.1 / plt.2.1) | plt.2.2
-
-## GJCC: get R_C, C ====
-temp <- trace_list$GJCC
-
-temp_plt <- temp[seq(1, nrow(temp), by = 1), ] %>% 
-  filter(Sweep == 4) %>%
-  mutate(In4 = as.numeric(In4)) %>% 
-  mutate(In7 = as.numeric(In7))
-
-### test minpack.lm ####
-# install.packages("minpack.lm")
-library(minpack.lm)
-temp_plt %>% 
-  ggplot(aes(Time, In4, color = Sweep))+
-  geom_vline(xintercept = 3.0775)+
-  geom_vline(xintercept = 4.5775)+
-  geom_path()+
-  xlim(3, 5)
-  
-
-### Proof of principle 1 fit. ####
-# https://stackoverflow.com/questions/26560849/exponential-regression-with-nls-in-r
-# https://stats.stackexchange.com/questions/160552/why-is-nls-giving-me-singular-gradient-matrix-at-initial-parameter-estimates
-#https://rpubs.com/mengxu/exponential-model
-
-time_length <- 1.5
-data_subset <- temp_plt[temp_plt$Time >= 3.0775 & temp_plt$Time <= 3.0772+time_length, ]
-
-
-
-# data_offset_y <- min(data_subset$In4) - 10
-# data_subset$In4 <- data_subset$In4 - data_offset_y
-
-data_offset_x <- min(data_subset$Time)
-data_subset$Time <- data_subset$Time - data_offset_x
-
-
-### 1 term fit ####
-fm <- nlsLM(
-  In4 ~ a*exp(b*Time) + c, 
-  data = data_subset, 
-  start = list(a = 1, b = -0.01, c = 10)
-  )
-
-
-tidy_fm <- broom::tidy(fm)
-
-
-temp <- data.frame(x = seq(0, 1.5, length.out = 100)) %>% 
-  mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])
-         )
-
-
-data_subset %>% 
-  ggplot(aes(Time, In4))+
-  geom_path(size = 2, color = "white")+
-  geom_path(data = temp, aes(x = x, y = y1), size = 1, color = "yellow")+
-  see::theme_blackboard()
-
-
-# V(t) = Vmax*(1-e^(-t/tau)) # rise
-# V(t) = Vmax*(e^(-t/tau)) # fall
-
-Vmax = -123
-
-
-
-Vmax = 10
-tau = 2 # smaller == faster
-
-nsteps = 100
-testdf <- data.frame(Time = seq(0, 100, length.out = nsteps), 
-                     Vmax = NA,
-                     Vrest = -10,
-                     Rin = 1,
-                     Inj_nA = rep(c(0,0), each = nsteps/2),
-                     V = 0)
-
-testdf$Vmax = (testdf$Rin*testdf$Inj_nA)+testdf$Vrest
-
-for (i in seq(2, nrow(testdf))){
-  # at each step, is vmax > | < v(t-1)?
-  if (testdf[i-1, "V"] < testdf[i, "Vmax"]){
-    # if greater apply rise formula   
-    # testdf[i, "V"] <- Vmax*(1-exp(-testdf[i, "Time"] / tau)) # rise
-    testdf[i, "V"] <- testdf[i, "Vmax"]*(1-exp(-testdf[i, "Time"] / tau)) # rise
-    
-  } else if (testdf[i-1, "V"] > testdf[i, "Vmax"]){
-    # if lesser  apply fall formula
-    # testdf[i, "V"] <- Vmax*exp(-testdf[i, "Time"] / tau) # fall
-    testdf[i, "V"] <- testdf[i, "Vmax"]*(-exp(-testdf[i, "Time"] / tau)) # fall
-    
-  } else {
-    testdf[i, "V"] <- testdf[i, "Vmax"]
-  }
-  
-  
-
-
-}
-testdf %>% 
-  ggplot(aes(x = Time, y = V))+lemon::geom_pointline()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-testdf <- temp_plt[temp_plt$Time >= 2.0775 & temp_plt$Time <= 3.0772+time_length, ] %>% 
-  ungroup() %>% 
-  dplyr::select(Time, In7, In4) %>%
-  mutate(In4_p = NA, 
-         Fit = -50.8,
-         In4_target = NA)
-
-
-
-
-fit_time_array <- testdf[testdf$Time >= 3.0772 & testdf$Time <= 3.0772+time_length, "Time"]
-fit_time_array <- fit_time_array - min(fit_time_array) # ensure we're applying it to the right time length
-testdf[testdf$Time >= 3.0772 & testdf$Time <= 3.0772+time_length, "Fit"] <- as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * fit_time_array) + as.numeric(tidy_fm[3, "estimate"])
-
-
-In4_rest = -50.8
-In4_Rin = (-123-In4_rest)/-6
-rec_timestep <- testdf[2, "Time"] - testdf[1, "Time"]
-
-testdf[1, "In4_p"] <- testdf[1, "In4"]
-
-
-# as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * rec_timestep) + as.numeric(testdf[i, "In7"])*In4_Rin
-
-testdf$In4_target <- testdf$In7*In4_Rin + In4_rest
-# testdf[i, "In4_target"] <- (In4_rest + (as.numeric(testdf[i, "In7"])*In4_Rin)) 
-
-i=2
-for (i in seq(2, nrow(testdf))){
-  testdf[i, "In4_p"] <- as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * rec_timestep) + as.numeric(testdf[i, "In4_target"]) + as.numeric(testdf[i-2, "In4_p"])  
-}
-
-
-
-testdf %>% 
-  ggplot(aes(Time, In4))+
-  geom_path(size = 2, color = "white")+
-  geom_path(aes(y = Fit), size = 1, color = "yellow")+
-  geom_path(aes(y = In4_target), size = 1, color = "orange")+
-  geom_path(aes(y = In4_p), size = 1, color = "red")+
-  see::theme_blackboard()
-
-
-
-### redo with more complicated model ####
-# fm <- nlsLM(
-#   In4 ~ a*exp(b*Time) + c*exp(d*Time)+ e, 
-#   data = data_subset, 
-#   start = list(a = 1, b = -0.01, c = 1, d = -0.1, e = 10)
-#   )
-# 
-# data_subset %>% 
-#   ggplot(aes(Time, In4))+
-#   geom_path()+
-#   geom_path(data = data.frame(In4 = predict(fm, data_subset),
-#                               Time = data_subset$Time), color = "red")
-# 
-# tidy_fm <- broom::tidy(fm)
-# 
-# 
-# temp <- data.frame(x = seq(0, 1.5, length.out = 100)) %>% 
-#   mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x),
-#          y2 = as.numeric(tidy_fm[3, "estimate"])*exp(as.numeric(tidy_fm[4, "estimate"]) * x),
-#          y3 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])*exp(as.numeric(tidy_fm[4, "estimate"]) * x) + as.numeric(tidy_fm[5, "estimate"])
-#          )
-# 
-# 
-# data_subset %>% 
-#   ggplot(aes(Time, In4))+
-#   geom_path(size = 2, color = "white")+
-#   geom_path(data = temp, aes(x = x, y = y1), size = 1, color = "yellow")+ # slower exponential term (tau0) is the membrane time constant
-#   geom_path(data = temp, aes(x = x, y = y2), size = 1, color = "orange")+
-#   geom_path(data = temp, aes(x = x, y = y3), size = 1, color = "red")+
-#   see::theme_abyss()
-
-### ####
-
-# 
-# temp <- data_subset %>% dplyr::select()
-# temp
-# 
-# mutate(y1 = as.numeric(tidy_fm[1, "estimate"])*exp(as.numeric(tidy_fm[2, "estimate"]) * x) + as.numeric(tidy_fm[3, "estimate"])
-#          )
-
-
-
-
-
-In4_tau0 <- as.numeric(tidy_fm[2, "estimate"])
-# fm <- nlsLM(
-#   # In4 ~ a*exp(-b*In7)+c, 
-#   In4 ~ a*exp(-b*In7)+c*exp(-d*In7)+e, 
-#   data=data_subset, 
-#   # start=list(a=1, b=1, c=50),  
-#   start=list(a=1, b=1, c=1, d=1, e=50),  
-#   algorithm = "LM",
-#   control = nls.lm.control(maxiter = 1000))
-
-In4_R
-In4_tau0
-
-
-In4_Rin = -123/-6
-
-Inj_nA <- -6
-v_rest = 83.5# -49.6
-
-
-data_subset$In4_p <- NA
-data_subset$In4_delta <- NA
-data_subset <- data_subset[, c("In4_delta", "In4_p", "In4", "In7", "Time")]
-
-
-
-data_subset[1, "In4_p"] <- data_subset[1, "In4"]
-i=2
-
-data_subset[i-1, "In4_p"]*exp(-1*((data_subset[i, "Time"] - data_subset[i-1, "Time"]) / (In4_tau0)))
-
-
-data_subset %>% 
-  ggplot(aes(Time, In4))+
-  geom_path(size = 2, color = "white")+
-  geom_path(aes(y = In4_p), size = 1, color = "yellow")+
-  see::theme_abyss()
-
-
-
-# Q = CV
-# dQ/dt = C*(dV/dt)
-# I_c (capacitive current)
-# I_c = C*(dV/dt)
-
-# delta_V (across resistor) = IR
-# E is vRest
-# V - E = IR
-# I_R = current across resistor
-# I_R = (V-E) / R
-
-# I_c + I_R = 0
-
-#R*C*(dv/dt) = E - V
-
-
-
-
-
-
-
-
-
-# tau * V'(t) = V_Cl - V(t) + I_stim(t) / (Area * g_CL)
-# tau == C_mem / g_Cl
-
-# V_Cl == rest?
-
-# cell of radius 10 μm
-# Cm =1 μF/cm2
-# gCl =0.3 mS/cm2
-# subject to a 20 ms, 10 pA current injection
-
-
-V_t = +10
-V_rest = -68
-I_stim = 0#.0001
-max_time = 0.1
-nsteps = 10
-
-temp <- data.frame(Time = seq(0, max_time, length.out = nsteps),
-           mV = NA)
-temp[1, "mV"] <- V_t
-
-
-
-for (i in 2:nrow(temp)){
-  cell_area = (pi*10)^2 * (1/10000)
-  v_prime =  (V_rest - V_t + (I_stim/(cell_area*0.3)) ) / (1/0.3) # div by tau
-  temp[i, "mV"] <- v_prime
-  V_t <- v_prime+V_t
-}
-
-
-
-cumsum(x = temp$mV)
-
-temp %>% 
-  ggplot(aes(x = Time, y = mV))+
-  geom_path()
-
-
-
-
-
-
-# ### what is the effect of the length of time used? ####
-
-# 
-# test_lengths <-   seq(0.01, (4.57760 - 3.0774), length.out = 12)
-# 
-# test_length_fit <- map(test_lengths, function(time_length){
-#     # time_length <- 0.02
-# data_subset <- temp_plt[temp_plt$Time >= 3.0772 & temp_plt$Time <= 3.0772+time_length, ]
-# 
-# #TODO exponential fit here is very poor. 
-# # lm(log(In4) ~ In7, data = data_subset)
-# data_offset_y <- min(data_subset$In4) - 10
-# data_subset$In4 <- data_subset$In4 - data_offset_y
-# 
-# data_offset_x <- min(data_subset$Time)
-# data_subset$Time <- data_subset$Time - data_offset_x
-# 
-# 
-# # redo with more complicated model
-# fm <- nlsLM(
-#   In4 ~ a*exp(b*Time) + c*exp(d*Time)+ e, 
-#   data = data_subset, 
-#   start = list(a = 1, b = -0.01, c = 1, d = -0.1, e = 10), 
-#   control = nls.lm.control(maxiter = 1000)
-#   )
-# 
-# return(fm)
-# })
-# 
-# data_subset <- temp_plt[temp_plt$Time >= 3.0772 & temp_plt$Time <= 3.0772+max(test_lengths), ]
-# data_offset_y <- min(data_subset$In4) - 10
-# data_subset$In4 <- data_subset$In4 - data_offset_y
-# 
-# data_offset_x <- min(data_subset$Time)
-# data_subset$Time <- data_subset$Time - data_offset_x
-# 
-# prediction_df <- map(seq_along(test_length_fit), function(i){
-#   fm <- test_length_fit[[i]]
+# trace_list <- map(seq(1, nrow(to_use)), function(i){
+#   trace <- readABF_as_matrix(
+#     path = paste0(traces_dir, "/", as.character(to_use[i, "files"])),
+#     channels = c("IN 4", "IN 7", 
+#                  "IN 9", "IN 12"#, "IN 14"
+#     ))
 #   
-#   predict(fm, data_subset)
+#   trace <- as.data.frame(trace) %>% 
+#     janitor::clean_names(case = "upper_camel") %>% 
+#     mutate(Time = Time - min(Time, na.rm = T),
+#            Experiment = to_use[i, "Experiment"],
+#            Group = to_use[i, "Group"],
+#            files = to_use[i, "files"]
+#     )
+#   
+#   if (ncol(trace) == 8){
+#      return(trace) 
+#   } else {
+#     return(
+#       data.frame(In4 = NA,
+#                  In7 = NA, 
+#                  In9 = NA, 
+#                  In12 = NA, 
+#                  Time = NA,
+#                  Experiment = to_use[i, "Experiment"],
+#                  Group = to_use[i, "Group"],
+#                  files = to_use[i, "files"])
+#       )
+#   }
 # })
-# 
-# prediction_df <- as.data.frame(do.call(cbind, prediction_df))
-# names(prediction_df) <- as.character(test_lengths)
-# prediction_df <- cbind(Time = data_subset$Time, prediction_df)
-# 
-# 
-# library(gganimate)
-# plt_df <- gather(prediction_df, 
-#        key = "Duration", value = "In4", 
-#        as.character(test_lengths)) 
-# 
-# # plt_gif <- 
-# ggplot(data_subset, aes(Time, In4))+
-#   geom_point(color = "white")+
-#   # geom_point(color = "white")+ #aes(color = Duration))+
-#   geom_point(data = plt_df, aes(color = Duration))+
-#   brms::theme_black()+
-#   geom_point(data = plt_df, aes(x = as.numeric(Duration)), color = "white")+
-#   # labs(title = 'Duration Fit: {frame_time}', x = 'Seconds', y = 'Shifted mV') +
-#   transition_states(Duration) +
-#   ease_aes('linear')
-# 
-# 
-# # save as a GIF
-# animate(plt_gif, fps = 10, width = 750, height = 450)
-# anim_save("Curve_Fitting.gif")
-# test_length_fit <- do.call(rbind, test_length_fit) 
-# 
-# test_length_fit <- full_join(mutate(temp_plt, SampleDuration = 0), test_length_fit)
-# 
-# test_length_fit <- test_length_fit %>% 
-#   mutate(SampleDuration = as.factor(SampleDuration)) 
-# 
-# test_length_fit %>% 
-#   ggplot(aes(Time, In4, color = SampleDuration))+
-#   geom_line()+
-#   viridis::scale_color_viridis(discrete = T)+
-#   see::theme_blackboard()+
-#   theme(legend.position = "bottom")+
-#   xlim(3, 3.5)
-# 
-# 
-# 
-# ggplot(aes(Time, In4))+
-#   geom_path(data = temp_plt)+
-#   geom_path(data = test_length_fit[test_length_fit$SampleDuration == 0.01, ], color = "red")+
-#   xlim(3, 5)
-# 
-# 
-# insertList = list(a=1,b=-0.01,c=1,d=-0.01)
-# fm <- nls(In4 ~ a*exp(In7) + c*exp(d*In7), data = inj_current_data, start = insertList )
 
-
-
+# trace_df <- do.call(rbind, trace_list) %>% pivot_longer(names_to = "Channel", values_to = "mV", c("In4", "In7", "In9", "In12"))
+# 
+# 
+# # find the low variance traces and drop them. Thesea are in the bath.
+# trace_dstats <- trace_df %>%
+#   group_by(files, Channel) %>%
+#   summarise(sd = sd(mV, na.rm = T),
+#             mean = mean(mV, na.rm = T),
+#             min = min(mV, na.rm =T),
+#             max = max(mV, na.rm = T)) %>%
+#   mutate(range = abs(max - min))
+# 
+# trace_df <- full_join(trace_df, trace_dstats)
+# 
+# 
+# trace_df$Channel <- factor(trace_df$Channel, levels = c("In4", "In9", "In7", "In12"))
+# # GROUP = "Baseline"
+# 
+# 
+# ## Big picture show everything ====
+# for (GROUP  in c("Baseline", "Compensated", "Delayed")){
+#   trace_df[seq(1, nrow(trace_df), by = 25), ] %>%
+#     filter(Group == GROUP) %>%
+#     mutate(colorvar = ifelse(Channel %in% c("In4", "In9"), "mV", "nA")) %>%
+#     filter(colorvar == "mV") %>%
+#     ggplot(aes(x = Time, y = mV, group = Channel, color = Channel))+
+#     # scattermore::geom_scattermore()+
+#     geom_path(alpha = 0.9)+
+#     theme_minimal()+
+#     theme(legend.position = "")+
+#     scale_color_brewer(palette = "Set1")+
+#     ylim(-70, -10)+
+#     facet_wrap(.~files, scales = "free")
+# 
+#   ggsave(here("figures", paste0("prelim_trace_vis_", GROUP, ".pdf")), width = 9, height = 9)
+# 
+# }
 
 ```
 
 
 
 
-```{r}
-#TODO Are we getting all the sweeps? The recording is 4x the length that would be expected. 
-get_epsp_trace <- function(file.name = to_use[i, "files"],
-                           file.Exp = to_use[i, "Experiment"],
-                           file.Group = to_use[i, "Group"]){
-  trace <- readABF_as_matrix(
-    path = paste0(traces_dir, "/", as.character(file.name)),
-    channels = c("IN 4", "IN 7", 
-                 "IN 9", "IN 12"#, "IN 14"
-    ))
-  
-  trace <- as.data.frame(trace) %>% 
-    janitor::clean_names(case = "upper_camel") %>% 
-    mutate(Time = Time - min(Time, na.rm = T),
-           Experiment = as.character(file.Exp),
-           Group = as.character(file.Exp),
-           files = as.character(file.name)
-    )
-  
-  if (ncol(trace) == 8){
-     return(trace) 
-  } else {
-    return(
-      data.frame(In4 = NA,
-                 In7 = NA, 
-                 In9 = NA, 
-                 In12 = NA, 
-                 Time = NA,
-                 Experiment = as.character(file.Exp),
-                 Group = as.character(file.Group),
-                 files = as.character(file.name))
-      )
-  }
-}
 
 
+## Inspiration from dynamic clamp project
 
-
-i = min(which(to_use$Group == "Baseline"))
-# j = min(which(to_use$Group == "Delayed"))
-j = which(to_use$Group == "Baseline")
-i.ch = "In4"
-j.ch = "In4"
-
-
-
-
-
-xdata <- get_epsp_trace(file.name = to_use[i, "files"],
-                        file.Exp = to_use[i, "Experiment"],
-                        file.Group = to_use[i, "Group"])
-ydata <- get_epsp_trace(file.name = to_use[j, "files"],
-                        file.Exp = to_use[j, "Experiment"],
-                        file.Group = to_use[j, "Group"])
-
-plt.data <- data.frame(
-  Time = xdata$Time,
-  x = xdata[[i.ch]],
-  y = ydata[[j.ch]])
-
-plt <- plt.data %>% 
-  ggplot(aes(x = x, y = y))+
-  geom_abline(intercept = 0, slope = 1, color = "firebrick")+
-  scattermore::geom_scattermore()+
-  geom_smooth(method = "lm", fullrange = T)+
-  theme_minimal()
-
-```
-
-
-workspace 
-```{r}
-
-
-trace_df2 <- full_join(trace_df, ephys_meta)
-
-
-
-
-             
-## Work with a single trace ====
-keep_every <- 25
-
-tr_baseline <- trace_df[seq(1, nrow(trace_df), by = keep_every), ]  %>% filter(files == "190930_0009.abf")
-tr_compensated <- trace_df[seq(1, nrow(trace_df), by = keep_every), ]  %>% filter(files == "191004_0030.abf") #TODO see also 190808a_0014.abf
-tr_delayed <- trace_df[seq(1, nrow(trace_df), by = keep_every), ]  %>% filter(files == "190915_0019.abf")
-
-tr_baseline %>% 
-  filter(Channel == "In7") %>% 
-  mutate(mV = rollmean(mV, k = 17, fill = "extend")) %>% 
-  ggplot(aes(x = Time, y = mV, color = Channel))+
-  geom_path()+
-  geom_vline(xintercept = c())+
-  theme_minimal()+
-  theme(legend.position = "bottom")+
-  scale_color_brewer(palette = "Set1")
-
-```
-
-
-
-```{r}
-trace <- readABF_as_matrix(
-  path = paste0("C:/Users/Daniel/Documents/Trace_Holding/", as.character(files_df[files_df$Type == "epsp", "files"])[1] ),
-  channels = c("IN 4", "IN 7", "IN 9", "IN 12", "IN 14"))
-
-as.data.frame(trace) %>% 
-  dplyr::select(Time, `IN 4`, `IN 9`) %>% 
-  tidyr::gather(Channel, mV, c("IN 4", "IN 9")) %>% 
-  ggplot(aes(Time, mV, color = Channel))+
-  geom_path()+
-  scale_color_brewer(palette = "Set1")
-```
-
-
-epsp annotation
-```{r}
-trace <- as.data.frame(trace) %>% janitor::clean_names(case = "upper_camel")
-
-# Restructure
-trace_p1 <- trace[,      c("In4", "In7",  "Time")] %>% 
-  gather(Channel, Value, c("In4", "In7"))  %>% 
-  mutate(Unit = ifelse(Channel %in% c("In4", "In9"), "mV", 
-                ifelse(Channel %in% c("In7", "In12"), "nA", NA)))
-
-trace_p2 <- trace[,      c("In9", "In12", "Time")] %>% 
-  gather(Channel, Value, c("In9", "In12")) %>% 
-  mutate(Unit = ifelse(Channel %in% c("In4", "In9"), "mV", 
-                ifelse(Channel %in% c("In7", "In12"), "nA", NA)))
-
-trace <- rbind(trace_p1, trace_p2)
-
-#    Condition   Experiment     n
-#    <fct>       <chr>      <int>
-#  1 Baseline    190924         2
-#  2 Baseline    190924a        2
-#  3 Baseline    190926         3
-#  4 Baseline    190927         2
-#  5 Baseline    190927a        3
-#  6 Baseline    190930         2
-#  7 Baseline    190930a        2
-#  8 Compensated 190808a        3
-#  9 Compensated 190830         1
-# 10 Compensated 190904         2
-# 11 Compensated 191001         2
-# 12 Compensated 191004         2
-# 13 Delayed     190903         2
-# 14 Delayed     190905         2
-# 15 Delayed     190906         2
-# 16 Delayed     190907         1
-# 17 Delayed     190915         3
-# 18 Delayed     190917         3
-# 19 Delayed     190918         2
-
-
-
-```
-
-
-
-
-# Processing current clamp traces. 
-
- 
-```{r}
-traces <- list.files(here::here("inst", "extdata", "ABFs", "ExcitabilityEPSP"))
-
-## load in traces, make them into dfs, and give them names equal to their file names ====
-stim <- map(traces, function(i){
-  readABF_as_matrix(
-  path = paste0(here::here("inst", "extdata", "orig_waveforms"), "/", i),
-  channels = c("IN 4", "IN 9"))
-})
-names(stim) <- traces
-stim <- plyr::ldply(stim, data.frame)
-stim <- rename(stim, Trace = .id)
-
-## find the start time for each trace and adjust the mime of each so all begin at 0 ====
-min.times <- stim %>% group_by(Trace) %>% summarise(min(Time))
-
-stim$min.time <- NA
-walk(seq(from = 1, to = nrow(min.times)), 
-     function(i){
-       stim[stim$Trace == as.character(min.times[i, "Trace"]), "min.time"] <<- as.numeric(min.times[i, 2])
-     })
-
-stim <- stim %>% mutate(Time = Time - min.time) %>% gather(Ch, mV, c("IN.4", "IN.9"))
-
-## Remove any artifacts ====
-#large artifact in 180717a_0013.abf between 4.918, 4.926. Replace with values at 4.918
-# replace.vals <- stim %>% ungroup() %>% filter(Trace == "180717a_0013.abf", Time == 0) %>% group_by(Ch)
-stim[stim$Trace == "180717a_0013.abf" & (stim$Time > 4.918 & stim$Time < 4.926), "mV"] <- -56.0
-
-
-## Smooth ====
-stim <- stim %>% 
-  ungroup() %>% 
-  group_by(Trace, Ch) %>% 
-  mutate(mV.f = zoo::rollmean(x = mV, k = 5, fill = "extend")) %>%
-  mutate(ID = paste(Ch, Trace)) %>%
-  ungroup()
-  
-
-### The diversity of traces used ####
-# stim %>%
-#   # filter(Trace == "180717a_0013.abf") %>%
-#   ggplot(aes(Time, mV.f, group = ID, color = Trace))+
-#   geom_line(alpha = 0.6)+
-#   facet_grid(.~Ch)+
-#   theme(legend.position = "")
-
-
-# See the standardized protocols to pair them with ####
-# "180221_0029.abf", "TEA sync",
-# "180308_0013.abf", "b",
-# "180425_0017.abf", "c",
-# "180510_0034.abf", "a", 
-# "180604_0009.abf", "TEA async",
-# "190408_0026.abf", "d",
-# "191209_0011.abf", "HA 90"
-
-# stim[stim$Trace %in% c("180221_0029.abf", 
-#                        "180308_0013.abf", 
-#                        "180425_0017.abf", 
-#                        "180510_0034.abf", 
-#                        "180604_0009.abf", 
-#                        "190408_0026.abf", 
-#                        "191209_0011.abf"),  ] %>%
-#   ggplot(aes(Time, mV.f, group = ID, color = Ch))+
-#   geom_line(alpha = 0.6)+
-#   facet_grid(Trace~.)+
-#   theme(legend.position = "")
-
-
-
-
-one.trace <- stim %>%
-  # filter(Trace %in% c("170710_0037.abf", "180718a_0009.abf")) %>% #FIXME When ready, remove to put all through
-  dplyr::select(-min.time,  -ID, -mV) %>%
-  spread(Ch, mV.f)
-
-
-### Once again, lots of crazy variation ####
-# one.trace %>% ggplot(aes(group = Trace))+
-#   geom_line(aes(x = Time, y = IN.4), color = "Steelblue")+
-#   geom_line(aes(x = Time, y = IN.9), color = "Firebrick")
-
-
-### We can see the overlap/lack of same here. We should get a unity line when there is no differnce in the stimulus.
-# one.trace %>% ggplot()+
-#   geom_path(aes(x = IN.4, y = IN.9, color = Time))
-
-
-```
-
-For summary plot later
-```{r}
-plt.trace.variation <- one.trace
-
-
-
-```
-
-```{r}
+```{r eval=FALSE, include=FALSE}
 # First pass at annotation ----
 
 # one.trace %>% ggplot()+
@@ -2114,7 +1206,7 @@ one.trace <- one.trace %>%
 #   facet_grid(. ~ Trace)
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 ## Get summary of all ====
 
 # 1. Get single value descriptors for each trace
@@ -2226,8 +1318,7 @@ Standard <- full_join(Standard, one.trace.standard, by = "Condition")
 ```
 
 Version 1 of the figure displaying individualized data.
-
-```{r}
+```{r eval=FALSE, include=FALSE}
 # plt.trace.variation <- plt.trace.variation[plt.trace.variation$Trace %in% unique(plt.trace.variation$Trace)[c(1,2,4,11,14,#17,19,
 #                                                                                                               20,21,26)], ]
 
@@ -2325,7 +1416,7 @@ temp1 %>%
 ```
 
 First test of showing individualized phase
-```{r}
+```{r eval=FALSE, include=FALSE}
 # denomerator <- 16
 for (denomerator in c(16, 8, 4, 2)){
 
@@ -2374,9 +1465,8 @@ ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.charact
 }
 ```
 
-
 Second test
-```{r}
+```{r eval=FALSE, include=FALSE}
 # Use fraction shift
 
 
@@ -2470,9 +1560,8 @@ ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.charact
 }
 ```
 
-
 PCA is now shelved.
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 # temp <- Orig[, c(
 #   "Time",
