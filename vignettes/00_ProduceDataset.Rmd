@@ -10,7 +10,8 @@ library(here)
 library(tidyverse)
 library(janitor)
 
-
+library(devtools)
+devtools::load_all()
 ```
 
 ## Forward 
@@ -23,12 +24,102 @@ This file represents the full preparation of data. Ideally, where we pull proces
 ```
 
 ## Build metadata
-```{r}
+
+```{r global params}
 use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
+
+abf_dir_path <- "D:/0000_Traces_mRNA24hLC/"
+
 ```
+
 # Working off of non-processed data ----
 
+```{r}
+metadata <- read_excel(use.file.path, sheet = "MetadataEphys")  
 
+
+
+
+# update_type_names <- as_tibble(t(matrix(
+#   c("htk", "htk", # ion
+#     "a", "a",
+#     "htkc", "htkc",
+#     "ac", "ac",
+#     
+#     "tevc", "gjvc", # gj, Rs
+#     "igj", "gjcc",
+#     "igj_50", "gjcc",
+#     
+#     "fi_50", "fi", # excitability
+#     "fi", "fi",
+#     "epsp", "epsp",
+#     "epsp_50", "epsp",
+#     
+#     "gj", "Unknown" #FIXME what are these?
+#   ), nrow = 2)))
+# names(update_type_names) <- c("InFile", "NewType")
+
+```
+
+
+```{r}
+# Check for missing files relative to the abf directory
+```
+
+
+
+```{r}
+#TODO for each of these files get the relevant data and place it in an rds with some metadata for merging later
+```
+
+
+
+
+
+
+```{r}
+absent_traces <- metadata[!is.na(metadata$Type), ]
+absent_traces$Exists <- F
+
+abf_dir <- list.files(abf_dir_path)
+for (i in seq(1, nrow(absent_traces))){
+  # make the file name
+  num_zeros <- 4-nchar(absent_traces[i, "Recording"])
+  num_zeros <- case_when(num_zeros == 0 ~ "",
+                         num_zeros == 1 ~ "0",
+                         num_zeros == 2 ~ "00",
+                         num_zeros == 3 ~ "000")
+  
+  abf_name <- paste(as.character(absent_traces[i, "Experiment"]),
+                    paste0(num_zeros, as.character(absent_traces[i, "Recording"]), ".abf"), 
+                    sep = "_")
+  # check if it exists in the dir
+  absent_traces[i, "Exists"] <- abf_name %in% abf_dir
+  
+  # print(abf_name)
+}
+
+
+absent_traces %>% 
+  group_by(Exists) %>% 
+  tally()
+
+
+absent_traces %>% 
+  group_by(Condition, Type, Exists) %>% 
+  tally() %>% 
+  View()
+
+
+
+
+
+
+
+
+
+
+```
 
 
 
