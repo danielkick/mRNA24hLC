@@ -1,0 +1,23 @@
+---
+title: "Produce Dataset"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Forward 
+This file represents the full preparation of data. Ideally, where we pull processed data (e.g. where I've manually extraced values in clamp fit) will ultimately be replaced with automated, repeatable, and auditable processing. Auditing will be accomplished by including and option to write graphs of the input/output. 
+
+```{r}
+# TODO replace manual processing with automatic
+# TODO Generate audit output
+# TODO edit metadata file so as to allow for specification of traces or regions of traces to be excluded from a file (e.g. drop a segment with loss of voltage clamp)
+```
+
+
+
+
+
+
