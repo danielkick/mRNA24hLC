@@ -249,114 +249,6 @@ for (i in seq(1, nrow(target_abfs))){
 ## Handling different kinds of files (Proof of principle)
 ### Custom functions
 ```{r Custom Functions}
-# now works for multiple sweeps
-readABF_as_matrix2 <- function(
-  path = "",
-  channels = c("IN 4", "IN 9"), # "all" is also acceptable
-  relative.time = T
-){
-  
-  trace <- readABF::readABF(file = path)
-  
-  start.time <- trace$header$recTime[1]
-  end.time <- trace$header$recTime[2]
-  
-  temp_list <- map(seq(1, length(trace$data)), function(i){
-    # obs <- nrow(trace$data[[i]])
-    
-    if (mean(channels %in% trace$channelNames) == 1){
-      temp <- trace$data[[i]][, (trace$channelNames %in% channels)]
-      temp <- cbind(temp, rep(i, nrow(temp)))
-      temp <- as.matrix(temp)
-      colnames(temp) <- c(trace$channelNames[trace$channelNames %in% channels], "Sweep")
-      return(temp)
-    } else if (channels == "all"){
-      temp <- trace$data[[i]]
-      temp <- cbind(temp, rep(i, nrow(temp)))
-      temp <- as.matrix(temp)
-      colnames(temp) <- c(trace$channelNames, "Sweep")
-      
-      return(temp)
-    } else {
-      current_options <- paste(as.array(trace$channelNames), sep =", ")
-      warning(paste("Provided Channels do not exist. \nPlease select 'all' or select from the following existing channels:\n"))
-      warning(current_options)
-      
-      temp <- NA
-      return(temp)
-    }
-    
-  })
-  
-  if(sum(is.na(temp_list)) > 0){
-    warning("Exiting due to missing Sweep or improper channel selection.")
-    return(NULL)
-  } else {
-    temp <- do.call(rbind, temp_list)
-    
-  }
-  
-  if (relative.time == F){
-    temp <- cbind(temp, Time = seq(from = start.time,
-                                   to = end.time,
-                                   length.out = nrow(temp)))
-    return(temp)
-  } else if (relative.time == T){
-    temp <- cbind(temp, Time = seq(from = 0,
-                                   to = end.time-start.time,
-                                   length.out = nrow(temp)))
-    return(temp)
-  } else {
-    warning("Exiting due to 'relative.time' being neither 'T' or 'F'.")
-    return(NULL)
-  }
-}
-
-place_params_for_predict_voltage_trace <- function(tau = 10.0,
-                                                   Rin = 1.0){
-  write.table(tau, file = "./temp/measured_tau.txt", sep = "", row.names = F, col.names = F)
-  write.table(Rin, file = "./temp/measured_Rin.txt", sep = "", row.names = F, col.names = F)
-}
-
-place_data_for_predict_voltage_trace <- function(input.df = temp[temp$sweep==1, ],
-                                                 Time.ch = "Time",
-                                                 Inj.ch = "In7",
-                                                 ...){
-  input.df <- input.df[, c(Time.ch, Inj.ch)]
-  names(input.df) <- c("Time", "Inj")
-  write.csv(input.df,
-            file = "./temp/current_inj.csv",
-            row.names = F
-  )
-}
-
-#TODO the second half of the recording has no current injection!
-#ggplot()+geom_path(data = predicted_response, aes(Time, predicted), color = "blue")
-
-run_predict_voltage_trace.py <- function(){
-  # shell("conda activate base")
-  # shell("python ./Python/predict_voltage_trace.py")
-
-  # running above commands separately can cause
-    #   Traceback (most recent call last):
-    #   File "./Python/predict_voltage_trace.py", line 2, in <module>
-    #     from brian2 import *
-    # ModuleNotFoundError: No module named 'brian2'
-    # Warning message:
-    # In shell("python ./Python/predict_voltage_trace.py") :
-    #   'python ./Python/predict_voltage_trace.py' execution failed with error code 1
-  # Perhaps there is insufficent time for the first command to complete so the env is not activated.
-  # Combined it seems to work.
-  shell("conda activate base && python ./Python/predict_voltage_trace.py")
-}
-
-retrieve_predicted_voltage <- function(){
-  return(
-    cbind(read.csv("./temp/time_steps.csv"), 
-          read.csv("./temp/predicted_voltage.csv"))
-    )
-}
-
 downsample_data <- function(df = temp, 
                             len = 5000){
   return(df[seq(1, nrow(df), length.out = len), ])
@@ -684,7 +576,7 @@ place_params_for_predict_voltage_trace(tau = 19.9,
 #                                      Time.ch = "Time", 
 #                                      Inj.ch = "In12")
 # 
-# run_predict_voltage_trace.py()
+# run_predict_voltage_trace_py()
 # 
 # predicted_response <- retrieve_predicted_voltage()
 
@@ -693,7 +585,7 @@ predicted_response_list <- map(1:11, function(i){
                                        Time.ch = "Time", 
                                        Inj.ch = "In12")
   
-  run_predict_voltage_trace.py()
+  run_predict_voltage_trace_py()
   
   predicted_response <- retrieve_predicted_voltage()
   return(predicted_response)
@@ -793,7 +685,7 @@ place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ],
                                        Time.ch = "Time", 
                                        Inj.ch = "In12")
   
-run_predict_voltage_trace.py()
+run_predict_voltage_trace_py()
   
 predicted_response <- retrieve_predicted_voltage()
 
@@ -859,7 +751,7 @@ place_params_for_predict_voltage_trace(tau = 21.417860031127930, Rin = 8.535)
 
 place_data_for_predict_voltage_trace(input.df = temp, Time.ch = "Time", Inj.ch = "In7")
 
-run_predict_voltage_trace.py()
+run_predict_voltage_trace_py()
 
 predicted_response <- retrieve_predicted_voltage()
 
