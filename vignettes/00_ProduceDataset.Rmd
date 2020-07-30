@@ -114,42 +114,28 @@ absent_traces %>%
 
 absent_traces %>% 
   group_by(Condition, Type, Exists) %>% 
-  tally() %>% 
-  View()
-
-
-
-
-
-
-
-
-
-
+  tally() 
 ```
 
-finding missing files in shared drive w/o microsoft search
+
+Finding missing ABFs on the shared drive w/o Microsoft's search
 ```{r}
-start_loc <- "S:/Data_Daniel"
+# Indexing all the ABFs in my directory on the shared drive is time consumming (~55 minutes over the VPN). It should only be done when an index doesn't exist already of if there's reason to beleave the index is no longer accurate. 
+if (!file.exists(here("inst", "extdata", "shared_drive_abf_index.csv"))){
+  start_loc <- "S:/Data_Daniel"
+  
+  tic <- Sys.time()
+  all_abfs <- list.files("S:/Data_Daniel", "*.abf", recursive = T)
+  toc <- Sys.time()
+  print(toc - tic)
+  
+  write.csv(as.data.frame(all_abfs), file = here("inst", "extdata", "shared_drive_abf_index.csv"))
+  rm(list = "all_abfs")
+} 
+all_abfs_on_shared_drive <- read.csv(here("inst", "extdata", "shared_drive_abf_index.csv"))
 
-# list.files(start_loc)
-# list.files(start_loc, include.dirs = T)
-#
-# list.dirs(start_loc)
-#
-# list.dirs("C:/Users/Daniel/Desktop/")
-#
-# tic <- Sys.time()
-# all_abfs <- list.files("S:/Data_Daniel", "*.abf", recursive = T)
-# toc <- Sys.time()
-# print(toc - tic)
-#
-# save(all_abfs, file = "C:/Users/Daniel/Desktop/all_abfs")
-#
-# save(all_abfs, file = "C:/Users/Daniel/Desktop/all_abfs2")
-# write.csv(as.data.frame(all_abfs), file = "C:/Users/Daniel/Desktop/all_abfs.csv")
 
-all_abfs_on_shared_drive <- read.csv("C:/Users/Daniel/Desktop/all_abfs.csv")
+
 
 abf_names <- str_extract_all(all_abfs_on_shared_drive$all_abfs, "[[^/]]*[[:punct:]]abf$")
 
@@ -239,7 +225,12 @@ for (i in seq(1, nrow(target_abfs))){
   }
 }
 
+
+
 ```
+
+
+
 
 ```{r}
 #TODO for each of these files get the relevant data and place it in an rds with some metadata for merging later
