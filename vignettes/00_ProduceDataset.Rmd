@@ -929,7 +929,757 @@ t3 %>% gather(key = "Method", value = "mV", c("lm", "Vinf", "predicted")) %>%
 
 
 ###HTK/A
+#### </ begin copy from 02ExtractEphysData.Rmd >
 
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# from TracesToTables.Rmd
+
+
+
+```{r}
+library(readABF)
+library(here)
+library(tidyverse)
+```
+
+
+```{r}
+# Really just a wrapper for loadABF()
+# readABF_as_matrix <- function(
+#   path = "S:/Data_Daniel/ActiveProjects/181015_electrical_synapses_voltage_modification/experiments/180117_inverted_wave/raw/180205_0061.abf",
+#   channels = c("IN 4", "IN 9")){
+# 
+#   trace <- readABF::readABF(file = path)
+# 
+#   start.time <- trace$header$recTime[1]
+#   end.time <- trace$header$recTime[2]
+#   obs <- nrow(trace$data[[1]])
+# 
+#   temp <- trace$data[[1]][, (trace$channelNames %in% channels)]
+#   temp <- as.matrix(temp)
+# 
+#   colnames(temp) <- trace$channelNames[trace$channelNames %in% channels]
+#   temp <- cbind(temp, Time = seq(from = start.time,
+#                                  to = end.time,
+#                                  length.out = obs))
+# 
+#   return(temp)
+# }
+
+```
+
+
+
+```{r}
+# Set here not working as expected. Does it need to go in here?
+# set_here(path = "/Volumes/schulzlab/Data_Daniel/ActiveProjects/mRNA24hLCAcquisition", verbose = TRUE)
+# 
+# #rin path
+# use.path <- here(#"/Volumes/schulzlab/Data_Daniel/ActiveProjects/mRNA24hLCAcquisition/"
+#   "1h_TEA",
+#   "190308_0028.abf")
+# 
+# # list.files("/Volumes/schulzlab/Data_Daniel/ActiveProjects/mRNA24hLCAcquisition/1h_TEA")
+#    
+
+# path.base <- "/Volumes/schulzlab/Data_Daniel/ActiveProjects/mRNA24hLCAcquisition/1h_TEA/"
+path.base <- "S:/Data_Daniel/ActiveProjects/mRNA24hLCAcquisition/1h_TEA/"
+
+file.free <- "190306_0047.abf"
+
+# file.rin <- "190306_0052.abf"
+
+file.tecc.gj <- "190306_0052.abf"
+
+file.epsp <- "190306_0053.abf"
+file.fi <- "190306_0056.abf"
+
+file.tevc.gj <- "190306_0057.abf"
+file.htk <- "190306_0060.abf"
+file.a <- "190306_0061.abf"
+file.htk.c <- "190306_0062.abf"
+file.a.c <- "190306_0063.abf"
+
+
+# trace <- readABF(paste0(path.base, file.htk))
+# 
+# $ channelNames         : chr [1:4] "IN 4" "IN 7" "IN 9" "IN 12"
+#  $ data                 :List of 11
+# 
+# plot(trace$data[[1]][, 1])
+# plot(trace$data[[2]][, 1])
+
+readABF_as_matrix <- function(
+  path = "S:/Data_Daniel/ActiveProjects/181015_electrical_synapses_voltage_modification/experiments/180117_inverted_wave/raw/180205_0061.abf"#,
+  # channels = c("IN 4", "IN 9")
+  ){
+
+  # path = paste0(path.base, file.htk)
+  # channels = c("IN 4", "IN 9")
+  
+  trace <- readABF::readABF(file = path)
+
+  start.time <- trace$header$recTime[1]
+  end.time <- trace$header$recTime[2]
+  
+  for (i in seq_along(trace$data)){
+    # print(i)
+  
+  
+  # obs <- nrow(trace$data[[i]])
+
+  temp <- trace$data[[i]]#[, (trace$channelNames %in% channels)]
+  temp <- as.matrix(temp)
+
+  colnames(temp) <- trace$channelNames#[trace$channelNames %in% channels]
+  temp <- cbind(temp, Sweep = rep(i, times = nrow(temp)))
+  # temp <- cbind(temp, Time = seq(from = start.time,
+  #                                to = end.time,
+  #                                length.out = obs))
+  if (i == 1){
+    output <- temp
+  } else {
+    output <- rbind(output, temp)
+  }
+  }
+  
+  # Moved here to account for multi sweep protocols
+    output <- cbind(output, Time = seq(from = start.time,
+                                 to = end.time,
+                                 length.out = nrow(output)))
+  
+  return(output)
+}
+```
+
+# Current clamp protocols
+
+## Rin
+
+## Fi
+Needs to 
+  1. get voltage traces
+  2. get AUC
+
+
+```{r}
+```
+
+
+
+## EPSP mimic
+Needs to 
+  1. get voltage traces
+  2. correlate between them
+  3. correlate burst only portion?
+
+# Voltage Clamp Protocols
+
+## TEVC GJ
+Needs to 
+  1. get step values
+  2. calculate ig via spray and bennet
+  3. save control potential as well
+```{r}
+trace <-
+readABF_as_matrix(
+  path = paste0(path.base, file.tevc.gj)
+  )
+
+trace <- janitor::clean_names(as.data.frame(trace), case = "big_camel")
+trace <- trace %>% group_by(Sweep) %>% mutate(RelativeTime = Time - min(Time))
+
+
+ggplot(trace, aes(x = RelativeTime, y = In4, group = Sweep))+
+  geom_line()+
+  ylim(-100, 100)
+
+plot(`In7` ~ RelativeTime, type = "l", data = trace)
+
+```
+
+```{r}
+trace = trace
+v1 = "In4"
+i1 = "In7"
+v2 = "In9"
+i2 = "In12"
+window.start = 0.4
+window.stop = 0.5
+Sweep = "Sweep"
+
+#Spray, Harris, and Bennett 1979 states:
+#"This transjunctional current (Ij) injected into the second cell gives a direct measure of junctional conductance when dividded by the the magnitude of the step change in transjunctional voltage"
+
+ # trace = trace.htk,
+ # 
+ #  RelativeTime = "RelativeTime",
+ #  i.ch = "In7",
+ #  v.ch = "In4"
+
+```
+
+
+
+
+```{r infer mv steps 2, }
+
+df.tevc_gj <- df.tevc_gj[!is.na(df.tevc_gj$IN4_mean), ]
+df.tevc_gj <- df.tevc_gj[!is.na(df.tevc_gj$IN9_mean), ]
+
+df.tevc_gj$inj_in_IN4 <- abs(df.tevc_gj$IN4_mean) > abs(df.tevc_gj$IN9_mean) #So we can appropriately apply the formula
+
+df.tevc_gj$diff_in_means <- abs(df.tevc_gj$IN4_mean) - abs(df.tevc_gj$IN9_mean) #so we can drop the ones where both are held at 60mV
+df.tevc_gj <- df.tevc_gj[abs(df.tevc_gj$diff_in_means) > 6,] #drop the 0mv step and the +/-5mV steps
+
+#Apply Spray, Harris, and Bennett's calculation
+df.tevc_gj$gj <- 0
+df.tevc_gj[df.tevc_gj$inj_in_IN4 == FALSE, "gj"] <- df.tevc_gj[df.tevc_gj$inj_in_IN4 == FALSE, "IN7_mean"] / df.tevc_gj[df.tevc_gj$inj_in_IN4 == FALSE, "IN9_mean"]
+df.tevc_gj[df.tevc_gj$inj_in_IN4 == TRUE, "gj"] <- df.tevc_gj[df.tevc_gj$inj_in_IN4 == TRUE, "IN12_mean"] / df.tevc_gj[df.tevc_gj$inj_in_IN4 == TRUE, "IN4_mean"]
+
+
+#Add this column for later
+df.tevc_gj[df.tevc_gj$inj_in_IN4 == TRUE, "Inj_Cell"] <- df.tevc_gj[df.tevc_gj$inj_in_IN4 == TRUE, "IN4"]
+df.tevc_gj[df.tevc_gj$inj_in_IN4 == FALSE, "Inj_Cell"] <- df.tevc_gj[df.tevc_gj$inj_in_IN4 == FALSE, "IN9"]
+```
+
+```{r add directionality}
+df.tevc_gj[df.tevc_gj$Inj_Cell == "LC4", "Direction"] <- "LC4 -> LC5"
+df.tevc_gj[df.tevc_gj$Inj_Cell == "LC5", "Direction"] <- "LC5 -> LC4"
+
+df.tevc_gj[, "interact"] <- interaction(df.tevc_gj$Experiment, df.tevc_gj$Direction)
+```
+
+
+## IHTK
+  1. plot to get user to say which to drop (if there is no file with this info) # done
+  2. smooth # done
+  3. get peak values # done
+4. get sustained values
+  5. subtract off leak # done
+  6. report values and leak # done
+```{r}
+trace <-
+readABF_as_matrix(
+  path = paste0(path.base, file.htk)
+  )
+
+trace <- janitor::clean_names(as.data.frame(trace), case = "big_camel")
+trace <- trace %>% group_by(Sweep) %>% mutate(RelativeTime = Time - min(Time)) %>%
+  ungroup()
+trace <- trace %>% group_by(Sweep) %>% 
+  mutate(In4  = zoo::rollmean(In4,  k = 7, fill = NA)) %>% 
+  mutate(In7  = zoo::rollmean(In7,  k = 7, fill = NA)) %>% 
+  mutate(In9  = zoo::rollmean(In9,  k = 7, fill = NA)) %>% 
+  mutate(In12 = zoo::rollmean(In12, k = 7, fill = NA)) %>%
+  ungroup()
+
+# gather(trace, channel, mV, c("In4", "In9")) %>% ggplot(aes(RelativeTime, mV, color = channel, group = Sweep))+geom_line()+xlim(0.25, 0.3)
+# 
+# gather(trace, channel, mV, c("In7", "In12")) %>% ggplot(aes(RelativeTime, mV, color = channel, group = Sweep))+geom_line()+xlim(0.27, 0.28)
+
+trace <- trace %>% ungroup()
+
+peaks <- trace %>% group_by(Sweep) %>% filter(RelativeTime > 0.27 & RelativeTime < 0.28) %>% summarise(max.val = max(In7)) %>%
+  ungroup()
+
+
+peaks$mV <- NA
+for (i in seq(1, nrow(peaks), 1)){
+  Sweep <- peaks[i, "Sweep"] %>% as.numeric()
+  
+  peaks[i, "mV"] <- trace[trace$Sweep == Sweep &
+                            trace$RelativeTime > 0.27 &
+                            trace$RelativeTime < 0.28 &
+                            trace$In7 == as.numeric(peaks[peaks$Sweep == Sweep, "max.val"]), "In4"] %>% as.numeric() %>% mean(na.rm = T)
+}
+
+
+
+fm <- lm(max.val ~ mV, filter(peaks, mV < -41))
+
+peaks <- peaks %>% mutate(leak = predict(object = fm, newdata = peaks))
+peaks <- peaks %>% mutate(leak.sub = max.val - leak)
+
+
+ggplot(peaks)+
+  # geom_smooth(method = "lm")+
+  lemon::geom_pointline(aes(x = mV, max.val))+
+  lemon::geom_pointline(aes(x = mV, leak), color = "red")+
+  lemon::geom_pointline(aes(x = mV, leak.sub), color = "blue")
+  
+
+# go through sweeps plotting each and asking if the user wants to keep each one. Then return a df with the ones to keep
+checkSweeps <- function(
+  trace = trace,
+  v.ch = "In4",
+i.ch = "In7",
+t.ch = "RelativeTime"
+){
+  use.sweeps <- data.frame(Sweep = unique(trace$Sweep),
+                         Use = rep(F, times = length(unique(trace$Sweep))))
+trace <- as.data.frame(trace)
+for (i in seq_along(unique(trace$Sweep))){
+  # use.sweep <- F
+  # par(mfrow = c(1, 2))
+  par(mfrow = c(2, 1))
+  # with({
+  plot(trace[trace$Sweep == i, v.ch] ~ trace[trace$Sweep == i, t.ch], 
+       type = "l", 
+       xlab="", ylab="",
+       main = paste("Sweep",as.character(i)))
+  plot(trace[trace$Sweep == i, i.ch] ~ trace[trace$Sweep == i, t.ch], 
+       type = "l",
+       xlab="", ylab="")
+  # })
+  
+  for (j in 1:3){
+    print(paste0("Retain sweep ", as.character(i),"?"))
+    print("T/F or E to Exit")
+    
+    user.input <- readline(prompt = ">")
+    
+    
+    if (user.input == "E" | user.input == "e"){
+      break()
+      
+    } else if (user.input == "T" | user.input == "t"){
+      use.sweeps[use.sweeps$Sweep == i, "Use"] <- T
+      break()
+      
+    } else if (user.input == "F" | user.input == "f"){
+      use.sweeps[use.sweeps$Sweep == i, "Use"] <- F
+      break()
+      
+    } else {
+      print(paste("Response not recognized.", as.character(j), "attempts remain."))
+    }
+    
+    
+  }
+  if (user.input == "E" | user.input == "e"){
+    break()
+  }
+}
+return(use.sweeps)
+}
+
+
+
+```
+
+
+## IA
+  1. plot to get user to say which to drop (if there is no file with this info)
+  2. subract user supplied IHTK (don't smooth or filter, but drop any traces that aren't present for both)
+  3. smooth
+  4. get peak values
+  5. get sustained values
+ 
+```{r}
+trace.htk <-
+readABF_as_matrix(
+  path = paste0(path.base, file.htk)
+  )
+
+trace.htk <- janitor::clean_names(as.data.frame(trace.htk), case = "big_camel")
+trace.htk <- trace.htk %>% group_by(Sweep) %>% mutate(RelativeTime = Time - min(Time)) %>%
+  ungroup()
+trace.htk <- trace.htk %>% group_by(Sweep) %>% 
+  mutate(In4  = zoo::rollmean(In4,  k = 7, fill = NA)) %>% 
+  mutate(In7  = zoo::rollmean(In7,  k = 7, fill = NA)) %>% 
+  mutate(In9  = zoo::rollmean(In9,  k = 7, fill = NA)) %>% 
+  mutate(In12 = zoo::rollmean(In12, k = 7, fill = NA)) %>%
+  ungroup()
+
+
+
+trace.a <-
+readABF_as_matrix(
+  path = paste0(path.base, file.a)
+  )
+
+trace.a <- janitor::clean_names(as.data.frame(trace.a), case = "big_camel")
+trace.a <- trace.a %>% group_by(Sweep) %>% mutate(RelativeTime = Time - min(Time)) %>%
+  ungroup()
+trace.a <- trace.a %>% group_by(Sweep) %>% 
+  mutate(In4  = zoo::rollmean(In4,  k = 7, fill = NA)) %>% 
+  mutate(In7  = zoo::rollmean(In7,  k = 7, fill = NA)) %>% 
+  mutate(In9  = zoo::rollmean(In9,  k = 7, fill = NA)) %>% 
+  mutate(In12 = zoo::rollmean(In12, k = 7, fill = NA)) %>%
+  ungroup()
+
+# subtract traces
+subtract_traces <- function(
+  htk.data = trace.htk,
+  a.data = trace.a,
+  current.chs = c("In7", "In12")
+){
+  # htk.data = trace.htk.data %>% head()
+  # a.data = trace.a %>% head()
+  # Time = "Time"
+  # rel.time = "RelativeTime"
+  # Sweep = "Sweep"
+  # current.chs = c("In7", "In12")
+  
+  htk.data <- as.data.frame(htk.data)
+  a.data <- as.data.frame(a.data)
+  
+  if (length(htk.data[[current.chs[1]]]) != length(a.data[[current.chs[1]]])){
+    warning("Dataframe nrows are not equal!\nReturning nothing")
+    return()
+  } else {
+    for (i in seq_along(current.chs)){
+      a.data[[current.chs[i]]] <- a.data[[current.chs[i]]] - htk.data[[current.chs[i]]]
+    }
+    return(a.data)
+  }
+}
+
+
+
+trace.a.ls <- subtract_traces(
+  htk.data = trace.htk,
+  a.data = trace.a,
+  current.chs = c("In7", "In12")
+)
+
+
+# Get max for a time window
+find_local_max <- function(
+  trace = trace.a.ls,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+){
+  # trace = trace.a.ls
+  # window.start = 0.27
+  # window.stop  = 0.28
+  # Sweep = "Sweep"
+  # RelativeTime = "RelativeTime"
+  # i.ch = "In7"
+  # v.ch = "In4"
+  
+  peaks <- trace %>% 
+    group_by(Sweep) %>% 
+    filter(RelativeTime > window.start & RelativeTime < window.stop) %>% 
+    summarise(max.val = max(get(i.ch))) %>% 
+    ungroup()
+  
+  peaks$mV <- NA
+  for (i in seq(1, nrow(peaks), 1)){
+    Sweep1 <- peaks[i, Sweep] %>% as.numeric()
+    
+    peaks[i, "mV"] <- trace[trace$Sweep == Sweep1 &
+                              trace$RelativeTime > window.start &
+                              trace$RelativeTime < window.stop &
+                              trace[[i.ch]] == as.numeric(peaks[peaks$Sweep == Sweep1, "max.val"]), v.ch] %>% as.numeric() %>% mean(na.rm = T)
+  }
+  
+  return(peaks)
+}
+
+
+
+max.a.ls <- 
+find_local_max(
+  trace = trace.a.ls,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+)
+
+
+
+### comparisons
+max.a <- 
+find_local_max(
+  trace = trace.a,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+)
+
+
+max.htk <- 
+find_local_max(
+  trace = trace.htk,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+)
+
+# Leak subtract max values
+subtract_leak <- function(peaks = max.htk, # output from find_local_max
+                          min.mV = -81,
+                          max.mV = -39){
+  # peaks = max.htk # output from find_local_max
+  # min.mV = -81
+  # max.mV = -39
+  fm <- lm(max.val ~ mV, filter(peaks, mV <= max.mV & mV >= min.mV))
+  
+  peaks <- peaks %>% mutate(leak = predict(object = fm, newdata = peaks))
+  peaks <- peaks %>% mutate(leak.sub = max.val - leak)
+  return(peaks)
+}
+
+
+max.htk.ls <- subtract_leak(peaks = max.htk, # output from find_local_max
+                            min.mV = -81,
+                            max.mV = -39)
+
+
+ggplot()+
+  lemon::geom_pointline(data = max.htk, aes(x = mV, max.val), color = "#fc9272")+
+  lemon::geom_pointline(data = max.htk.ls, aes(x = mV, leak.sub), color = "#de2d26")+
+  lemon::geom_pointline(data = max.a, aes(x = mV, max.val), color = "#9ecae1")+
+  lemon::geom_pointline(data = max.a.ls, aes(x = mV, max.val), color = "#3182bd")
+
+
+
+```
+
+
+# Assess Data
+```{r}
+metadata <- read.csv("./inst/extdata/MetadataEphys.csv")
+
+metadata %>% 
+  gather(Channel, Cell, c("In4", "In9")) %>% 
+  select(c("Experiment", "Condition", "Cell")) %>% 
+  group_by(Condition) %>% 
+  unique() %>% 
+  tally() %>% 
+  ungroup()
+```
+
+
+
+```{r}
+# write file name from spreadsheet
+mk_filename <- function(
+  metadata.file = metadata,
+  use.row = 1){
+  filename <- paste0(
+    as.character(
+      metadata.file[use.row, "Experiment"]
+    ),
+    "_",
+    paste0(
+      rep("0", (4-length(metadata.file[use.row, "Recording"]))), collapse = ""),
+    as.character(
+      metadata.file[1, "Recording"]
+    ),
+    ".abf"
+  )
+  return(filename)
+}
+
+
+# select a prep and check that the file type isn't nonsensical
+prep_abf <- function(
+  file.name = "190306_0063.abf", #mk_filename()
+  file.type = "ac" #metadata[row.num, "Type"] 
+){
+  M <- readABF_as_matrix(here("inst", "extdata", "all_traces", file.name)) %>% 
+    # as.data.table() %>% 
+    as.data.frame() %>% 
+    janitor::clean_names(., case = "big_camel")
+  
+  # This is here to get rid of an unknown/uninitialized col warning
+  M <- M[, names(M) ]
+  
+  # if metadata says its...
+  if (file.type %in% c("gf")){
+    # [1] "IN 4"  "IN 9"  "IN 14" "Sweep" "Time" # gap free
+    #TODO
+  } else if (file.type %in% c("tecc.gj")){
+    # [1] "IN 4"  "IN 6"  "IN 7"  "IN 9"  "IN 11" "IN 12" "Sweep" "Time" # tecc.gj
+    #TODO
+  } else if (file.type %in% c("epsp")){
+    # [1] "IN 4"  "IN 7"  "IN 9"  "IN 12" "IN 14" "Sweep" "Time" # epsp
+    #TODO
+  } else if (file.type %in% c("fi")){
+    # [1] "IN 4"  "IN 6"  "IN 7"  "IN 9"  "IN 11" "IN 12" "IN 14" "Sweep" "Time" # fi
+    #TODO
+  } else if (file.type %in% c("htk", "a", "htkc", "ac")){
+    # [1] "IN 4"  "IN 7"  "IN 9"  "IN 12" "Sweep" "Time" # tevc.gj
+    # [1] "IN 4"  "IN 7"  "IN 9"  "IN 12" "Sweep" "Time" # htk
+    # [1] "IN 4"  "IN 7"  "IN 9"  "IN 12" "Sweep" "Time" # a
+    # [1] "IN 4"  "IN 7"  "IN 9"  "IN 12" "Sweep" "Time" # htkc
+    # [1] "IN 4"  "IN 7"  "IN 9"  "IN 12" "Sweep" "Time" # ac
+    if (mean(names(M) %in% c("In4", "In7", "In9", "In12", "Sweep", "Time")) != 1){
+      warning(
+        paste(as.character(file.name), 
+              as.character(file.type), 
+              "NAMES EXPECTED:", "In4", "In7", "In9", "In12", "Sweep", "Time", 
+              "NAMES FOUND:", paste(names(M), collapse = " ")
+        )
+      )
+    } 
+  } else {
+    warning(paste("file type", as.character(file.type), "not recognized!"))
+  }
+  return(M)
+}
+
+
+mk_rel_time <- function(df = Trace){
+  df <- df %>% 
+    group_by(Sweep) %>% 
+    mutate(RelativeTime = Time - min(Time)) %>%
+    ungroup()
+  return(as.data.frame(df))
+}
+
+rollmean_tevc <- function(df = Trace,
+                          use.k = 7,
+                          use.fill = NA){
+  df <- df %>% group_by(Sweep) %>% 
+  mutate(In4  = zoo::rollmean(In4,  k = use.k, fill = use.fill)) %>% 
+  mutate(In7  = zoo::rollmean(In7,  k = use.k, fill = use.fill)) %>% 
+  mutate(In9  = zoo::rollmean(In9,  k = use.k, fill = use.fill)) %>% 
+  mutate(In12 = zoo::rollmean(In12, k = use.k, fill = use.fill)) %>%
+  ungroup()
+  return(as.data.frame(df))
+}
+
+process_htk <- function(use.nrow = 5,
+                        use.metadata = htks,
+                        use.window.start = 0.27,
+                        use.window.stop = 0.28,
+                        leak.min.mV = -81,
+                        leak.max.mV = -39){
+  
+  M <- mk_filename(
+    metadata.file = use.metadata,
+    use.row = use.nrow
+  ) %>% prep_abf(
+    file.name = .,
+    file.type = use.metadata[use.nrow, "Type"]
+  ) %>% 
+    mk_rel_time(df = .) 
+    rollmean_tevc(
+    df = .,
+    use.k = 7,
+    use.fill = NA
+  )
+  
+  # is there data in the In4/In7 pair?
+  if (use.metadata %>% slice(use.nrow) %>% select(In4) == ""){
+    # do nothing
+    In4.data <- data.frame()
+    
+  } else {
+    In4.data <- 
+      find_local_max(
+        trace = M,
+        window.start = use.window.start,
+        window.stop  = use.window.stop,
+        Sweep = "Sweep",
+        RelativeTime = "RelativeTime",
+        i.ch = "In7",
+        v.ch = "In4"
+      ) %>% 
+      subtract_leak(peaks = ., # output from find_local_max
+                    min.mV = leak.min.mV,
+                    max.mV = leak.max.mV) %>% 
+      mutate(Cell = use.metadata %>% slice(use.nrow) %>% select(In4) %>% as.character())
+    
+  }
+  # is there data in the In9/In12 pair?
+  if (use.metadata %>% slice(use.nrow) %>% select(In9) == ""){
+    # do nothing
+    In9.data <- data.frame()
+    
+  } else {
+    In9.data <- 
+      find_local_max(
+        trace = M,
+        window.start = use.window.start,
+        window.stop  = use.window.stop,
+        Sweep = "Sweep",
+        RelativeTime = "RelativeTime",
+        i.ch = "In12",
+        v.ch = "In9"
+      ) %>% 
+      subtract_leak(peaks = ., # output from find_local_max
+                    min.mV = leak.min.mV,
+                    max.mV = leak.max.mV) %>% 
+      mutate(Cell = use.metadata %>% slice(use.nrow) %>% select(In9) %>% as.character())
+    
+  }
+  
+  # Since we set these as an empty data.frame if there is no cell we can rbind without fear of a problem.
+  return(rbind(In4.data, In9.data))
+}
+```
+
+
+```{r}
+#find all htks
+htks <- metadata %>% 
+  filter((Pharm == "none" | Pharm == "tea") & Type == "htk") %>% 
+  select(Experiment, Recording, Type, Condition, In4, In9) %>% 
+  arrange(Condition)
+
+# row 5 is not htk. has only
+# In4       In9         In14 Sweep     Time
+
+for (i in 1:NROW(htks)){
+  plt <- process_htk(use.nrow = 8,
+                     use.metadata = htks,
+                     use.window.start = 0.27,
+                     use.window.stop = 0.28,
+                     leak.min.mV = -81,
+                     leak.max.mV = -39) %>% 
+    gather(type, i, c("max.val", "leak", "leak.sub")) %>% 
+    ggplot(aes(x = mV, y = i, group = type, color = type))+
+    geom_line()+
+    geom_point()+
+    facet_grid(.~Cell)+
+    theme_dark()+
+    labs(title = as.character(i)) 
+  plot(plt)
+}
+
+
+
+
+max.htk.ls <- subtract_leak(peaks = max.htk, # output from find_local_max
+                            min.mV = -81,
+                            max.mV = -39)
+```
+
+
+## Check vs metadata
+
+## 
+
+
+
+#### </ end >
 ## Extend to batch processing
 ```{r}
 
