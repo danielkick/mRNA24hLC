@@ -393,7 +393,10 @@ plot_grid(plotlist = example_plots)
 ## GJVC: get Ig, Ileak====
 temp <- trace_list$GJVC
 ### Setup
-i_leak <- temp[seq(1, nrow(temp), by = 1), ] %>%
+
+
+
+i_leak <- temp %>%
   filter(Time > 0.75) %>%
   mutate(In4 = as.numeric(In4)) %>%
   mutate(In7 = as.numeric(In7))
@@ -409,7 +412,7 @@ i_leak <- i_leak %>%
          In12Mean = mean(In12, na.rm = T))
 
 ### Ig 
-i_leak[seq(1, nrow(i_leak), length.out = 1000), ] %>% 
+downsample_data(i_leak, len = 1000) %>% 
   gather("key", "value", c("In4", "In9")) %>% 
   ggplot(aes(Time, value, color = Segment, group = Sweep))+
   geom_path()+
@@ -461,25 +464,24 @@ In4_R <- as.numeric(broom::tidy(fm)[2, "estimate"])
 ## GJCC: get CC, R_C, C, Rin ====
 temp <- trace_list$GJCC
 
-temp_plt <- temp[seq(1, nrow(temp), by = 1), ] %>% 
+temp_plt <- temp %>% 
   filter(Sweep == 4) %>%
   mutate(In4 = as.numeric(In4)) %>% 
   mutate(In7 = as.numeric(In7))
 
 # Show what the protocol looks like
-plt1 <- temp_plt[seq(1, nrow(temp_plt), length.out = 1000), ] %>% 
+plt1 <- downsample_data(temp_plt, len = 1000) %>% 
   gather(key, value, c("In4", "In9")) %>% 
   ggplot(aes(Time, value, color = key))+
   geom_path()
 
-plt2 <- temp_plt[seq(1, nrow(temp_plt), length.out = 1000), ] %>% 
+plt2 <- downsample_data(temp_plt, len = 1000) %>% 
   gather(key, value, c("In7", "In12")) %>% 
   mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
   ggplot(aes(Time, value, color = key))+
   geom_path()
 
 plt1/plt2
-
 
 # annotate
 temp <- temp %>% 
@@ -538,13 +540,13 @@ temp <- temp %>%
                               ))  
 
 plt1 <- 
-temp[seq(1, nrow(temp), length.out = 1000), ] %>% 
+  downsample_data(temp, len = 1000) %>% 
   gather(Key, Value, c("In4", "In9")) %>% 
   ggplot(aes(Time, Value, color = Segment, group = interaction(Key, Sweep)))+
   geom_path()
 
 plt2 <- 
-temp[seq(1, nrow(temp), length.out = 1000), ] %>% 
+  downsample_data(temp, len = 1000) %>% 
   ungroup() %>% 
   gather(key, value, c("In7", "In12")) %>% 
   mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
@@ -583,12 +585,6 @@ cowplot::plot_grid(plotlist = test_fits_plts)
 ```{r}
 temp <- trace_list$FI
 
-downsample_data <- function(df = temp, 
-                            len = 5000){
-  return(df[seq(1, nrow(df), length.out = len), ])
-  }
-
-
 downsample_data(df = temp, len = 5000) %>% 
   gather(key, value, c("In9", "In12")) %>% 
   ungroup() %>% 
@@ -596,8 +592,6 @@ downsample_data(df = temp, len = 5000) %>%
   ggplot(aes(Time, value, group = Sweep))+
   geom_line()+
   facet_wrap(key~., scales = "free_y", ncol = 1)
-
-
 
 #r11 == ~15.3
 #r1 == ~17.9
@@ -693,9 +687,6 @@ ggplot()+
 
 ```{r}
 temp <- trace_list$EPSP
-
-
-
 
 downsample_data(df = temp, len = 5000) %>% 
   gather(key, value, c("In9", "In12")) %>% 
