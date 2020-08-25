@@ -1,0 +1,548 @@
+---
+title: "00_DemoVignette"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(here)
+library(tidyverse)
+library(janitor)
+
+library(zoo)
+library(readABF)
+
+library(broom)
+library(minpack.lm) # getting Tau
+library(patchwork)
+library(ggsci)
+library(cowplot)
+library(patchwork)
+
+
+library(minpack.lm) # for use in fit_tau_1term_exp()
+
+theme_set(ggplot2::theme_minimal())
+
+library(devtools)
+devtools::load_all()
+```
+
+```{r}
+abf_dir_path <- "D:/0000_Traces_mRNA24hLC/"
+```
+
+
+```{r}
+## Handling different kinds of files (Proof of principle)
+###Load in data (ionic currents)
+```{r}
+file_list <- list(FI = "190903_0025.abf",
+                  EPSP = "190903_0023.abf",
+                  GJCC = "190903_0021.abf", 
+                  GJVC = "190903_0020.abf",
+                  
+                  HTK  = "190903_0031.abf",
+                  HTKC = "190903_0034.abf",
+                  A    = "190903_0030.abf",
+                  AC   = "190903_0033.abf")
+
+trace_list <- map(seq_along(file_list), function(i){
+  temp <- readABF_as_matrix2(path = paste0(abf_dir_path, 
+                                           # "C:/Users/Daniel/Documents/Trace_Holding/", 
+                                           file_list[[i]]),
+                     channels = "all",
+                     relative.time = T) %>%
+    as.data.frame() %>% 
+    janitor::clean_names(case = "upper_camel") %>% 
+    mutate(Sweep = as.factor(Sweep)) %>% 
+    group_by(Sweep) %>% 
+    mutate(MinTime = min(Time, na.rm = T)) %>% 
+    mutate(Time = Time - MinTime) %>% 
+    select(-MinTime)
+})
+
+names(trace_list) <- names(file_list)
+```
+
+### Show all
+```{r}
+example_plots <- map(trace_list, function(i){
+  downsample_data(i, len = 5000) %>%
+    ungroup() %>% 
+    gather(Ch, Value, c("In4","In7","In9","In12")) %>% 
+    mutate(Cell = case_when(Ch %in% c("In4","In7") ~ "Cell A",
+                            Ch %in% c("In9","In12") ~ "Cell B",)) %>% 
+    mutate(ChType = case_when(Ch %in% c("In4","In9") ~ "mV",
+                              Ch %in% c("In7","In12") ~ "nA",)) %>% 
+    mutate(Ch = factor(.$Ch, levels = c("In4","In7","In9","In12"))) %>% 
+    ggplot(aes(Time, Value, group = Sweep, color = Cell))+
+    geom_line()+
+    facet_wrap(ChType~Cell, scales = "free_y", ncol = 2)+
+    labs(y = "")+
+    theme(legend.position = "")+
+    scale_color_aaas()
+})
+
+plot_grid(plotlist = example_plots)
+```
+
+
+###GJVC
+```{r}
+## GJVC: get Ig, Ileak====
+temp <- trace_list$GJVC
+### Setup
+
+
+
+i_leak <- temp %>%
+  filter(Time > 0.75) %>%
+  mutate(In4 = as.numeric(In4)) %>%
+  mutate(In7 = as.numeric(In7))
+
+i_leak <- i_leak %>% 
+  mutate(Segment = ifelse(Time >= 0.8 & Time <= 1.0, "PreStep", 
+                          ifelse(Time >= 1.2 & Time <= 1.25, "Step", 
+                                 "NA" ))) %>% 
+  group_by(Sweep, Segment) %>% 
+  mutate(In4Mean = mean(In4, na.rm = T),
+         In7Mean = mean(In7, na.rm = T),
+         In9Mean = mean(In9, na.rm = T),
+         In12Mean = mean(In12, na.rm = T))
+
+### Ig 
+downsample_data(i_leak, len = 1000) %>% 
+  gather("key", "value", c("In4", "In9")) %>% 
+  ggplot(aes(Time, value, color = Segment, group = Sweep))+
+  geom_path()+
+  facet_grid(.~key)
+
+i_g <- i_leak %>% 
+  select(Sweep, Segment, In4Mean, 
+         #In7Mean, 
+         # In9Mean, 
+         In12Mean
+         ) %>% 
+  filter(Segment != "NA") %>% 
+  distinct() %>% 
+  pivot_wider(names_from = "Segment", 
+              values_from = c("In4Mean", "In12Mean")) %>% 
+  mutate(In4Mean_Step = In4Mean_Step - In4Mean_PreStep,
+         In12Mean_Step = In12Mean_Step - In12Mean_PreStep) %>% 
+  select(Sweep, In4Mean_Step, In12Mean_Step) %>%
+  rename(In4Mean = In4Mean_Step, In12Mean = In12Mean_Step) %>% 
+  filter(abs(In4Mean) >= 4) 
+
+i_g %>% 
+  ggplot(aes(In4Mean, In12Mean))+
+  geom_smooth(method = lm)+
+  geom_point()
+
+In4_to_In9_Ig <- as.numeric(broom::tidy(lm(In12Mean ~ In4Mean, data = i_g))[2, "estimate"])
+
+
+### Ileak
+i_leak %>% 
+  ggplot(aes(Time, In4, color = Segment, group = Sweep))+
+  geom_path()
+
+i_leak <- i_leak %>% 
+  ungroup() %>%
+  select(Sweep, Segment, In4Mean, In7Mean) %>% 
+  filter(Segment != "NA") %>% 
+  distinct() %>% 
+  filter(abs(In4Mean + 60) > 3 )
+  
+fm <- lm(In4Mean ~ In7Mean, data = i_leak)
+
+In4_R <- as.numeric(broom::tidy(fm)[2, "estimate"])
+```
+
+###GJCC
+```{r}
+## GJCC: get CC, R_C, C, Rin ====
+temp <- trace_list$GJCC
+
+temp_plt <- temp %>% 
+  filter(Sweep == 4) %>%
+  mutate(In4 = as.numeric(In4)) %>% 
+  mutate(In7 = as.numeric(In7))
+
+# Show what the protocol looks like
+plt1 <- downsample_data(temp_plt, len = 1000) %>% 
+  gather(key, value, c("In4", "In9")) %>% 
+  ggplot(aes(Time, value, color = key))+
+  geom_path()
+
+plt2 <- downsample_data(temp_plt, len = 1000) %>% 
+  gather(key, value, c("In7", "In12")) %>% 
+  mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
+  ggplot(aes(Time, value, color = key))+
+  geom_path()
+
+plt1/plt2
+
+# annotate
+temp <- temp %>% 
+   mutate(Segment = case_when(Time >= 0       & Time <= 0.32820 ~ "A", #"PreStepIn12",
+                              Time >= 1.32836 & Time <= 1.82836 ~ "B", #"StepIn12",
+                              Time >= 2.57744 & Time <= 3.07744 ~ "C", #"PreStepIn7",
+                              Time >= 4.07760 & Time <= 4.57760 ~ "D", #"StepIn7"
+                              ))
+```
+$$r_{11}=\frac{v_1}{i_1}$$
+$$r_{12}=\frac{v_2}{i_1}$$
+$$r_1= \frac{r_{11}*r_{22} - r_{12}^2}{r_{22} - r_{12}}$$
+$$r_c = \frac{r_{11}*r_{22} - r_{12}^2}{r_{12}}$$
+```{r}
+temp_resist <- temp %>% 
+  group_by(Sweep, Segment) %>% 
+  filter(!is.na(Segment)) %>% 
+  summarise(MeanIn4 = mean(In4, na.rm = T),
+            MeanIn7 = mean(In7, na.rm = T),
+            MeanIn9 = mean(In9, na.rm = T),
+            MeanIn12 = mean(In12, na.rm = T)) %>% 
+  pivot_wider(names_from = Segment, values_from = c("MeanIn4", "MeanIn7", "MeanIn9", "MeanIn12")) %>% 
+  mutate(In4_CC = MeanIn9_D/MeanIn4_D, #inj in In4
+         In4_R11 = MeanIn4_D/MeanIn7_D,
+         In4_R12 = MeanIn9_D/MeanIn7_D,
+
+         
+         In9_CC = MeanIn4_B/MeanIn9_B, #inj in In9
+         In9_R11 = MeanIn9_B/MeanIn12_B,
+         In9_R12 = MeanIn4_B/MeanIn12_B
+         ) %>% 
+  mutate(mean_R12 = (In4_R12+In9_R12)/2) %>% 
+  mutate(In4_R1 = ((In4_R11*In9_R11) - (mean_R12^2)) / (In9_R11-mean_R12),
+         In4_Rc = ((In4_R11*In9_R11) - (mean_R12^2)) / (mean_R12),
+         
+         In9_R1 = ((In9_R11*In4_R11) - (mean_R12^2)) / (In4_R11-mean_R12),
+         In9_Rc = ((In9_R11*In4_R11) - (mean_R12^2)) / (mean_R12)
+         ) %>% select(starts_with("In"))
+```
+
+```{r}
+# V_rest
+temp_rmp <- temp %>% 
+  filter(Segment == "C") %>% 
+  group_by(Sweep) %>% 
+  summarise(In4_Vrest = min(In4, na.rm = T),
+            In9_Vrest = min(In9, na.rm = T))
+```
+
+
+```{r}
+# Tau
+temp <- temp %>% 
+   mutate(Segment = case_when(Time >= 3.07744 & Time <= 4.57760 ~ "In4Step", #"PreStepIn7",
+                              Time >= 0.32820 & Time <= 1.82836 ~ "In9Step", #"StepIn7"
+                              ))  
+
+plt1 <- 
+  downsample_data(temp, len = 1000) %>% 
+  gather(Key, Value, c("In4", "In9")) %>% 
+  ggplot(aes(Time, Value, color = Segment, group = interaction(Key, Sweep)))+
+  geom_path()
+
+plt2 <- 
+  downsample_data(temp, len = 1000) %>% 
+  ungroup() %>% 
+  gather(key, value, c("In7", "In12")) %>% 
+  mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
+  ggplot(aes(Time, value, color = Segment, group = interaction(key, Sweep)))+
+  geom_path()
+
+plt1/plt2
+
+### test minpack.lm ####
+# install.packages("minpack.lm")
+
+
+temp_in9 <- temp %>% 
+  filter(Segment == "In9Step") %>% 
+  mutate(Time = Time - min(Time, na.rm = T))
+
+test_fits <- map(unique(temp_in9$Sweep), function(i){
+  fit_tau_1term_exp(df = filter(temp_in9, Sweep == i),
+                    IV = "Time",
+                    DV = "In9")  
+})
+
+test_fits_plts <- map(seq_along(test_fits), function(i){
+  ggplot()+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = Fit), color = "firebrick")+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = In9), alpha = 0.8)+
+    labs(subtitle = paste("tau =", as.character(
+      round(test_fits[[i]]$fit[2, 2], digits = 3)
+      )))
+})
+
+cowplot::plot_grid(plotlist = test_fits_plts)
+```
+
+###FI
+```{r}
+temp <- trace_list$FI
+
+downsample_data(df = temp, len = 5000) %>% 
+  gather(key, value, c("In9", "In12")) %>% 
+  ungroup() %>% 
+  mutate(key = factor(.$key, levels = c("In9", "In12"))) %>% 
+  ggplot(aes(Time, value, group = Sweep))+
+  geom_line()+
+  facet_wrap(key~., scales = "free_y", ncol = 1)
+
+#r11 == ~15.3
+#r1 == ~17.9
+
+place_params_for_predict_voltage_trace(tau = 19.9, 
+                                       Rin = 15.3)
+
+# place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == 10, ], 
+#                                      Time.ch = "Time", 
+#                                      Inj.ch = "In12")
+# 
+# run_predict_voltage_trace_py()
+# 
+# predicted_response <- retrieve_predicted_voltage()
+
+predicted_response_list <- map(1:11, function(i){
+  place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
+                                       Time.ch = "Time", 
+                                       Inj.ch = "In12")
+  
+  run_predict_voltage_trace_py()
+  
+  predicted_response <- retrieve_predicted_voltage()
+  return(predicted_response)
+})
+
+
+my_plts <- map(
+  seq_along(predicted_response_list),
+  function(i){
+    ggplot()+
+      geom_line(data = predicted_response_list[[i]], aes(Time, predicted-56.5))+
+      geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "red")+
+      labs(x = "Seconds", y = "mV")+
+      coord_cartesian(y = c(-150, +120))
+  })
+
+# cowplot::plot_grid(plotlist = my_plts)
+
+
+my_plts[[11]] / my_plts[[11 - 2]] / my_plts[[1 + 2]] / my_plts[[1]]
+```
+
+###EPSP
+(epsp) How could we slice up the trace? 
+```{r}
+## Here's the stimulus used in the protocol ====
+# sweep duration should be 19.687 seconds
+epsp_stim <- readABF_as_matrix(here("inst", "extdata", "epsp_stim_files", "08 current injection.abf"),
+                  channels = "Axo1I2")
+epsp_stim <- as_tibble(epsp_stim) %>%
+  mutate(Time = Time - min(Time, na.rm = T)) %>%
+  rename(Stim = Axo1I2)
+
+
+shading_annotations <- data.frame(
+  starts = c(0.40,
+             4.87,
+             10.74,
+             16.74),
+  next_start = c(4.87,
+                 10.74,
+                 16.74,
+                 19.685),
+  equal_len = c(0.40,
+                4.87,
+                10.74,
+                16.74) + 2.945,
+  on_end = c(2,
+             6.17,
+             12.54, 
+             18.5),
+  equal_on = c(0.40,
+               4.87,
+               10.74,
+               16.74) + 1.30
+)
+
+ggplot()+
+  geom_vline(xintercept = c(shading_annotations$starts, shading_annotations$equal_len, shading_annotations$next_start, shading_annotations$equal_on), color = "gray")+
+    geom_path(data = epsp_stim, aes(Time, Stim+1.5))+
+  geom_rect(data = shading_annotations, aes(xmin = starts, xmax = next_start, ymin = 0, ymax = 0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
+  geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_len, ymin = -0.5, ymax = 0), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
+  geom_rect(data = shading_annotations, aes(xmin = starts, xmax = on_end, ymin = -1, ymax = -0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
+  geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_on, ymin = -1.5, ymax = -1), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
+  theme_classic()+
+  geom_vline(xintercept = 12.54)+
+  ylim(-1.5, 9.5)+
+  labs(title = "Ways to Segement EPSP Stim")
+```
+
+
+
+```{r}
+temp <- trace_list$EPSP
+
+downsample_data(df = temp, len = 5000) %>% 
+  gather(key, value, c("In9", "In12")) %>% 
+  ungroup() %>% 
+  mutate(key = factor(.$key, levels = c("In9", "In12"))) %>% 
+  ggplot(aes(Time, value, group = Sweep))+
+  geom_line()+
+  facet_wrap(key~., scales = "free_y", ncol = 1)
+
+
+
+#r11 == ~15.3
+#r1 == ~17.9
+
+place_params_for_predict_voltage_trace(tau = 19.9, 
+                                       Rin = 15.3)
+
+i=1
+place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
+                                       Time.ch = "Time", 
+                                       Inj.ch = "In12")
+  
+run_predict_voltage_trace_py()
+  
+predicted_response <- retrieve_predicted_voltage()
+
+
+ggplot()+
+  geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "red")+
+  geom_line(data = predicted_response, aes(Time, predicted-68), color = "black")+
+  labs(x = "Seconds", y = "mV")
+      
+
+  
+```
+
+
+#### Proof of principle: Contrasting simulaiton with LIF to regression and VIR
+```{r}
+M <- readABF_as_matrix2(path = 
+                          paste0(abf_dir_path, "190915_0019.abf"),
+                          # "C:/Users/Daniel/Documents/Trace_Holding/190915_0019.abf", #190924_0022.abf",
+                   channels = "all",
+                   relative.time = T)
+
+temp <- as_tibble(M) %>% 
+  janitor::clean_names(case = "upper_camel") %>% 
+  mutate(Sweep = as.factor(Sweep)) %>% 
+  group_by(Sweep) %>% 
+  mutate(MinTime = min(Time, na.rm = T)) %>% 
+  mutate(Time = Time - MinTime) %>% 
+  filter(Sweep == 1) #%>% 
+  # mutate(In7 = rollmean(In7, 17, fill = "extend"))
+
+
+# temp %>% 
+#   ggplot(aes(In7, In4))+
+#   geom_path()+
+#   geom_smooth(method = lm, fullrange = T, linetype = "dashed")+
+#   theme_minimal()
+
+fm <- lm(In4 ~ In7, data = temp)
+fm_newdata <- data.frame(In4 = NA, 
+                         In7 = temp$In7,
+                         Time = temp$Time,
+                         sweep = temp$Sweep)
+fm_newdata$In4 <- predict(fm, newdata = fm_newdata)
+
+
+temp <- temp[, c("Time", "In7", "In4")]
+
+temp <- full_join(temp, rename(fm_newdata, lm = In4))
+
+#TODO add in Rin / Tau programmatically
+
+# 190915_0017 #-6nA
+# 190915_0019 #epsp
+# LC 5
+# 
+# Est. Rin: 51.21/6 = 8.535 MOhm
+# Est. Taus: 
+# Tau1			Tau2
+# 58.482597351074219	11.020112037658691
+# 21.417860031127930	N/A
+place_params_for_predict_voltage_trace(tau = 21.417860031127930, Rin = 8.535)
+
+place_data_for_predict_voltage_trace(input.df = temp, Time.ch = "Time", Inj.ch = "In7")
+
+run_predict_voltage_trace_py()
+
+predicted_response <- retrieve_predicted_voltage()
+
+
+
+t1 <- temp
+t2 <- as_tibble(predicted_response)
+
+# # Feels hacky, but there seems to be a float rounding error here. E.g. Time 0.000199 != 0.0002
+# t1$ms <- round(t1$Time * 10000)#/10000
+# t2$ms <- round(t2$Time * 10000)#/10000
+# 
+# t1 <- t1 %>% dplyr::select(-Time)
+# t2 <- t2 %>% dplyr::select(-Time)
+# 
+# t3 <- full_join(t1, t2) 
+
+t3 <- cbind(t1, t2[, "predicted"]) 
+
+
+t3$Vinf <- (t3$In7*8.535)-49.5
+t3$predicted <- t3$predicted-49.5
+
+
+
+
+plt_left <- 
+t3 %>% gather(key = "Method", value = "mV", c("lm", "Vinf", "predicted")) %>% 
+  ggplot(aes(Time, mV, color = Method))+
+  geom_path()+
+  geom_path(data = t3, aes(Time, In4), color = "black")+
+  theme_minimal()+
+  theme(legend.position = "")+
+  facet_grid(Method~.)
+
+
+
+
+t3_subtracted <- t3
+t3_subtracted$lm <- t3_subtracted$In4 - t3_subtracted$lm
+t3_subtracted$Vinf <- t3_subtracted$In4 - t3_subtracted$Vinf
+t3_subtracted$predicted <- t3_subtracted$In4 - t3_subtracted$predicted
+t3_subtracted$In4 <- t3_subtracted$In4 - -49.5
+
+plt_mid <-
+t3_subtracted %>% gather(key = "Method", value = "mV", c("lm", "Vinf", "predicted")) %>%
+  ggplot(aes(Time, mV, color = Method))+
+  geom_path()+ #TODO It seems there is a nA that's causing early termination here?
+  geom_path(data = t3_subtracted, aes(Time, In4), color = "black")+
+  theme_minimal()+
+  theme(legend.position = "")+
+  facet_grid(Method~.)
+
+plt_right <- 
+t3 %>% gather(key = "Method", value = "mV", c("lm", "Vinf", "predicted")) %>% 
+  ggplot(aes(In4, mV, color = Method))+
+  geom_path()+
+  geom_abline(intercept = 0, slope = 1)+
+  theme_minimal()+
+  theme(legend.position = "")+
+  facet_grid(Method~.)
+  
+
+(plt_left | plt_mid | plt_right) + plot_layout(widths = c(3, 3, 2))
+
+```
+
+
+###HTK/A
