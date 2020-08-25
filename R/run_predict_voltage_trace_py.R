@@ -5,7 +5,7 @@
 #' @author Daniel Kick (\email{daniel.r.kick@@gmail.com})
 #'
 #' @export
-run_predict_voltage_trace.py <- function(){
+run_predict_voltage_trace_py <- function(){
   # shell("conda activate base")
   # shell("python ./Python/predict_voltage_trace.py")
 
