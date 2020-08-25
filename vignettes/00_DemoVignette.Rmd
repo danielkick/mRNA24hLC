@@ -34,7 +34,7 @@ abf_dir_path <- "D:/0000_Traces_mRNA24hLC/"
 ```
 
 
-```{r}
+
 ## Handling different kinds of files (Proof of principle)
 ###Load in data (ionic currents)
 ```{r}
@@ -546,3 +546,315 @@ t3 %>% gather(key = "Method", value = "mV", c("lm", "Vinf", "predicted")) %>%
 
 
 ###HTK/A
+```{r}
+
+```
+
+
+
+
+#### </ begin copy from 02ExtractEphysData.Rmd >
+
+
+## IHTK
+  1. plot to get user to say which to drop (if there is no file with this info) # done
+  2. smooth # done
+  3. get peak values # done
+4. get sustained values
+  5. subtract off leak # done
+  6. report values and leak # done
+```{r}
+trace <-
+readABF_as_matrix(
+  path = paste0(path.base, file.htk)
+  )
+
+trace <- janitor::clean_names(as.data.frame(trace), case = "big_camel")
+trace <- trace %>% group_by(Sweep) %>% mutate(RelativeTime = Time - min(Time)) %>%
+  ungroup()
+trace <- trace %>% group_by(Sweep) %>% 
+  mutate(In4  = zoo::rollmean(In4,  k = 7, fill = NA)) %>% 
+  mutate(In7  = zoo::rollmean(In7,  k = 7, fill = NA)) %>% 
+  mutate(In9  = zoo::rollmean(In9,  k = 7, fill = NA)) %>% 
+  mutate(In12 = zoo::rollmean(In12, k = 7, fill = NA)) %>%
+  ungroup()
+
+# gather(trace, channel, mV, c("In4", "In9")) %>% ggplot(aes(RelativeTime, mV, color = channel, group = Sweep))+geom_line()+xlim(0.25, 0.3)
+# 
+# gather(trace, channel, mV, c("In7", "In12")) %>% ggplot(aes(RelativeTime, mV, color = channel, group = Sweep))+geom_line()+xlim(0.27, 0.28)
+
+trace <- trace %>% ungroup()
+
+peaks <- trace %>% group_by(Sweep) %>% filter(RelativeTime > 0.27 & RelativeTime < 0.28) %>% summarise(max.val = max(In7)) %>%
+  ungroup()
+
+
+peaks$mV <- NA
+for (i in seq(1, nrow(peaks), 1)){
+  Sweep <- peaks[i, "Sweep"] %>% as.numeric()
+  
+  peaks[i, "mV"] <- trace[trace$Sweep == Sweep &
+                            trace$RelativeTime > 0.27 &
+                            trace$RelativeTime < 0.28 &
+                            trace$In7 == as.numeric(peaks[peaks$Sweep == Sweep, "max.val"]), "In4"] %>% as.numeric() %>% mean(na.rm = T)
+}
+
+
+
+fm <- lm(max.val ~ mV, filter(peaks, mV < -41))
+
+peaks <- peaks %>% mutate(leak = predict(object = fm, newdata = peaks))
+peaks <- peaks %>% mutate(leak.sub = max.val - leak)
+
+
+ggplot(peaks)+
+  # geom_smooth(method = "lm")+
+  lemon::geom_pointline(aes(x = mV, max.val))+
+  lemon::geom_pointline(aes(x = mV, leak), color = "red")+
+  lemon::geom_pointline(aes(x = mV, leak.sub), color = "blue")
+  
+
+# go through sweeps plotting each and asking if the user wants to keep each one. Then return a df with the ones to keep
+checkSweeps <- function(
+  trace = trace,
+  v.ch = "In4",
+i.ch = "In7",
+t.ch = "RelativeTime"
+){
+  use.sweeps <- data.frame(Sweep = unique(trace$Sweep),
+                         Use = rep(F, times = length(unique(trace$Sweep))))
+trace <- as.data.frame(trace)
+for (i in seq_along(unique(trace$Sweep))){
+  # use.sweep <- F
+  # par(mfrow = c(1, 2))
+  par(mfrow = c(2, 1))
+  # with({
+  plot(trace[trace$Sweep == i, v.ch] ~ trace[trace$Sweep == i, t.ch], 
+       type = "l", 
+       xlab="", ylab="",
+       main = paste("Sweep",as.character(i)))
+  plot(trace[trace$Sweep == i, i.ch] ~ trace[trace$Sweep == i, t.ch], 
+       type = "l",
+       xlab="", ylab="")
+  # })
+  
+  for (j in 1:3){
+    print(paste0("Retain sweep ", as.character(i),"?"))
+    print("T/F or E to Exit")
+    
+    user.input <- readline(prompt = ">")
+    
+    
+    if (user.input == "E" | user.input == "e"){
+      break()
+      
+    } else if (user.input == "T" | user.input == "t"){
+      use.sweeps[use.sweeps$Sweep == i, "Use"] <- T
+      break()
+      
+    } else if (user.input == "F" | user.input == "f"){
+      use.sweeps[use.sweeps$Sweep == i, "Use"] <- F
+      break()
+      
+    } else {
+      print(paste("Response not recognized.", as.character(j), "attempts remain."))
+    }
+    
+    
+  }
+  if (user.input == "E" | user.input == "e"){
+    break()
+  }
+}
+return(use.sweeps)
+}
+
+
+
+```
+
+
+## IA
+  1. plot to get user to say which to drop (if there is no file with this info)
+  2. subract user supplied IHTK (don't smooth or filter, but drop any traces that aren't present for both)
+  3. smooth
+  4. get peak values
+  5. get sustained values
+ 
+```{r}
+trace.htk <-
+readABF_as_matrix(
+  path = paste0(path.base, file.htk)
+  )
+
+trace.htk <- janitor::clean_names(as.data.frame(trace.htk), case = "big_camel")
+trace.htk <- trace.htk %>% group_by(Sweep) %>% mutate(RelativeTime = Time - min(Time)) %>%
+  ungroup()
+trace.htk <- trace.htk %>% group_by(Sweep) %>% 
+  mutate(In4  = zoo::rollmean(In4,  k = 7, fill = NA)) %>% 
+  mutate(In7  = zoo::rollmean(In7,  k = 7, fill = NA)) %>% 
+  mutate(In9  = zoo::rollmean(In9,  k = 7, fill = NA)) %>% 
+  mutate(In12 = zoo::rollmean(In12, k = 7, fill = NA)) %>%
+  ungroup()
+
+
+
+trace.a <-
+readABF_as_matrix(
+  path = paste0(path.base, file.a)
+  )
+
+trace.a <- janitor::clean_names(as.data.frame(trace.a), case = "big_camel")
+trace.a <- trace.a %>% group_by(Sweep) %>% mutate(RelativeTime = Time - min(Time)) %>%
+  ungroup()
+trace.a <- trace.a %>% group_by(Sweep) %>% 
+  mutate(In4  = zoo::rollmean(In4,  k = 7, fill = NA)) %>% 
+  mutate(In7  = zoo::rollmean(In7,  k = 7, fill = NA)) %>% 
+  mutate(In9  = zoo::rollmean(In9,  k = 7, fill = NA)) %>% 
+  mutate(In12 = zoo::rollmean(In12, k = 7, fill = NA)) %>%
+  ungroup()
+
+# subtract traces
+subtract_traces <- function(
+  htk.data = trace.htk,
+  a.data = trace.a,
+  current.chs = c("In7", "In12")
+){
+  # htk.data = trace.htk.data %>% head()
+  # a.data = trace.a %>% head()
+  # Time = "Time"
+  # rel.time = "RelativeTime"
+  # Sweep = "Sweep"
+  # current.chs = c("In7", "In12")
+  
+  htk.data <- as.data.frame(htk.data)
+  a.data <- as.data.frame(a.data)
+  
+  if (length(htk.data[[current.chs[1]]]) != length(a.data[[current.chs[1]]])){
+    warning("Dataframe nrows are not equal!\nReturning nothing")
+    return()
+  } else {
+    for (i in seq_along(current.chs)){
+      a.data[[current.chs[i]]] <- a.data[[current.chs[i]]] - htk.data[[current.chs[i]]]
+    }
+    return(a.data)
+  }
+}
+
+
+
+trace.a.ls <- subtract_traces(
+  htk.data = trace.htk,
+  a.data = trace.a,
+  current.chs = c("In7", "In12")
+)
+
+
+# Get max for a time window
+find_local_max <- function(
+  trace = trace.a.ls,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+){
+  # trace = trace.a.ls
+  # window.start = 0.27
+  # window.stop  = 0.28
+  # Sweep = "Sweep"
+  # RelativeTime = "RelativeTime"
+  # i.ch = "In7"
+  # v.ch = "In4"
+  
+  peaks <- trace %>% 
+    group_by(Sweep) %>% 
+    filter(RelativeTime > window.start & RelativeTime < window.stop) %>% 
+    summarise(max.val = max(get(i.ch))) %>% 
+    ungroup()
+  
+  peaks$mV <- NA
+  for (i in seq(1, nrow(peaks), 1)){
+    Sweep1 <- peaks[i, Sweep] %>% as.numeric()
+    
+    peaks[i, "mV"] <- trace[trace$Sweep == Sweep1 &
+                              trace$RelativeTime > window.start &
+                              trace$RelativeTime < window.stop &
+                              trace[[i.ch]] == as.numeric(peaks[peaks$Sweep == Sweep1, "max.val"]), v.ch] %>% as.numeric() %>% mean(na.rm = T)
+  }
+  
+  return(peaks)
+}
+
+
+
+max.a.ls <- 
+find_local_max(
+  trace = trace.a.ls,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+)
+
+
+
+### comparisons
+max.a <- 
+find_local_max(
+  trace = trace.a,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+)
+
+
+max.htk <- 
+find_local_max(
+  trace = trace.htk,
+  window.start = 0.27,
+  window.stop  = 0.28,
+  Sweep = "Sweep",
+  RelativeTime = "RelativeTime",
+  i.ch = "In7",
+  v.ch = "In4"
+)
+
+# Leak subtract max values
+subtract_leak <- function(peaks = max.htk, # output from find_local_max
+                          min.mV = -81,
+                          max.mV = -39){
+  # peaks = max.htk # output from find_local_max
+  # min.mV = -81
+  # max.mV = -39
+  fm <- lm(max.val ~ mV, filter(peaks, mV <= max.mV & mV >= min.mV))
+  
+  peaks <- peaks %>% mutate(leak = predict(object = fm, newdata = peaks))
+  peaks <- peaks %>% mutate(leak.sub = max.val - leak)
+  return(peaks)
+}
+
+
+max.htk.ls <- subtract_leak(peaks = max.htk, # output from find_local_max
+                            min.mV = -81,
+                            max.mV = -39)
+
+
+ggplot()+
+  lemon::geom_pointline(data = max.htk, aes(x = mV, max.val), color = "#fc9272")+
+  lemon::geom_pointline(data = max.htk.ls, aes(x = mV, leak.sub), color = "#de2d26")+
+  lemon::geom_pointline(data = max.a, aes(x = mV, max.val), color = "#9ecae1")+
+  lemon::geom_pointline(data = max.a.ls, aes(x = mV, max.val), color = "#3182bd")
+
+
+
+```
+
+
+
