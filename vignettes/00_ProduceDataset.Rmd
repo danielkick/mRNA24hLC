@@ -71,21 +71,12 @@ metadata <- read_excel(use.file.path, sheet = "MetadataEphys")
 #     "gj", "Unknown" #FIXME what are these?
 #   ), nrow = 2)))
 # names(update_type_names) <- c("InFile", "NewType")
-
-
-
-
-
-
 ```
 
 
 ```{r}
 # Check for missing files relative to the abf directory
-```
 
-
-```{r}
 # Find all the traces specified in the metadata file (i.e. where type is not NA) and check to see if they exist in the `abf_dir`
 
 absent_traces <- metadata[!is.na(metadata$Type), ]
@@ -138,8 +129,6 @@ all_abfs_on_shared_drive <- read.csv(here("inst", "extdata", "shared_drive_abf_i
 
 
 ```{r}
-
-
 all_abfs_on_shared_drive <- all_abfs_on_shared_drive %>% 
   as_tibble() %>% 
   mutate(all_abfs = as.character(all_abfs))
@@ -334,6 +323,10 @@ metadata <- metadata[metadata$Experiment != "190917a", ]
 ```
 
 
+## Loop over all desired files and extract the relevant metrics. 
+```{r}
+#TODO remove the proof of principle when the demo vignette is ready. 
+```
 ## Handling different kinds of files (Proof of principle)
 ###Load in data (ionic currents)
 ```{r}
