@@ -8,5 +8,5 @@
 #' @author Daniel Kick (\email{daniel.r.kick@@gmail.com})
 downsample_data <- function(df = temp,
                             len = 5000){
-  return(df[seq(1, nrow(df), length.out = len), ])
+  return(df[ceiling(seq(1, nrow(df), length.out = len)), ])
 }
