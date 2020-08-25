@@ -53,10 +53,6 @@ abf_dir_path <- "D:/0000_Traces_mRNA24hLC/"
 ## Find all the relevant files
 ```{r}
 metadata <- read_excel(use.file.path, sheet = "MetadataEphys")  
-
-
-
-
 # update_type_names <- as_tibble(t(matrix(
 #   c("htk", "htk", # ion
 #     "a", "a",
@@ -76,6 +72,11 @@ metadata <- read_excel(use.file.path, sheet = "MetadataEphys")
 #   ), nrow = 2)))
 # names(update_type_names) <- c("InFile", "NewType")
 
+
+
+
+
+
 ```
 
 
@@ -85,6 +86,8 @@ metadata <- read_excel(use.file.path, sheet = "MetadataEphys")
 
 
 ```{r}
+# Find all the traces specified in the metadata file (i.e. where type is not NA) and check to see if they exist in the `abf_dir`
+
 absent_traces <- metadata[!is.na(metadata$Type), ]
 absent_traces$Exists <- F
 
@@ -106,15 +109,13 @@ for (i in seq(1, nrow(absent_traces))){
   # print(abf_name)
 }
 
-
-absent_traces %>% 
-  group_by(Exists) %>% 
-  tally()
-
-
-absent_traces %>% 
-  group_by(Condition, Type, Exists) %>% 
-  tally() 
+absent_traces_to_find <- absent_traces %>% 
+  filter(Exists == F) %>% 
+  mutate(RecordingLeadZeros = case_when((4 - nchar(Recording)) == 0 ~ "",
+                                        (4 - nchar(Recording)) == 1 ~ "0",
+                                        (4 - nchar(Recording)) == 2 ~ "00",
+                                        (4 - nchar(Recording)) == 3 ~ "000")) %>% 
+  mutate(FileName = paste0(Experiment, "_", RecordingLeadZeros, Recording, ".abf"))
 ```
 
 
@@ -133,104 +134,200 @@ if (!file.exists(here("inst", "extdata", "shared_drive_abf_index.csv"))){
   rm(list = "all_abfs")
 } 
 all_abfs_on_shared_drive <- read.csv(here("inst", "extdata", "shared_drive_abf_index.csv"))
-
-
-
-
-abf_names <- str_extract_all(all_abfs_on_shared_drive$all_abfs, "[[^/]]*[[:punct:]]abf$")
-
-all_abfs_on_shared_drive$abf_names <- abf_names
-
-times_matched <- unlist(map(seq(1, nrow(all_abfs_on_shared_drive)), function(i){
-  # if it matches at least once the sum will be >0. It should match at most once.
-  times.matched <- sum(unlist(map(file_groups$Experiment, function(prefix){
-    str_detect(all_abfs_on_shared_drive$abf_names[[i]], paste0(as.character(prefix), "_")) # adding a terminal _ to the search string will prevent 000000a from matching to both 000000 and itself.
-  })))
-
-  return(times.matched)
-}))
-
-all_abfs_on_shared_drive$times_matched <- times_matched
-
-# Looks like it's working as expected
-if (max(times_matched) > 1){
-  all_abfs_on_shared_drive[all_abfs_on_shared_drive$times_matched == max(times_matched), ]
-}
-
-# matches
-all_abfs_match <- all_abfs_on_shared_drive[all_abfs_on_shared_drive$times_matched == 1, ]
-
-all_abfs_match$size  <- NA
-all_abfs_match$mtime <- as.POSIXct(NA)
-all_abfs_match$ctime <- as.POSIXct(NA)
-all_abfs_match$atime <- as.POSIXct(NA)
-
-for (i in seq(1, nrow(all_abfs_match))){
-  current_info <- file.info(paste(start_loc, all_abfs_match[i, "all_abfs"], sep = "/") )
-
-  all_abfs_match[i, "size"]  <- current_info$size
-  all_abfs_match[i, "mtime"] <- current_info$mtime # file modification
-  all_abfs_match[i, "ctime"] <- current_info$ctime # last status change
-  all_abfs_match[i, "atime"] <- current_info$atime # last access time
-}
-
-
-all_abfs_match$abf_names <- all_abfs_match$abf_names %>% unlist()
-
-
-# find duplicated abfs
-dupe_abfs <- all_abfs_match %>%
-  select(abf_names) %>%
-  group_by(abf_names) %>%
-  tally() %>%
-  filter(n > 1)
-
-all_abfs_match$keep <- F
-# Keep all non duplicates
-all_abfs_match[!(all_abfs_match$abf_names %in% as.character(dupe_abfs$abf_names)), "keep"] <- T
-
-for (i in seq(1, nrow(dupe_abfs))){
-  # if same size, keep oldest
-  if (length( unique( all_abfs_match[all_abfs_match$abf_names == as.character(dupe_abfs[i, "abf_names"]), "size"] ) ) == 1){
-    # unless they're the same, then keep the first.
-    if (length( unique(all_abfs_match[all_abfs_match$abf_names == as.character(dupe_abfs[i, "abf_names"]), "mtime"]) ) == 1){
-      all_abfs_match[all_abfs_match$abf_names == as.character(dupe_abfs[i, "abf_names"]), "keep"][1] <- T
-    } else {
-      warning(paste("Dupe", as.character(i), "has multiple times! Additional logic needed!"))
-      #TODO
-    }
-  } else {
-      warning(paste("Dupe", as.character(i), "has unequal file sizes! Additional logic needed!"))
-  }
-}
-
-
-target_abfs <- all_abfs_match[all_abfs_match$keep == T & all_abfs_match$size < 13000000, ]
-# install.packages("gdata")
-target_abfs$size %>% sum() %>% gdata::humanReadable()
-
-
-local_abfs <- list.files("C:/Users/Daniel/Documents/Trace_Holding/", pattern = ".abf")
-target_abfs <- target_abfs[!(target_abfs$abf_names %in% local_abfs), ]
-
-
-# Copy
-for (i in seq(1, nrow(target_abfs))){
-  temp_path <- paste(start_loc, as.character(target_abfs[i, "all_abfs"]), sep = "/")
-  if (file.exists(temp_path)){
-    file.copy(from = temp_path,
-              to = "C:/Users/Daniel/Documents/Trace_Holding/")
-  } else {
-    warning(paste("Item", as.character(i), "does not exist!"))
-  }
-}
-
-
-
 ```
 
 
+```{r}
 
+
+all_abfs_on_shared_drive <- all_abfs_on_shared_drive %>% 
+  as_tibble() %>% 
+  mutate(all_abfs = as.character(all_abfs))
+
+broken_path <- str_split(all_abfs_on_shared_drive$all_abfs, pattern = "/")
+
+all_abfs_on_shared_drive$FileName <- map_chr(
+  seq_along(broken_path), function(i){
+  broken_path[[i]][[length(broken_path[[i]])]]
+})
+
+
+# if there's a match pull the path
+absent_traces_to_find$PathOnShared <- NA
+
+for (i in 1:nrow(absent_traces_to_find)){
+  if(as.character(absent_traces_to_find[i, "FileName"]) %in% all_abfs_on_shared_drive$FileName){
+    # get path
+    absent_traces_to_find[i, "PathOnShared"] <- all_abfs_on_shared_drive[all_abfs_on_shared_drive$FileName == as.character(absent_traces_to_find[i, "FileName"]), "all_abfs"]
+
+  } else {
+    absent_traces_to_find[i, "PathOnShared"] <- NA
+  }
+}
+
+# move from server
+absent_traces_to_find$moved <- F
+# Check for file's existence, if it's there move it and tag it as moved.
+for (i in 1:nrow(absent_traces_to_find)){
+  if(!is.na(absent_traces_to_find[i, "PathOnShared"])){
+    file_to_move <- paste0("S:/Data_Daniel", "/", as.character(absent_traces_to_find[i, "PathOnShared"]))
+    
+    if (file.exists(file_to_move)){
+      file.copy(
+        from = file_to_move,
+        to = paste0(
+          abf_dir_path,
+          absent_traces_to_find[i, "FileName"]  
+        )
+      )
+      
+      absent_traces_to_find[i, "moved"]  <- T
+    }
+  }
+}
+
+# After everything's moved, manually search for the rest. 
+
+manually_find <- absent_traces_to_find %>% 
+  filter(moved == F) %>% 
+  select(Experiment, Page, Recording, Type, TEA, Condition, FileName)
+write.csv(manually_find, file = here("data", "manually_find_ABFs.csv"))
+
+
+# Can't seem to find experiment 190917a
+# looking at manually processed data I don't see any evidence of it. Possibly it didn't get moved to the shared drive? 
+#FIXME go and check the lab computer to make sure the missing file isn't there. 
+metadata <- metadata[metadata$Experiment != "190917a", ]
+```
+
+```{r depricated}
+# 
+# 
+# abf_names <- str_extract_all(all_abfs_on_shared_drive$all_abfs, "[[^/]]*[[:punct:]]abf$")
+# 
+# all_abfs_on_shared_drive$abf_names <- abf_names
+# 
+# 
+# 
+# # lapply(mtcars, function(x){x[length(x)]})
+# 
+# 
+# i=1
+# as.character(absent_traces_to_find[i, "FileName"]) %in% unlist(all_abfs_on_shared_drive$abf_names)
+# 
+# 
+# # > file_groups
+# #    Experiment       Group
+# # 1      190924    Baseline
+# # 2     190924a    Baseline
+# # 3      190926    Baseline
+# # 4      190927    Baseline
+# # 5     190927a    Baseline
+# # 6      190930    Baseline
+# # 7     190930a    Baseline
+# # 8     190808a Compensated
+# # 9      190830 Compensated
+# # 10     190904 Compensated
+# # 11     191001 Compensated
+# # 12     191004 Compensated
+# # 13     190903     Delayed
+# # 14     190905     Delayed
+# # 15     190906     Delayed
+# # 16     190907     Delayed
+# # 17     190915     Delayed
+# # 18     190917     Delayed
+# # 19     190918     Delayed
+# 
+# 
+# abf_names <- str_extract_all(all_abfs_on_shared_drive$all_abfs, "[[^/]]*[[:punct:]]abf$")
+# 
+# all_abfs_on_shared_drive$abf_names <- abf_names
+# 
+# times_matched <- unlist(map(seq(1, nrow(all_abfs_on_shared_drive)), function(i){
+#   # if it matches at least once the sum will be >0. It should match at most once.
+#   times.matched <- sum(unlist(map(file_groups$Experiment, function(prefix){
+#     str_detect(all_abfs_on_shared_drive$abf_names[[i]], paste0(as.character(prefix), "_")) # adding a terminal _ to the search string will prevent 000000a from matching to both 000000 and itself.
+#   })))
+# 
+#   return(times.matched)
+# }))
+# 
+# all_abfs_on_shared_drive$times_matched <- times_matched
+# 
+# # Looks like it's working as expected
+# if (max(times_matched) > 1){
+#   all_abfs_on_shared_drive[all_abfs_on_shared_drive$times_matched == max(times_matched), ]
+# }
+# 
+# # matches
+# all_abfs_match <- all_abfs_on_shared_drive[all_abfs_on_shared_drive$times_matched == 1, ]
+# 
+# all_abfs_match$size  <- NA
+# all_abfs_match$mtime <- as.POSIXct(NA)
+# all_abfs_match$ctime <- as.POSIXct(NA)
+# all_abfs_match$atime <- as.POSIXct(NA)
+# 
+# for (i in seq(1, nrow(all_abfs_match))){
+#   current_info <- file.info(paste(start_loc, all_abfs_match[i, "all_abfs"], sep = "/") )
+# 
+#   all_abfs_match[i, "size"]  <- current_info$size
+#   all_abfs_match[i, "mtime"] <- current_info$mtime # file modification
+#   all_abfs_match[i, "ctime"] <- current_info$ctime # last status change
+#   all_abfs_match[i, "atime"] <- current_info$atime # last access time
+# }
+# 
+# 
+# all_abfs_match$abf_names <- all_abfs_match$abf_names %>% unlist()
+# 
+# 
+# # find duplicated abfs
+# dupe_abfs <- all_abfs_match %>%
+#   select(abf_names) %>%
+#   group_by(abf_names) %>%
+#   tally() %>%
+#   filter(n > 1)
+# 
+# all_abfs_match$keep <- F
+# # Keep all non duplicates
+# all_abfs_match[!(all_abfs_match$abf_names %in% as.character(dupe_abfs$abf_names)), "keep"] <- T
+# 
+# for (i in seq(1, nrow(dupe_abfs))){
+#   # if same size, keep oldest
+#   if (length( unique( all_abfs_match[all_abfs_match$abf_names == as.character(dupe_abfs[i, "abf_names"]), "size"] ) ) == 1){
+#     # unless they're the same, then keep the first.
+#     if (length( unique(all_abfs_match[all_abfs_match$abf_names == as.character(dupe_abfs[i, "abf_names"]), "mtime"]) ) == 1){
+#       all_abfs_match[all_abfs_match$abf_names == as.character(dupe_abfs[i, "abf_names"]), "keep"][1] <- T
+#     } else {
+#       warning(paste("Dupe", as.character(i), "has multiple times! Additional logic needed!"))
+#       #TODO
+#     }
+#   } else {
+#       warning(paste("Dupe", as.character(i), "has unequal file sizes! Additional logic needed!"))
+#   }
+# }
+# 
+# 
+# target_abfs <- all_abfs_match[all_abfs_match$keep == T & all_abfs_match$size < 13000000, ]
+# # install.packages("gdata")
+# target_abfs$size %>% sum() %>% gdata::humanReadable()
+# 
+# 
+# local_abfs <- list.files("C:/Users/Daniel/Documents/Trace_Holding/", pattern = ".abf")
+# target_abfs <- target_abfs[!(target_abfs$abf_names %in% local_abfs), ]
+# 
+# 
+# # Copy
+# for (i in seq(1, nrow(target_abfs))){
+#   temp_path <- paste(start_loc, as.character(target_abfs[i, "all_abfs"]), sep = "/")
+#   if (file.exists(temp_path)){
+#     file.copy(from = temp_path,
+#               to = "C:/Users/Daniel/Documents/Trace_Holding/")
+#   } else {
+#     warning(paste("Item", as.character(i), "does not exist!"))
+#   }
+# }
+# 
+```
 
 ```{r}
 #TODO for each of these files get the relevant data and place it in an rds with some metadata for merging later
