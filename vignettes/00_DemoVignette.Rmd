@@ -198,19 +198,21 @@ process_gjvc_trace <- function(trace = trace_list$GJVC){
   In9_to_In4_Ig <- as.numeric(broom::tidy(lm(In7Mean ~ In9Mean,  data = i_leak_for_In9_to_In4))[2, "estimate"])
   
   ### Ileak ####
-  In4_R <- as.numeric(broom::tidy(lm(In4Mean ~ In7Mean,  data = i_leak_for_In4_to_In9))[2, "estimate"])
-  In9_R <- as.numeric(broom::tidy(lm(In9Mean ~ In12Mean, data = i_leak_for_In9_to_In4))[2, "estimate"])
-  
+  In4_R <- as.numeric(broom::tidy(lm(In7Mean ~ In4Mean,  data = i_leak_for_In4_to_In9))[2, "estimate"])
+  In9_R <- as.numeric(broom::tidy(lm(In12Mean ~ In9Mean, data = i_leak_for_In9_to_In4))[2, "estimate"])
+  In4_R <- In4_R^-1
+  In9_R <- In9_R^-1
   
   return(
     list(diagnostic_plots = list(
       trace = plt_tagged_regions,
       fit = plt_ig_slopes),
-      rmems = list(In4 = In4_R,
-                   In9 = In9_R),
-      ig = list(
-        In4_to_In9 = In4_to_In9_Ig,
-        In9_to_In4 = In9_to_In4_Ig)
+      df = data.frame(
+    In4_to_In9 = In4_to_In9_Ig,
+    In9_to_In4 = In9_to_In4_Ig, 
+    In4_R1c = In4_R,
+    In9_R1c = In9_R
+  )
     )
   )
   
