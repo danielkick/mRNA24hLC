@@ -836,3 +836,109 @@ ggplot(temp_v, aes(Time))+
 # 
 # cowplot::plot_grid(plotlist = my_plts)
 ```
+
+
+
+```{r}
+# function(trace = trace_list$GJCC){
+
+# temp <- trace_list$EPSP
+#TODO clean up
+
+# tau <- abs(mean(unlist(out$df[, "In9_Tau_est"])))
+# rin <- abs(mean(unlist(out$df[, "In9_R1"])))
+# 
+# v_ch = "In9"
+# i_ch = "In12"
+
+
+
+predict_epsp_responses <- function(trace = trace_list$EPSP,
+                                   tau = abs(mean(unlist(out$df[, "In9_Tau_est"]))),
+                                   rin = abs(mean(unlist(out$df[, "In9_R1"]))),
+                                   v_ch = "In9",
+                                   i_ch = "In12"
+){
+  temp <- trace
+  
+  place_params_for_predict_voltage_trace(tau = tau, 
+                                         Rin = rin)
+  
+  predicted_response_list <- map(1:4, function(i){
+    place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ],
+                                         Time.ch = "Time",
+                                         Inj.ch = i_ch)
+    
+    run_predict_voltage_trace_py()
+    
+    predicted_response <- retrieve_predicted_voltage()
+    
+    
+    pred_v <- predicted_response[predicted_response$Time >= 19.38, "predicted"]
+    meas_v <- temp[temp$Sweep == i & temp$Time >= 19.38, v_ch]
+    offset <- median(unlist(pred_v - meas_v), na.rm = T)
+    
+    predicted_response$offset <- offset
+    
+    return(predicted_response)
+  })
+  
+  
+  
+  my_plts <- map(
+    seq_along(predicted_response_list),
+    function(i){
+      ggplot()+
+        geom_line(data = predicted_response_list[[i]], aes(Time, predicted-offset), color = "cornflowerblue")+
+        geom_line(data = temp[temp$Sweep == i, ], aes_string("Time", v_ch), color = "black")+
+        labs(x = "Seconds", y = "mV")+
+        coord_cartesian(y = c(-100, +100))
+    })
+  
+  
+  trace_plt <- cowplot::plot_grid(plotlist = my_plts)
+  
+  
+  return(list(trace = trace_plt,
+              predictions = predicted_response_list))
+}
+
+
+
+
+
+
+
+# #TODO how do we calculate a good offset? Is the trace I'm working with representatiave?
+# 
+# temp_v <- cbind(temp,
+#                 predict = predicted_response[, "predicted"])
+# 
+# # Get the voltage difference from the end where there is a constant injection
+# temp_v_summary <- temp_v %>% ungroup() %>% filter(Time >= 19.38) %>% mutate(temp = predict - In9) %>% summarise(mean = mean(temp),
+#                                                                                           median = median(temp),
+#                                                                                           sd = sd(temp))
+# 
+# 
+# 
+# ggplot(temp_v, aes(Time))+
+#   geom_path(aes(y = In9))+
+#   geom_path(aes(y = predict - unlist(temp_v_summary[, "median"])), color = "cornflowerblue")+
+#   geom_path(aes(y = In12), color = "firebrick")
+# 
+# # ggplot(downsample_data(temp_v, len = 5000), aes(In12))+
+# #   geom_point(aes(y = In9))+
+# #   geom_point(aes(y = predict), color = "cornflowerblue")
+# # 
+# # ggplot(downsample_data(temp_v, len = 5000), aes(In9, y = predict))+
+# #   # geom_point(aes(y = In9))+
+# #   geom_abline(intercept = seq(50, 100, by = 25), slope = 1)+
+# #   geom_smooth()+
+# #   geom_point(color = "cornflowerblue")
+
+
+
+
+
+```
+
