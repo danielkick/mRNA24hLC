@@ -631,7 +631,6 @@ save_plot(here("plots", "segmentation_demo_plt.pdf"),
 ```{r}
 M <- readABF_as_matrix2(path = 
                           paste0(abf_dir_path, "190915_0019.abf"),
-                          # "C:/Users/Daniel/Documents/Trace_Holding/190915_0019.abf", #190924_0022.abf",
                    channels = "all",
                    relative.time = T)
 
@@ -643,15 +642,6 @@ temp <- as_tibble(M) %>%
   mutate(Time = Time - MinTime) %>% 
   filter(Sweep == 1) #%>% 
   # mutate(In7 = rollmean(In7, 17, fill = "extend"))
-
-
-# temp <- trace_list$EPSP
-
-# temp %>% 
-#   ggplot(aes(In7, In4))+
-#   geom_path()+
-#   geom_smooth(method = lm, fullrange = T, linetype = "dashed")+
-#   theme_minimal()
 
 fm <- lm(In4 ~ In7, data = temp)
 fm_newdata <- data.frame(In4 = NA, 
@@ -666,16 +656,6 @@ temp <- temp[, c("Time", "In7", "In4")]
 temp <- full_join(temp, rename(fm_newdata, lm = In4))
 
 #TODO add in Rin / Tau programmatically
-
-# 190915_0017 #-6nA
-# 190915_0019 #epsp
-# LC 5
-# 
-# Est. Rin: 51.21/6 = 8.535 MOhm
-# Est. Taus: 
-# Tau1			Tau2
-# 58.482597351074219	11.020112037658691
-# 21.417860031127930	N/A
 place_params_for_predict_voltage_trace(tau = 21.417860031127930, Rin = 8.535)
 
 place_data_for_predict_voltage_trace(input.df = temp, Time.ch = "Time", Inj.ch = "In7")
@@ -684,20 +664,8 @@ run_predict_voltage_trace_py()
 
 predicted_response <- retrieve_predicted_voltage()
 
-
-
 t1 <- temp
 t2 <- as_tibble(predicted_response)
-
-# # Feels hacky, but there seems to be a float rounding error here. E.g. Time 0.000199 != 0.0002
-# t1$ms <- round(t1$Time * 10000)#/10000
-# t2$ms <- round(t2$Time * 10000)#/10000
-# 
-# t1 <- t1 %>% dplyr::select(-Time)
-# t2 <- t2 %>% dplyr::select(-Time)
-# 
-# t3 <- full_join(t1, t2) 
-
 t3 <- cbind(t1, t2[, "predicted"]) 
 
 
@@ -756,22 +724,7 @@ save_plot(here("plots", "epsp_prediction_demo.pdf"),
 
 
 ```{r}
-# M <- readABF_as_matrix2(path = 
-#                           # paste0(abf_dir_path, "190915_0019.abf"),
-#                           paste0(abf_dir_path, "190903_0023.abf"),                        
-#                    channels = "all",
-#                    relative.time = T)
-# 
-# temp <- as_tibble(M) %>% 
-#   janitor::clean_names(case = "upper_camel") %>% 
-#   mutate(Sweep = as.factor(Sweep)) %>% 
-#   group_by(Sweep) %>% 
-#   mutate(MinTime = min(Time, na.rm = T)) %>% 
-#   mutate(Time = Time - MinTime) %>% 
-#   filter(Sweep == 1)
-
 temp <- trace_list$EPSP
-
 
 downsample_data(df = temp, len = 5000) %>% 
   gather(key, value, c("In9", "In12")) %>% 
