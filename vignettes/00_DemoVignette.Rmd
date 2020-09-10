@@ -223,9 +223,20 @@ out <- process_gjvc_trace(trace = trace_list$GJVC)
 out$diagnostic_plots$trace
 out$diagnostic_plots$fit
 
-out$rmems
+out$df
 
-out$ig
+
+# # Save for review:
+# input_file <- "190903_0020.abf"
+# 
+# write.csv(out$df, 
+#           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "df.csv", sep = "-"))          )
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "trace.pdf", sep = "-")),
+#           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "fit.pdf", sep = "-")),
+#           out$diagnostic_plots$fit, base_height = 7, base_width = 10)
 ```
 
 ###GJCC
@@ -237,8 +248,6 @@ $$r_1= \frac{r_{11}*r_{22} - r_{12}^2}{r_{22} - r_{12}}$$
 $$r_c = \frac{r_{11}*r_{22} - r_{12}^2}{r_{12}}$$
 ```{r}
 ## GJCC: get CC, R_C, C, Rin ====
-temp <- trace_list$GJCC
-
 process_gjcc_trace <- function(trace = trace_list$GJCC){
 
 ## prep ====
@@ -424,6 +433,25 @@ out$diagnostic_plots$fit_In4
 out$diagnostic_plots$fit_In9
 
 out$df
+
+# # Save for review:
+# input_file <- "190903_0021.abf"
+# 
+# write.csv(out$df,
+#           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "df.csv", sep = "-")))
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
+#           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "segment.pdf", sep = "-")),
+#           out$diagnostic_plots$segment, base_height = 7, base_width = 10)
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "fit_in4.pdf", sep = "-")),
+#           out$diagnostic_plots$fit_In4, base_height = 7, base_width = 10)
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "fit_in9.pdf", sep = "-")),
+#           out$diagnostic_plots$fit_In9, base_height = 7, base_width = 10)
+
 ```
 
 
@@ -478,8 +506,21 @@ my_plts <- map(
 
 # cowplot::plot_grid(plotlist = my_plts)
 
+multi_plt <- my_plts[[11]] / my_plts[[11 - 2]] / my_plts[[1 + 2]]
 
-my_plts[[11]] / my_plts[[11 - 2]] / my_plts[[1 + 2]] / my_plts[[1]]
+
+
+# # Save for review:
+# input_file <- "190903_0025.abf"
+
+# saveRDS(predicted_response_list, 
+#         here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "multi_plt.pdf", sep = "-")),
+#           multi_plt, base_height = 7, base_width = 10)
+
+# test_load <- readRDS(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
+
 ```
 
 ###EPSP
@@ -517,17 +558,32 @@ shading_annotations <- data.frame(
                16.74) + 1.30
 )
 
-ggplot()+
+annotation_df <- data.frame(x = c(0.5, 0.5, 2.1, 1.8),
+                            y = seq(0.25, -1.25, length.out = 4),
+                            text = c("Period",
+                                     "Minumum Period",
+                                     "Burst", 
+                                     "Min Burst"))
+
+segmentation_demo_plt <- ggplot()+
   geom_vline(xintercept = c(shading_annotations$starts, shading_annotations$equal_len, shading_annotations$next_start, shading_annotations$equal_on), color = "gray")+
-    geom_path(data = epsp_stim, aes(Time, Stim+1.5))+
+  geom_path(data = epsp_stim, aes(Time, Stim+1.5))+
   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = next_start, ymin = 0, ymax = 0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_len, ymin = -0.5, ymax = 0), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = on_end, ymin = -1, ymax = -0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_on, ymin = -1.5, ymax = -1), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
   theme_classic()+
-  geom_vline(xintercept = 12.54)+
+  # geom_vline(xintercept = 12.54)+
+  geom_text(data = annotation_df[1:2, ], aes(x=x, y=y, label = text), hjust = "inward", color = RColorBrewer::brewer.pal(3, "Set1")[1])+
+  geom_text(data = annotation_df[3:4, ], aes(x=x, y=y, label = text), hjust = "inward", color = RColorBrewer::brewer.pal(3, "Set1")[2])+
   ylim(-1.5, 9.5)+
   labs(title = "Ways to Segement EPSP Stim")
+
+
+segmentation_demo_plt
+
+save_plot(here("plots", "segmentation_demo_plt.pdf"),
+          segmentation_demo_plt, base_height = 7, base_width = 10)
 ```
 
 
