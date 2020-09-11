@@ -516,7 +516,7 @@ multi_plt <- my_plts[[11]] / my_plts[[11 - 2]] / my_plts[[1 + 2]]
 # input_file <- "190903_0025.abf"
 
 # saveRDS(predicted_response_list, 
-#         here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
+#         here("data", "predicted_voltage", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
 # 
 # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "multi_plt.pdf", sep = "-")),
 #           multi_plt, base_height = 7, base_width = 10)
@@ -587,47 +587,6 @@ segmentation_demo_plt
 save_plot(here("plots", "segmentation_demo_plt.pdf"),
           segmentation_demo_plt, base_height = 7, base_width = 10)
 ```
-
-
-
-```{r}
-# temp <- trace_list$EPSP
-# 
-# downsample_data(df = temp, len = 5000) %>% 
-#   gather(key, value, c("In9", "In12")) %>% 
-#   ungroup() %>% 
-#   mutate(key = factor(.$key, levels = c("In9", "In12"))) %>% 
-#   ggplot(aes(Time, value, group = Sweep))+
-#   geom_line()+
-#   facet_wrap(key~., scales = "free_y", ncol = 1)
-# 
-# 
-# 
-# #r11 == ~15.3
-# #r1 == ~17.9
-# 
-# place_params_for_predict_voltage_trace(tau = 19.9, 
-#                                        Rin = 15.3)
-# 
-# i=1
-# place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
-#                                        Time.ch = "Time", 
-#                                        Inj.ch = "In12")
-#   
-# run_predict_voltage_trace_py()
-#   
-# predicted_response <- retrieve_predicted_voltage()
-# 
-# 
-# ggplot()+
-#   geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "red")+
-#   geom_line(data = predicted_response, aes(Time, predicted-68), color = "black")+
-#   labs(x = "Seconds", y = "mV")
-#       
-
-  
-```
-
 
 #### Proof of principle: Contrasting simulaiton with LIF to regression and VIR
 ```{r}
@@ -722,140 +681,10 @@ save_plot(here("plots", "epsp_prediction_demo.pdf"),
           epsp_prediction_demo, base_height = 7, base_width = 10)
 ```
 
-
-
-
 ```{r}
-M <- readABF_as_matrix2(path = 
-                          # paste0(abf_dir_path, "190915_0019.abf"),
-                          # paste0(abf_dir_path, "181219_0081.abf"),
-                        # paste0(abf_dir_path, "190122_0021.abf"),
-                        paste0(abf_dir_path, "190206_0053.abf"),
-                   channels = "all",
-                   relative.time = T)
-
-temp <- as_tibble(M) %>% 
-  janitor::clean_names(case = "upper_camel") %>% 
-  mutate(Sweep = as.factor(Sweep)) %>% 
-  group_by(Sweep) %>% 
-  mutate(MinTime = min(Time, na.rm = T)) %>% 
-  mutate(Time = Time - MinTime) %>% 
-  filter(Sweep == 1) #%>% 
-  # mutate(In7 = rollmean(In7, 17, fill = "extend"))
-
-
-
-# temp <- trace_list$EPSP
-#TODO make more useful:
-temp_In9_Tau <- abs(mean(unlist(out$df[, "In9_Tau_est"])))
-temp_In9_Rin <- abs(mean(unlist(out$df[, "In9_R1"])))
-
-# downsample_data(df = temp, len = 5000) %>% 
-#   gather(key, value, c("In9", "In12")) %>% 
-#   ungroup() %>% 
-#   mutate(key = factor(.$key, levels = c("In9", "In12"))) %>% 
-#   ggplot(aes(Time, value, group = Sweep))+
-#   geom_line()+
-#   facet_wrap(key~., scales = "free_y", ncol = 1)
-
-place_params_for_predict_voltage_trace(tau = 19.9, 
-                                       Rin = 15.3)
-
-i=1
-temp <- temp[temp$Sweep == i, ]
-
-
-place_data_for_predict_voltage_trace(input.df = temp,
-                                     Time.ch = "Time", 
-                                     Inj.ch = "In12")
-
-run_predict_voltage_trace_py()
-
-predicted_response <- retrieve_predicted_voltage()
-
-#TODO how do we calculate a good offset? Is the trace I'm working with representatiave?
-
-temp_v <- cbind(temp,
-                predict = predicted_response[, "predicted"])
-
-# Get the voltage difference from the end where there is a constant injection
-temp_v_summary <- temp_v %>% ungroup() %>% filter(Time >= 19.38) %>% mutate(temp = predict - In9) %>% summarise(mean = mean(temp),
-                                                                                          median = median(temp),
-                                                                                          sd = sd(temp))
-
-
-# temp_v$abs_inj <- abs(temp_v$In12)
-# temp_v[temp_v$abs_inj <= quantile(temp_v$abs_inj, 0.1), ] %>% mutate(temp = predict - In9) %>% summarise(mean = mean(temp),
-#                                                                                                          median = median(temp),
-#                                                                                                          sd = sd(temp))
-
-ggplot(temp_v, aes(Time))+
-  geom_path(aes(y = In9))+
-  geom_path(aes(y = predict - unlist(temp_v_summary[, "median"])), color = "cornflowerblue")+
-  geom_path(aes(y = In12), color = "firebrick")
-  # geom_vline(xintercept = 19.38)+
-  # coord_cartesian(x = c(19.36, 19.4)) #19.68685))
-
-# ggplot(downsample_data(temp_v, len = 5000), aes(In12))+
-#   geom_point(aes(y = In9))+
-#   geom_point(aes(y = predict), color = "cornflowerblue")
-# 
-# ggplot(downsample_data(temp_v, len = 5000), aes(In9, y = predict))+
-#   # geom_point(aes(y = In9))+
-#   geom_abline(intercept = seq(50, 100, by = 25), slope = 1)+
-#   geom_smooth()+
-#   geom_point(color = "cornflowerblue")
-
-
-
-
-# take the lowest min(abs()) x percent of i inj; find voltage differnce between them, subtract
-
-
-# predicted_response_list <- map(1:4, function(i){
-#   place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ],
-#                                        Time.ch = "Time", 
-#                                        Inj.ch = "In12")
-#   
-#   run_predict_voltage_trace_py()
-#   
-#   predicted_response <- retrieve_predicted_voltage()
-#   return(predicted_response)
-# })
-# 
-# 
-# my_plts <- map(
-#   seq_along(predicted_response_list),
-#   function(i){
-#     ggplot()+
-#       geom_line(data = predicted_response_list[[i]], aes(Time, predicted-56.5), color = "red")+
-#       geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "black")+
-#       labs(x = "Seconds", y = "mV")+
-#       coord_cartesian(y = c(-150, +120))
-#   })
-# 
-# cowplot::plot_grid(plotlist = my_plts)
-```
-
-
-
-```{r}
-# function(trace = trace_list$GJCC){
-
-# temp <- trace_list$EPSP
-#TODO clean up
-
-# tau <- abs(mean(unlist(out$df[, "In9_Tau_est"])))
-# rin <- abs(mean(unlist(out$df[, "In9_R1"])))
-# 
-# v_ch = "In9"
-# i_ch = "In12"
-
-
-
 predict_epsp_responses <- function(trace = trace_list$EPSP,
-                                   tau = abs(mean(unlist(out$df[, "In9_Tau_est"]))),
-                                   rin = abs(mean(unlist(out$df[, "In9_R1"]))),
+                                   tau = 19.8, #abs(mean(unlist(out$df[, "In9_Tau_est"]))),
+                                   rin = 20.0, #abs(mean(unlist(out$df[, "In9_R1"]))),
                                    v_ch = "In9",
                                    i_ch = "In12"
 ){
@@ -864,7 +693,7 @@ predict_epsp_responses <- function(trace = trace_list$EPSP,
   place_params_for_predict_voltage_trace(tau = tau, 
                                          Rin = rin)
   
-  predicted_response_list <- map(1:4, function(i){
+  predicted_response_list <- map(seq(1, length(unique(temp$Sweep))), function(i){
     place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ],
                                          Time.ch = "Time",
                                          Inj.ch = i_ch)
@@ -899,46 +728,19 @@ predict_epsp_responses <- function(trace = trace_list$EPSP,
   trace_plt <- cowplot::plot_grid(plotlist = my_plts)
   
   
-  return(list(trace = trace_plt,
+  return(list(diagnostic_plots = list(trace = trace_plt),
               predictions = predicted_response_list))
 }
 
+out <- predict_epsp_responses()
 
+out$diagnostic_plots$trace
+out$predictions
 
+# saveRDS(out$predictions, 
+#         here("data", "predicted_voltage", paste(str_remove(input_file, ".abf"), "epsp", "predict_v.rds", sep = "-")))
 
-
-
-
-# #TODO how do we calculate a good offset? Is the trace I'm working with representatiave?
-# 
-# temp_v <- cbind(temp,
-#                 predict = predicted_response[, "predicted"])
-# 
-# # Get the voltage difference from the end where there is a constant injection
-# temp_v_summary <- temp_v %>% ungroup() %>% filter(Time >= 19.38) %>% mutate(temp = predict - In9) %>% summarise(mean = mean(temp),
-#                                                                                           median = median(temp),
-#                                                                                           sd = sd(temp))
-# 
-# 
-# 
-# ggplot(temp_v, aes(Time))+
-#   geom_path(aes(y = In9))+
-#   geom_path(aes(y = predict - unlist(temp_v_summary[, "median"])), color = "cornflowerblue")+
-#   geom_path(aes(y = In12), color = "firebrick")
-# 
-# # ggplot(downsample_data(temp_v, len = 5000), aes(In12))+
-# #   geom_point(aes(y = In9))+
-# #   geom_point(aes(y = predict), color = "cornflowerblue")
-# # 
-# # ggplot(downsample_data(temp_v, len = 5000), aes(In9, y = predict))+
-# #   # geom_point(aes(y = In9))+
-# #   geom_abline(intercept = seq(50, 100, by = 25), slope = 1)+
-# #   geom_smooth()+
-# #   geom_point(color = "cornflowerblue")
-
-
-
-
-
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "epsp", "segment.pdf", sep = "-")),
+#           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
 ```
 
