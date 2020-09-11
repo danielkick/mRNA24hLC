@@ -484,7 +484,7 @@ place_params_for_predict_voltage_trace(tau = 19.9,
 # 
 # predicted_response <- retrieve_predicted_voltage()
 
-predicted_response_list <- map(1:11, function(i){
+predicted_response_list <- map(seq(1, length(unique(temp$Sweep))), function(i){
   place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
                                        Time.ch = "Time", 
                                        Inj.ch = "In12")
@@ -524,6 +524,80 @@ multi_plt <- my_plts[[11]] / my_plts[[11 - 2]] / my_plts[[1 + 2]]
 # test_load <- readRDS(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
 
 ```
+
+
+```{r}
+predict_fi_responses <- function(trace = trace_list$FI,
+                                 tau = 19.8, #abs(mean(unlist(out$df[, "In9_Tau_est"]))),
+                                 rin = 20.0, #abs(mean(unlist(out$df[, "In9_R1"]))),
+                                 v_ch = "In9",
+                                 i_ch = "In12"){
+  # trace = trace_list$FI
+  # tau = 19.8
+  # rin = 20.0
+  # v_ch = "In9"
+  # i_ch = "In12"
+  
+  
+  temp <- trace
+  
+  # downsample_data(df = temp, len = 10000) %>% 
+  #   gather(key, value, c(v_ch, i_ch)) %>% 
+  #   ungroup() %>% 
+  #   mutate(key = factor(.$key, levels = c(v_ch, i_ch))) %>% 
+  #   ggplot(aes(Time, value, group = Sweep))+
+  #   geom_line()+
+  #   facet_wrap(key~., scales = "free_y", ncol = 1)
+  
+  place_params_for_predict_voltage_trace(tau = tau, 
+                                         Rin = rin)
+  
+  predicted_response_list <- map(seq(1, length(unique(temp$Sweep))), function(i){
+    place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
+                                         Time.ch = "Time", 
+                                         Inj.ch = i_ch)
+    
+    run_predict_voltage_trace_py()
+    
+    predicted_response <- retrieve_predicted_voltage()
+    
+    pred_v <- predicted_response[predicted_response$Time >= 4, "predicted"]
+    meas_v <- temp[temp$Sweep == i & temp$Time >= 4, v_ch]
+    offset <- median(unlist(pred_v - meas_v), na.rm = T)
+    
+    predicted_response$offset <- offset
+    
+    return(predicted_response)
+  })
+  
+  
+  my_plts <- map(
+    seq_along(predicted_response_list),
+    function(i){
+      ggplot()+
+        geom_line(data = predicted_response_list[[i]], aes(Time, predicted-offset), color = "red")+
+        geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "black")+
+        labs(x = "Seconds", y = "mV")+
+        coord_cartesian(y = c(-150, +120))
+    })
+  
+  
+  
+  return(list(diagnostic_plots = list(traces = my_plts),
+              predictions = predicted_response_list))
+}
+
+
+
+# my_plts[[8]]
+# 
+# cowplot::plot_grid(plotlist = my_plts)
+# 
+# multi_plt <- my_plts[[11]] / my_plts[[11 - 2]] / my_plts[[1 + 2]]
+
+```
+
+
 
 ###EPSP
 (epsp) How could we slice up the trace? 
