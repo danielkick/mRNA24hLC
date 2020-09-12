@@ -20,6 +20,7 @@ library(ggsci)
 library(cowplot)
 library(patchwork)
 
+library(gdata) # for humanReadable
 
 library(minpack.lm) # for use in fit_tau_1term_exp()
 
@@ -46,6 +47,7 @@ use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
 
 abf_dir_path <- "D:/0000_Traces_mRNA24hLC/"
 
+force_process_ABF <- c("000000_0000.abf")
 ```
 
 # Working off of non-processed data ----
@@ -73,7 +75,7 @@ metadata <- read_excel(use.file.path, sheet = "MetadataEphys")
 # names(update_type_names) <- c("InFile", "NewType")
 ```
 
-
+## Check on hand abfs
 ```{r}
 # Check for missing files relative to the abf directory
 
@@ -318,9 +320,993 @@ metadata <- metadata[metadata$Experiment != "190917a", ]
 # 
 ```
 
+
+## Standard Processing
+
+```{r}
+metadata <- metadata %>% 
+  mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
+                            Type %in% c("igj","igj_50", "gj") ~ "gjcc",
+                            Type %in% c("epsp", "epsp_50") ~ "epsp",
+                            Type %in% c("fi_50", "fi") ~ "fi"))
+
+abfs_to_process <- metadata %>% 
+  filter(ABFType %in% c("gjvc", "gjcc", "epsp", "fi")) %>% 
+  filter(Condition %in% c("Baseline", "Compensated", "Delayed"))
+
+# make expected file names
+abfs_to_process <- abfs_to_process %>% 
+  mutate(num_zeros = str_length(Recording)) %>% 
+  mutate(num_zeros = ifelse(num_zeros == 1, "000", 
+                            ifelse(num_zeros == 2, "00", 
+                                   ifelse(num_zeros == 3, "0", NA)))) %>% 
+  mutate(File = paste0(Experiment, "_", num_zeros, as.character(Recording), ".abf" )) %>% 
+  select(-num_zeros)
+
+```
+
+
+```{r}
+# Many experiments with duplicate recordings
+abfs_to_process %>% 
+  select(Experiment, ABFType, In4, In9, File) %>% 
+  gather(key = "Channel", value = "Cell", c("In4", "In9")) %>% 
+  group_by(Experiment, Cell, ABFType) %>% 
+  tally()
+
+abfs_to_process <- abfs_to_process %>% 
+  select(Experiment, ABFType, In4, In9, File) %>% 
+  gather(key = "Channel", value = "Cell", c("In4", "In9")) %>% 
+  mutate(Processed = F)
+
+
+# let's start with one experiment
+# arrange so that gjvc/gjcc are on top.
+abfs_one_exp <- abfs_to_process %>% 
+  filter(Experiment == "190808a") %>% #FIXME 
+  arrange(desc(ABFType), File)
+
+
+abfs_one_exp
+i = 1
+
+current_file <- as.character(abfs_one_exp[i, "File"])
+current_ABFType <- as.character(abfs_one_exp[i, "ABFType"])
+
+
+
+## Should we process the current ABF? ====
+process_current_ABF <- F
+# Does it exist?
+if(!file.exists(paste0(abf_dir_path, current_file))){
+  # write out couldn't find this, doesn't exist, into log
+  warning(paste(current_file, "was not found in the specified location.\nRefer to /data/data_audits/RejectedABFs.csv"))
+  
+  FileRejectionReport <- data.frame(
+    FilePath = abf_dir_path,
+    FileName = current_file,
+    ABFType = NA,
+    FileFound = F,
+    ExpectedSize = NA,
+    ExpectedSweeps = NA,
+    AttemptTime = Sys.time()
+  )
+  
+  write.table(FileRejectionReport, 
+              file = here("data", "data_audits", "RejectedABFs.csv"), 
+              sep = ",",
+              append = T, 
+              row.names = F)
+  
+} else {
+  temp_trace_size <- gdata::humanReadable(file.size(paste0(abf_dir_path, current_file)))
+  temp_trace <- prep_abf(Path = abf_dir_path, FileName = current_file)
+  
+  # Is the file the right size? Does it have the right number of sweeps?
+  if(ABFType == "gjvc"){
+    expected_size <- temp_trace_size == "5.5 MiB"
+    expected_sweeps <- length(unique(temp_trace$Sweep))==9
+    # require_rin_tau <- T
+    
+  }else if(ABFType == "gjcc"){
+    expected_size <- temp_trace_size == "14.3 MiB"
+    expected_sweeps <- length(unique(temp_trace$Sweep))==5
+    # require_rin_tau <- T
+    
+  } else if(ABFType == "epsp"){
+    expected_size <- temp_trace_size == "3.8 MiB"
+    expected_sweeps <- length(unique(temp_trace$Sweep))==4
+    # require_rin_tau <- F
+    
+  } else if (ABFType == "fi"){
+    expected_size <- temp_trace_size == "45.8 MiB"
+    expected_sweeps <- length(unique(temp_trace$Sweep))==11
+    # require_rin_tau <- F
+  }
+  
+  
+  # Should we set `process_current_ABF` to TRUE?
+  # Was everthing as expected OR is it in the "run anyway" list?
+  if ((expected_size & expected_sweeps) | (current_file %in% force_process_ABF)){
+    process_current_ABF <- T
+  } else {
+    # TODO If there was a problem write out to a log in data/data_audits/    
+    
+    warning(paste(current_file, "was rejected. \nAdd it to `force_process_ABF` if you're sure it should be included. \nRefer to /data/data_audits/RejectedABFs.csv"))
+    
+    # write out a doc with those files not run named and why they were not run. Put this in data/data_audits
+    
+    FileRejectionReport <- data.frame(
+      FilePath = abf_dir_path,
+      FileName = current_file,
+      ABFType = current_ABFType,
+      FileFound = T,
+      ExpectedSize = expected_size,
+      ExpectedSweeps = expected_sweeps,
+      AttemptTime = Sys.time()
+    )
+    
+    write.table(FileRejectionReport, 
+                file = here("data", "data_audits", "RejectedABFs.csv"), 
+                sep = ",",
+                append = T, 
+                row.names = F)
+  }
+  
+}
+
+
+## If we decided to, then process it. ====
+if (process_current_ABF) {
+  if (current_ABFType == "gjvc"){
+    out <- process_gjvc_trace(trace = temp_trace)
+    
+    out$diagnostic_plots$trace
+    out$diagnostic_plots$fit
+    
+    out$df
+    
+    # # Save for review:
+    # input_file <- "190903_0020.abf"
+    # 
+    # write.csv(out$df, 
+    #           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "df.csv", sep = "-"))          )
+    # 
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "trace.pdf", sep = "-")),
+    #           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+    # 
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "fit.pdf", sep = "-")),
+    #           out$diagnostic_plots$fit, base_height = 7, base_width = 10)
+    
+  } else if (current_ABFType == "gjcc"){
+    
+    out <- process_gjcc_trace(trace = trace_list$GJCC)
+    
+    out$diagnostic_plots$trace
+    out$diagnostic_plots$segment
+    out$diagnostic_plots$fit_In4
+    out$diagnostic_plots$fit_In9
+    
+    out$df
+    
+    
+    
+    # # Save for review:
+    # input_file <- "190903_0021.abf"
+    # 
+    # write.csv(out$df,
+    #           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "df.csv", sep = "-")))
+    # 
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
+    #           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+    # 
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "segment.pdf", sep = "-")),
+    #           out$diagnostic_plots$segment, base_height = 7, base_width = 10)
+    # 
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "fit_in4.pdf", sep = "-")),
+    #           out$diagnostic_plots$fit_In4, base_height = 7, base_width = 10)
+    # 
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "fit_in9.pdf", sep = "-")),
+    #           out$diagnostic_plots$fit_In9, base_height = 7, base_width = 10)
+    
+  } else if (current_ABFType == "fi"){
+    #TODO retrieve Rin/tau
+    #TODO what do we do if there are multiple estimates of a tau/rin?
+    
+    predict_fi_responses
+    
+    return(list(diagnostic_plots = list(traces = my_plts),
+                predictions = predicted_response_list))
+    # # Save for review:
+    # input_file <- "190903_0025.abf"
+    
+    # saveRDS(predicted_response_list, 
+    #         here("data", "predicted_voltage", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
+    # 
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "multi_plt.pdf", sep = "-")),
+    #           multi_plt, base_height = 7, base_width = 10)
+    
+    # test_load <- readRDS(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
+    
+  } else if (current_ABFType == "epsp"){
+    #TODO retrieve Rin/tau
+    #TODO what do we do if there are multiple estimates of a tau/rin?
+    
+    out <- predict_epsp_responses()
+    
+    out$diagnostic_plots$trace
+    out$predictions
+    
+    # saveRDS(out$predictions, 
+    #         here("data", "predicted_voltage", paste(str_remove(input_file, ".abf"), "epsp", "predict_v.rds", sep = "-")))
+    
+    # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "epsp", "segment.pdf", sep = "-")),
+    #           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+    
+  } 
+  
+}
+
+
+
+
+
+
+
+
+```
+
+
+
+```{r}
+
+# Get filesize
+abfs_to_process$FileSize <- 0
+
+for (i in seq(1, nrow(abfs_to_process))){
+  temp_path <- paste0(abf_dir_path, as.character(abfs_to_process[i, "File"]))
+  
+  if (file.exists(temp_path)){
+    abfs_to_process[i, "FileSize"] <- file.size(temp_path) 
+  }
+}
+
+# Setting heruritcs for the right file sizes
+
+# # Examine File Sizes:
+# abfs_to_process %>% 
+#   mutate(FileSize_h = gdata::humanReadable(FileSize)) %>% 
+#   group_by(Type, FileSize_h) %>% 
+#   tally() %>% 
+#   ungroup() %>% 
+#   group_by(Type, FileSize_h)
+
+
+abfs_to_process <- abfs_to_process %>% 
+  mutate(FileSize_h = gdata::humanReadable(FileSize)) %>% 
+  mutate(ExpectedSize = case_when(ABFType == "epsp" & FileSize_h == " 3.8 MiB" ~ T,
+                                  ABFType == "fi" & FileSize_h == "45.8 MiB" ~ T,
+                                  ABFType == "gjcc" & FileSize_h == "14.3 MiB" ~ T,
+                                  ABFType == "gjvc" & FileSize_h == " 5.5 MiB" ~ T
+                                  ))
+
+# see those not of expected size
+# abfs_to_process[is.na(abfs_to_process$ExpectedSize), ]
+
+```
+
+
+
 ```{r}
 #TODO for each of these files get the relevant data and place it in an rds with some metadata for merging later
+
+# start with any except for fi/epsp
+
+
+
+
+
+
+#TODO get all the non 0 size files and order them based on type so that the epsp/fi are last. 
+#TODO we will check that there are tau/rin for epsp/fi and not run them if we don't have that information.
+
+i=1
+
+
+
+temp_trace <- prep_abf(Path = abf_dir_path, 
+                       FileName = as.character(abfs_to_process[i, "File"])
+                       
+                       # FileName = "190903_0025.abf" # fi
+                       # FileName = "190903_0023.abf" # epsp
+                       # FileName = "190903_0021.abf" # gjcc
+                       # FileName = "190903_0020.abf" # gjvc
+                       
+                       )
+
+ABFType <- as.character(abfs_to_process[i, "ABFType"])
+
+# Expected size?
+ExpectedSize <- as.logical(abfs_to_process[i, "ExpectedSize"])
+
+# Contains expected number of sweeps?
+if (ABFType == "fi"){
+  ExpectedSweeps <- length(unique(temp_trace$Sweep))==11
+  require_rin_tau <- F
+} else if(ABFType == "epsp"){
+  ExpectedSweeps <- length(unique(temp_trace$Sweep))==4
+  require_rin_tau <- F
+} else if(ABFType == "gjcc"){
+  ExpectedSweeps <- length(unique(temp_trace$Sweep))==5
+  require_rin_tau <- T
+} else if(ABFType == "gjvc"){
+  ExpectedSweeps <- length(unique(temp_trace$Sweep))==9
+  require_rin_tau <- T
+}
+
+#TODO which files should be named here?
+ForceAllowFiles <- c()
+# if file is one of those named in "ForceAllowFiles" run it even if it doesn't meet the criteria.
+
+
+## Check if we should process a file and do so. ====
+
+if ( !((ExpectedSize & ExpectedSweeps) | (as.character(abfs_to_process[i, "File"]) %in% ForceAllowFiles)) ){
+  # Fail state
+  warning(paste(as.character(abfs_to_process[i, "File"]), "was rejected. Add it to `ForceAllowFiles` if you're sure it should be included."))
+  # write out a doc with those files not run named and why they were not run. Put this in data/data_audits
+  
+  FileRejectionReport <- data.frame(
+    FileName = as.character(abfs_to_process[i, "File"]),
+    ABFType = as.character(abfs_to_process[i, "ABFType"]),
+    ExpectedSize = ExpectedSize,
+    ExpectedSweeps = ExpectedSweeps,
+    AttemptTime = Sys.time()
+  )
+  
+  write.table(FileRejectionReport, 
+              file = here("data", "data_audits", "RejectedABFs.csv"), 
+              sep = ",",
+              append = T, 
+              row.names = F)
+  
+} else {
+  # Success state
+  
+  if (!require_rin_tau){
+    
+    if(ABFType == "gjcc"){
+      #TODO  
+      
+    } else if(ABFType == "gjvc"){
+      #TODO
+      
+      out <- process_gjvc_trace(trace = temp_trace)
+      
+      out$diagnostic_plots$trace
+      out$diagnostic_plots$fit
+      
+      out$df
+      
+      
+      # # Save for review:
+      # input_file <- "190903_0020.abf"
+      # 
+      # write.csv(out$df, 
+      #           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "df.csv", sep = "-"))          )
+      # 
+      # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "trace.pdf", sep = "-")),
+      #           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+      # 
+      # save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "fit.pdf", sep = "-")),
+      #           out$diagnostic_plots$fit, base_height = 7, base_width = 10)
+      
+    }
+    
+    
+    
+  } else if (require_rin_tau){
+    #TODO if epsp/fi access correct rin/tau
+    if (ABFType == "fi"){
+      #TODO
+      
+    } else if(ABFType == "epsp"){
+      #TODO
+      
+    }
+  }
+}
+
+
+
+
+
 ```
+
+
+
+###GJVC 
+```{r}
+## GJVC: get Ig, Ileak====
+process_gjvc_trace <- function(trace = trace_list$GJVC){
+  ### Setup
+  i_leak <- trace %>%
+    # filter(Time > 0.75) %>%
+    mutate(In4 = as.numeric(In4),
+           In7 = as.numeric(In7),
+           In9 = as.numeric(In9),
+           In12 = as.numeric(In12))
+  
+  i_leak <- i_leak %>% 
+    #When are the step start times? 
+    # 1. In9: ~0.27575
+    # 2. In4: ~1.02532
+    mutate(Inj_in = ifelse(Time > 0.8, "In4", "In9"),
+           Segment = case_when(
+             Time >= (0.07575 - 0.02532) & Time <= (0.27575 - 0.02532) ~ "PreStep", # Inj In9
+             Time >= (0.27575+ 0.17468) & Time <= (0.27575+ 0.22468) ~ "Step",
+             
+             Time >= 0.8 & Time <= 1.0 ~ "PreStep", # Inj In4
+             Time >= 1.2 & Time <= 1.25 ~ "Step"
+           ))
+  
+  plt_tagged_regions <- downsample_data(i_leak, len = 10000) %>%
+    gather("key", "value", c("In4", "In7", "In9", "In12")) %>%
+    mutate(Cell   = case_when(key %in% c("In4", "In7")  ~ "Cell1",
+                              key %in% c("In9", "In12") ~ "Cell2"),
+           Aspect = case_when(key %in% c("In4", "In9")  ~ "mV",
+                              key %in% c("In7", "In12") ~ "nA")
+    ) %>%
+    ggplot(aes(Time, value, color = Segment, group = Sweep))+
+    geom_path()+
+    # facet_wrap(key~., scales = "free")
+    facet_grid(Aspect~Cell, scales = "free")
+  
+  
+  i_leak_for_In4_to_In9 <- i_leak %>% 
+    filter(Inj_in == "In4") %>% 
+    group_by(Sweep, Segment, Inj_in) %>% 
+    mutate(In4Mean = mean(In4, na.rm = T),
+           In7Mean = mean(In7, na.rm = T),
+           In9Mean = mean(In9, na.rm = T),
+           In12Mean =mean(In12, na.rm = T)) %>% 
+    ungroup()
+  
+  i_leak_for_In9_to_In4 <- i_leak %>% 
+    filter(Inj_in == "In9") %>% 
+    group_by(Sweep, Segment, Inj_in) %>% 
+    mutate(In4Mean = mean(In4, na.rm = T),
+           In7Mean = mean(In7, na.rm = T),
+           In9Mean = mean(In9, na.rm = T),
+           In12Mean =mean(In12, na.rm = T)) %>% 
+    ungroup()
+  
+  
+  
+  ### Ig ####
+  i_leak_for_In4_to_In9 <- i_leak_for_In4_to_In9 %>% 
+    select(Sweep, Segment, In4Mean, In7Mean, In9Mean, In12Mean) %>% 
+    filter(Segment != "NA") %>% 
+    distinct() %>% 
+    pivot_wider(names_from = "Segment", 
+                values_from = c("In4Mean", "In12Mean",
+                                "In9Mean", "In7Mean" )) %>% 
+    mutate(In4Mean_Step  = In4Mean_Step - In4Mean_PreStep,
+           In12Mean_Step = In12Mean_Step - In12Mean_PreStep,
+           In9Mean_Step  = In9Mean_Step - In9Mean_PreStep,
+           In7Mean_Step  = In7Mean_Step - In7Mean_PreStep
+    ) %>% 
+    select(Sweep, In4Mean_Step, In12Mean_Step, 
+           In9Mean_Step, In7Mean_Step) %>%
+    rename(In4Mean = In4Mean_Step, In12Mean = In12Mean_Step,
+           In9Mean = In9Mean_Step, In7Mean = In7Mean_Step) %>% 
+    filter(abs(In4Mean) >= 4 | abs(In9Mean) >= 4 )# exclude no step condition 
+  
+  
+  i_leak_for_In9_to_In4 <- i_leak_for_In9_to_In4 %>% 
+    select(Sweep, Segment, In4Mean, In7Mean, In9Mean, In12Mean) %>% 
+    filter(Segment != "NA") %>% 
+    distinct() %>% 
+    pivot_wider(names_from = "Segment", 
+                values_from = c("In4Mean", "In12Mean",
+                                "In9Mean", "In7Mean" )) %>% 
+    mutate(In4Mean_Step  = In4Mean_Step - In4Mean_PreStep,
+           In12Mean_Step = In12Mean_Step - In12Mean_PreStep,
+           In9Mean_Step  = In9Mean_Step - In9Mean_PreStep,
+           In7Mean_Step  = In7Mean_Step - In7Mean_PreStep
+    ) %>% 
+    select(Sweep, In4Mean_Step, In12Mean_Step, 
+           In9Mean_Step, In7Mean_Step) %>%
+    rename(In4Mean = In4Mean_Step, In12Mean = In12Mean_Step,
+           In9Mean = In9Mean_Step, In7Mean = In7Mean_Step) %>% 
+    filter(abs(In4Mean) >= 4 | abs(In9Mean) >= 4 )# exclude no step condition 
+  
+  
+  plt_ig_slopes <- ggplot()+
+    geom_smooth(data = i_leak_for_In4_to_In9, aes(In4Mean, In12Mean), method = lm, color = "red")+
+    geom_point( data = i_leak_for_In4_to_In9, aes(In4Mean, In12Mean), color = "red")+
+    geom_smooth(data = i_leak_for_In9_to_In4, aes(In9Mean, In7Mean), method = lm)+
+    geom_point( data = i_leak_for_In9_to_In4, aes(In9Mean, In7Mean))+
+    labs(x = "Difference in mV", y = "nA")
+  
+  
+  In4_to_In9_Ig <- as.numeric(broom::tidy(lm(In12Mean ~ In4Mean, data = i_leak_for_In4_to_In9))[2, "estimate"])
+  In9_to_In4_Ig <- as.numeric(broom::tidy(lm(In7Mean ~ In9Mean,  data = i_leak_for_In9_to_In4))[2, "estimate"])
+  
+  ### Ileak ####
+  In4_R <- as.numeric(broom::tidy(lm(In7Mean ~ In4Mean,  data = i_leak_for_In4_to_In9))[2, "estimate"])
+  In9_R <- as.numeric(broom::tidy(lm(In12Mean ~ In9Mean, data = i_leak_for_In9_to_In4))[2, "estimate"])
+  In4_R <- In4_R^-1
+  In9_R <- In9_R^-1
+  
+  return(
+    list(diagnostic_plots = list(
+      trace = plt_tagged_regions,
+      fit = plt_ig_slopes),
+      df = data.frame(
+    In4_to_In9 = In4_to_In9_Ig,
+    In9_to_In4 = In9_to_In4_Ig, 
+    In4_R1c = In4_R,
+    In9_R1c = In9_R
+  )
+    )
+  )
+  
+}
+
+
+```
+
+###GJCC
+```{r}
+## GJCC: get CC, R_C, C, Rin ====
+process_gjcc_trace <- function(trace = trace_list$GJCC){
+
+## prep ====
+temp <- trace
+
+temp_plt <- temp %>% 
+  # filter(Sweep == 4) %>%
+  mutate(In4 = as.numeric(In4)) %>% 
+  mutate(In7 = as.numeric(In7))
+
+# Show what the protocol looks like
+plt1 <- downsample_data(temp_plt, len = 1000) %>% 
+  gather(key, value, c("In4", "In9")) %>% 
+  ggplot(aes(Time, value, color = key, group = interaction(Sweep, key)))+
+  geom_path()+
+  scale_color_manual(values = RColorBrewer::brewer.pal(7, name = "PuOr")[c(1, 7)] )
+
+plt2 <- downsample_data(temp_plt, len = 1000) %>% 
+  gather(key, value, c("In7", "In12")) %>% 
+  # mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
+  ggplot(aes(Time, value, color = key, group = interaction(Sweep, key)))+
+  geom_path()+
+  scale_color_manual(values = RColorBrewer::brewer.pal(7, name = "PuOr")[c(7, 1)] )# Without flipping the factor level, get the right colors. 
+
+plt_trace <- plt1/plt2
+
+
+# annotate
+temp <- temp %>% 
+   mutate(Segment = case_when(Time >= 0       & Time <= 0.32820 ~ "A", #"PreStepIn12",
+                              Time >= 1.32836 & Time <= 1.82836 ~ "B", #"StepIn12",
+                              Time >= 2.57744 & Time <= 3.07744 ~ "C", #"PreStepIn7",
+                              Time >= 4.07760 & Time <= 4.57760 ~ "D", #"StepIn7"
+                              ))
+
+## resistances/ coupling ====
+# $$r_{11}=\frac{v_1}{i_1}$$
+# $$r_{12}=\frac{v_2}{i_1}$$
+# $$r_1= \frac{r_{11}*r_{22} - r_{12}^2}{r_{22} - r_{12}}$$
+# $$r_c = \frac{r_{11}*r_{22} - r_{12}^2}{r_{12}}$$
+temp_resist <- temp %>% 
+  group_by(Sweep, Segment) %>% 
+  filter(!is.na(Segment)) %>% 
+  summarise(MeanIn4 = mean(In4, na.rm = T),
+            MeanIn7 = mean(In7, na.rm = T),
+            MeanIn9 = mean(In9, na.rm = T),
+            MeanIn12 = mean(In12, na.rm = T)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = Segment, values_from = c("MeanIn4", "MeanIn7", "MeanIn9", "MeanIn12")) %>% 
+  mutate(In4_CC = MeanIn9_D/MeanIn4_D, #inj in In4
+         In4_R11 = MeanIn4_D/MeanIn7_D,
+         In4_R12 = MeanIn9_D/MeanIn7_D,
+
+         In9_CC = MeanIn4_B/MeanIn9_B, #inj in In9
+         In9_R11 = MeanIn9_B/MeanIn12_B,
+         In9_R12 = MeanIn4_B/MeanIn12_B
+         ) %>% 
+  mutate(mean_R12 = (In4_R12+In9_R12)/2) %>% 
+  mutate(In4_R1 = ((In4_R11*In9_R11) - (mean_R12^2)) / (In9_R11-mean_R12),
+         In4_Rc = ((In4_R11*In9_R11) - (mean_R12^2)) / (mean_R12),
+         
+         In9_R1 = ((In9_R11*In4_R11) - (mean_R12^2)) / (In4_R11-mean_R12),
+         In9_Rc = ((In9_R11*In4_R11) - (mean_R12^2)) / (mean_R12)
+         ) %>% select(starts_with("In"), "Sweep")
+
+## V_rest ====
+temp_rmp <- temp %>% 
+  filter(Segment == "C") %>% 
+  group_by(Sweep) %>% 
+  summarise(In4_Vrest = min(In4, na.rm = T),
+            In9_Vrest = min(In9, na.rm = T))
+
+
+## Tau ====
+temp <- temp %>% 
+   mutate(Segment = case_when(Time >= 3.07744 & Time <= 4.47760 ~ "In4Step", #"PreStepIn7",
+                              Time >= 0.32820 & Time <= 1.72836 ~ "In9Step", #"StepIn7"
+                              ))  
+
+plt1 <- 
+  downsample_data(temp, len = 1000) %>% 
+  gather(Key, Value, c("In4", "In9")) %>% 
+  ggplot(aes(Time, Value, color = Segment, group = interaction(Key, Sweep)))+
+  geom_path()
+
+plt2 <- 
+  downsample_data(temp, len = 1000) %>% 
+  ungroup() %>% 
+  gather(key, value, c("In7", "In12")) %>% 
+  mutate(key = factor(.$key, levels = c("In7", "In12"))) %>% 
+  ggplot(aes(Time, value, color = Segment, group = interaction(key, Sweep)))+
+  geom_path()
+
+plt_segments <- plt1/plt2
+
+
+### in4 
+temp_in4 <- temp %>% 
+  filter(Segment == "In4Step") %>% 
+  mutate(Time = Time - min(Time, na.rm = T))
+
+test_fits <- map(unique(temp_in4$Sweep), function(i){
+  fit_tau_1term_exp(df = filter(temp_in4, Sweep == i),
+                    IV = "Time",
+                    DV = "In4")  
+})
+
+fits_in4 <- map(seq_along(transpose(test_fits)[[1]]), function(i){
+  df <- transpose(test_fits)[[1]][i][[1]]
+  df <- df[df$term == "b", c("estimate", "std.error")]
+  df$Sweep <- i
+  return(df)
+}) %>% 
+  do.call(rbind, .) %>% 
+  rename(In4_Tau_est = estimate, In4_Tau_std.err = std.error) %>% 
+  mutate(Sweep = as.factor(Sweep))
+
+test_fits_plts <- map(seq_along(test_fits), function(i){
+  ggplot()+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = Fit), color = "firebrick")+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = In4), alpha = 0.8)+
+    labs(subtitle = paste("tau =", as.character(
+      round(test_fits[[i]]$fit[2, 2], digits = 3)
+      )))
+})
+
+plt_tau_in4 <- cowplot::plot_grid(plotlist = test_fits_plts)
+
+
+### in9
+temp_in9 <- temp %>% 
+  filter(Segment == "In9Step") %>% 
+  mutate(Time = Time - min(Time, na.rm = T))
+
+test_fits <- map(unique(temp_in9$Sweep), function(i){
+  fit_tau_1term_exp(df = filter(temp_in9, Sweep == i),
+                    IV = "Time",
+                    DV = "In9")  
+})
+
+fits_in9 <- map(seq_along(transpose(test_fits)[[1]]), function(i){
+  df <- transpose(test_fits)[[1]][i][[1]]
+  df <- df[df$term == "b", c("estimate", "std.error")]
+  df$Sweep <- i
+  return(df)
+}) %>% 
+  do.call(rbind, .) %>% 
+  rename(In9_Tau_est = estimate, In9_Tau_std.err = std.error) %>% 
+  mutate(Sweep = as.factor(Sweep))
+
+test_fits_plts <- map(seq_along(test_fits), function(i){
+  ggplot()+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = Fit), color = "firebrick")+
+    geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = In9), alpha = 0.8)+
+    labs(subtitle = paste("tau =", as.character(
+      round(test_fits[[i]]$fit[2, 2], digits = 3)
+      )))
+})
+
+plt_tau_in9 <- cowplot::plot_grid(plotlist = test_fits_plts)
+
+
+## Condense ====
+
+summary_df <- full_join(temp_resist, temp_rmp) %>% full_join(., fits_in4) %>% full_join(., fits_in9)
+
+return(list(
+  diagnostic_plots = list(
+    trace = plt_trace,
+    segment = plt_segments,
+    fit_In4 = plt_tau_in4,
+    fit_In9 = plt_tau_in9
+  ),
+  df = summary_df
+))
+}
+
+out <- process_gjcc_trace(trace = temp_trace)
+
+out$diagnostic_plots$trace
+out$diagnostic_plots$segment
+out$diagnostic_plots$fit_In4
+out$diagnostic_plots$fit_In9
+
+out$df
+
+
+
+# # Save for review:
+# input_file <- "190903_0021.abf"
+# 
+# write.csv(out$df,
+#           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "df.csv", sep = "-")))
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
+#           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "segment.pdf", sep = "-")),
+#           out$diagnostic_plots$segment, base_height = 7, base_width = 10)
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "fit_in4.pdf", sep = "-")),
+#           out$diagnostic_plots$fit_In4, base_height = 7, base_width = 10)
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "fit_in9.pdf", sep = "-")),
+#           out$diagnostic_plots$fit_In9, base_height = 7, base_width = 10)
+
+```
+
+
+
+###FI
+```{r}
+predict_fi_responses <- function(trace = trace_list$FI,
+                                 tau = 19.8, #abs(mean(unlist(out$df[, "In9_Tau_est"]))),
+                                 rin = 20.0, #abs(mean(unlist(out$df[, "In9_R1"]))),
+                                 v_ch = "In9",
+                                 i_ch = "In12"){
+  # trace = trace_list$FI
+  # tau = 19.8
+  # rin = 20.0
+  # v_ch = "In9"
+  # i_ch = "In12"
+  
+  
+  temp <- trace
+  
+  # downsample_data(df = temp, len = 10000) %>% 
+  #   gather(key, value, c(v_ch, i_ch)) %>% 
+  #   ungroup() %>% 
+  #   mutate(key = factor(.$key, levels = c(v_ch, i_ch))) %>% 
+  #   ggplot(aes(Time, value, group = Sweep))+
+  #   geom_line()+
+  #   facet_wrap(key~., scales = "free_y", ncol = 1)
+  
+  place_params_for_predict_voltage_trace(tau = tau, 
+                                         Rin = rin)
+  
+  predicted_response_list <- map(seq(1, length(unique(temp$Sweep))), function(i){
+    place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ], 
+                                         Time.ch = "Time", 
+                                         Inj.ch = i_ch)
+    
+    run_predict_voltage_trace_py()
+    
+    predicted_response <- retrieve_predicted_voltage()
+    
+    pred_v <- predicted_response[predicted_response$Time >= 4, "predicted"]
+    meas_v <- temp[temp$Sweep == i & temp$Time >= 4, v_ch]
+    offset <- median(unlist(pred_v - meas_v), na.rm = T)
+    
+    predicted_response$offset <- offset
+    
+    return(predicted_response)
+  })
+  
+  
+  my_plts <- map(
+    seq_along(predicted_response_list),
+    function(i){
+      ggplot()+
+        geom_line(data = predicted_response_list[[i]], aes(Time, predicted-offset), color = "red")+
+        geom_line(data = temp[temp$Sweep == i, ], aes(Time, In9), color = "black")+
+        labs(x = "Seconds", y = "mV")+
+        coord_cartesian(y = c(-150, +120))
+    })
+  
+  
+  
+  return(list(diagnostic_plots = list(traces = my_plts),
+              predictions = predicted_response_list))
+}
+
+# # Save for review:
+# input_file <- "190903_0025.abf"
+
+# saveRDS(predicted_response_list, 
+#         here("data", "predicted_voltage", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
+# 
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "multi_plt.pdf", sep = "-")),
+#           multi_plt, base_height = 7, base_width = 10)
+
+# test_load <- readRDS(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "fi", "predict_v.rds", sep = "-")))
+```
+
+
+
+###EPSP
+```{r}
+predict_epsp_responses <- function(trace = trace_list$EPSP,
+                                   tau = 19.8, #abs(mean(unlist(out$df[, "In9_Tau_est"]))),
+                                   rin = 20.0, #abs(mean(unlist(out$df[, "In9_R1"]))),
+                                   v_ch = "In9",
+                                   i_ch = "In12"
+){
+  temp <- trace
+  
+  place_params_for_predict_voltage_trace(tau = tau, 
+                                         Rin = rin)
+  
+  predicted_response_list <- map(seq(1, length(unique(temp$Sweep))), function(i){
+    place_data_for_predict_voltage_trace(input.df = temp[temp$Sweep == i, ],
+                                         Time.ch = "Time",
+                                         Inj.ch = i_ch)
+    
+    run_predict_voltage_trace_py()
+    
+    predicted_response <- retrieve_predicted_voltage()
+    
+    
+    pred_v <- predicted_response[predicted_response$Time >= 19.38, "predicted"]
+    meas_v <- temp[temp$Sweep == i & temp$Time >= 19.38, v_ch]
+    offset <- median(unlist(pred_v - meas_v), na.rm = T)
+    
+    predicted_response$offset <- offset
+    
+    return(predicted_response)
+  })
+  
+  
+  
+  my_plts <- map(
+    seq_along(predicted_response_list),
+    function(i){
+      ggplot()+
+        geom_line(data = predicted_response_list[[i]], aes(Time, predicted-offset), color = "cornflowerblue")+
+        geom_line(data = temp[temp$Sweep == i, ], aes_string("Time", v_ch), color = "black")+
+        labs(x = "Seconds", y = "mV")+
+        coord_cartesian(y = c(-100, +100))
+    })
+  
+  
+  trace_plt <- cowplot::plot_grid(plotlist = my_plts)
+  
+  
+  return(list(diagnostic_plots = list(trace = trace_plt),
+              predictions = predicted_response_list))
+}
+
+out <- predict_epsp_responses(temp_trace)
+
+out$diagnostic_plots$trace
+out$predictions
+
+# saveRDS(out$predictions, 
+#         here("data", "predicted_voltage", paste(str_remove(input_file, ".abf"), "epsp", "predict_v.rds", sep = "-")))
+
+# save_plot(here("data", "data_audits", paste(str_remove(input_file, ".abf"), "epsp", "segment.pdf", sep = "-")),
+#           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## Loop over all desired files and extract the relevant metrics. 
