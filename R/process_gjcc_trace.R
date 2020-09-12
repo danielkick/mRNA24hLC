@@ -142,12 +142,14 @@ process_gjcc_trace <- function(trace = trace_list$GJCC){
     mutate(Sweep = as.factor(Sweep))
 
   test_fits_plts <- map(seq_along(test_fits), function(i){
+    if(!is.na(test_fits[[i]]$fit)){
     ggplot()+
       geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = Fit), color = "firebrick")+
       geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = In4), alpha = 0.8)+
       labs(subtitle = paste("tau =", as.character(
         round(test_fits[[i]]$fit[2, 2], digits = 3)
       )))
+    }
   })
 
   plt_tau_in4 <- cowplot::plot_grid(plotlist = test_fits_plts)
@@ -190,12 +192,14 @@ process_gjcc_trace <- function(trace = trace_list$GJCC){
     mutate(Sweep = as.factor(Sweep))
 
   test_fits_plts <- map(seq_along(test_fits), function(i){
-    ggplot()+
+    if(!is.na(test_fits[[i]]$fit)){
+      ggplot()+
       geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = Fit), color = "firebrick")+
       geom_line(data = as.data.frame(test_fits[[i]]$check_fit), aes(x = Time, y = In9), alpha = 0.8)+
       labs(subtitle = paste("tau =", as.character(
         round(test_fits[[i]]$fit[2, 2], digits = 3)
       )))
+    }
   })
 
   plt_tau_in9 <- cowplot::plot_grid(plotlist = test_fits_plts)
