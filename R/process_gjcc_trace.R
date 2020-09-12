@@ -25,14 +25,14 @@ process_gjcc_trace <- function(trace = trace_list$GJCC){
     gather(key, value, c("In4", "In9")) %>%
     ggplot(aes(Time, value, color = key, group = interaction(Sweep, key)))+
     geom_path()+
-    scale_color_manual(values = RColorBrewer::brewer.pal(7, name = "PuOr")[c(1, 7)] )
+    scale_color_manual(values = c("#F8766D", "#00BFC4"))
 
   plt2 <- downsample_data(temp_plt, len = 1000) %>%
     gather(key, value, c("In7", "In12")) %>%
     # mutate(key = factor(.$key, levels = c("In7", "In12"))) %>%
     ggplot(aes(Time, value, color = key, group = interaction(Sweep, key)))+
     geom_path()+
-    scale_color_manual(values = RColorBrewer::brewer.pal(7, name = "PuOr")[c(7, 1)] )# Without flipping the factor level, get the right colors.
+    scale_color_manual(values = c("#00BFC4", "#F8766D"))# Without flipping the factor level, get the right colors.
 
   plt_trace <- plt1/plt2
 
@@ -112,16 +112,30 @@ process_gjcc_trace <- function(trace = trace_list$GJCC){
     mutate(Time = Time - min(Time, na.rm = T))
 
   test_fits <- map(unique(temp_in4$Sweep), function(i){
-    fit_tau_1term_exp(df = filter(temp_in4, Sweep == i),
-                      IV = "Time",
-                      DV = "In4")
+    temp_fit <- try(fit_tau_1term_exp(df = filter(temp_in4, Sweep == i),
+                                      IV = "Time",
+                                      DV = "In4"))
+    if(is.list(temp_fit)){
+      return(temp_fit)
+    } else if (is.character(temp_fit)){
+      warning("Error occured in fitting. Returning nothing.")
+      return(list(fit = NA,
+                  check_fit = NA))
+    } else {
+      warning("Unclear what error has occured in fitting tau for In9.")
+      return()
+    }
   })
 
   fits_in4 <- map(seq_along(transpose(test_fits)[[1]]), function(i){
     df <- transpose(test_fits)[[1]][i][[1]]
-    df <- df[df$term == "b", c("estimate", "std.error")]
-    df$Sweep <- i
-    return(df)
+    if (is.na(df)){
+
+    } else {
+      df <- df[df$term == "b", c("estimate", "std.error")]
+      df$Sweep <- i
+      return(df)
+    }
   }) %>%
     do.call(rbind, .) %>%
     rename(In4_Tau_est = estimate, In4_Tau_std.err = std.error) %>%
@@ -145,16 +159,31 @@ process_gjcc_trace <- function(trace = trace_list$GJCC){
     mutate(Time = Time - min(Time, na.rm = T))
 
   test_fits <- map(unique(temp_in9$Sweep), function(i){
-    fit_tau_1term_exp(df = filter(temp_in9, Sweep == i),
+    temp_fit <- try(fit_tau_1term_exp(df = filter(temp_in9, Sweep == i),
                       IV = "Time",
-                      DV = "In9")
+                      DV = "In9"))
+    if(is.list(temp_fit)){
+      return(temp_fit)
+    } else if (is.character(temp_fit)){
+      warning("Error occured in fitting. Returning nothing.")
+      return(list(fit = NA,
+                  check_fit = NA))
+    } else {
+      warning("Unclear what error has occured in fitting tau for In9.")
+      return()
+    }
+
   })
 
   fits_in9 <- map(seq_along(transpose(test_fits)[[1]]), function(i){
     df <- transpose(test_fits)[[1]][i][[1]]
-    df <- df[df$term == "b", c("estimate", "std.error")]
-    df$Sweep <- i
-    return(df)
+    if (is.na(df)){
+
+    } else {
+      df <- df[df$term == "b", c("estimate", "std.error")]
+      df$Sweep <- i
+      return(df)
+    }
   }) %>%
     do.call(rbind, .) %>%
     rename(In9_Tau_est = estimate, In9_Tau_std.err = std.error) %>%
