@@ -112,8 +112,13 @@ process_gjvc_trace <- function(trace = trace_list$GJVC){
     labs(x = "Difference in mV", y = "nA")
 
 
-  In4_to_In9_Ig <- as.numeric(broom::tidy(lm(In12Mean ~ In4Mean, data = i_leak_for_In4_to_In9))[2, "estimate"])
-  In9_to_In4_Ig <- as.numeric(broom::tidy(lm(In7Mean ~ In9Mean,  data = i_leak_for_In9_to_In4))[2, "estimate"])
+  # This is sensitive to deviations. We're switching to median ratio instead of slope to get a more robust estimation.
+  # In4_to_In9_Ig <- as.numeric(broom::tidy(lm(In12Mean ~ In4Mean, data = i_leak_for_In4_to_In9))[2, "estimate"])
+  # In9_to_In4_Ig <- as.numeric(broom::tidy(lm(In7Mean ~ In9Mean,  data = i_leak_for_In9_to_In4))[2, "estimate"])
+  In4_to_In9_Ig <- median(unlist(i_leak_for_In4_to_In9[, "In12Mean"]) / unlist(i_leak_for_In4_to_In9[, "In4Mean"]), na.rm = T)
+  In9_to_In4_Ig <- median(unlist(i_leak_for_In9_to_In4[, "In7Mean"])  / unlist(i_leak_for_In9_to_In4[, "In9Mean"]), na.rm = T)
+
+
 
   ### Ileak ####
   In4_R <- as.numeric(broom::tidy(lm(In7Mean ~ In4Mean,  data = i_leak_for_In4_to_In9))[2, "estimate"])
