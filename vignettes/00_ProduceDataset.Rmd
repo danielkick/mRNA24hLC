@@ -412,7 +412,6 @@ unique_abfs <- unique_abfs[!(unique_abfs %in% c(
  # Error in lm.fit(x, y, offset = offset, singular.ok = singular.ok, ...) : 
  #  0 (non-NA) cases 
 
-# walk(seq_along(unique_abfs), function(i){
 for (i in seq_along(unique_abfs)){
   print(i)
   # process_these_abfs[process_these_abfs$File == unique_abfs[i], ]
@@ -430,37 +429,10 @@ for (i in seq_along(unique_abfs)){
   if (current_trace$process){
     current_trace <- current_trace$trace
     
-    # added to deal with this error:
-    # Error in lm.fit(x, y, offset = offset, singular.ok = singular.ok, ...) : 
-    #  0 (non-NA) cases 
-    
-    # out <- tryCatch({process_gjvc_trace(trace = current_trace)}, 
-    #          error = function(e) {
-    #            return(list(error_msg = e))
-    #          })
     
     out <- process_gjvc_trace(trace = current_trace)
     
-    if (exists("out$error_msg")){
-      
-      # # If there was an error write it out here
-      # FileRejectionReport <- data.frame(
-      #   FilePath = dir_path,
-      #   FileName = file_name,
-      #   ABFType = file_type,
-      #   FileFound = T,
-      #   ExpectedSize = expected_size,
-      #   ExpectedSweeps = expected_sweeps,
-      #   AttemptTime = Sys.time(),
-      #   ErrorMsg = out$error_msg
-      # )
-      # 
-      # write.table(FileRejectionReport,
-      #             file = here("data", "data_audits", "RejectedABFs.csv"),
-      #             sep = ",",
-      #             append = T,
-      #             row.names = F)
-    } else {
+
           process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In4", "Ig"] <-  out$df[1, "In4_to_In9"]
           process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In9", "Ig"] <-  out$df[1, "In9_to_In4"]
           process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In4", "R1c"] <- out$df[1, "In4_R1c"]
@@ -475,12 +447,11 @@ for (i in seq_along(unique_abfs)){
           
           # write.csv(out$df,
           #           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "df.csv", sep = "-"))          )
-    }
 
     
   } 
 }
-# })
+
 
 tictoc::toc()
 
