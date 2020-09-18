@@ -360,16 +360,16 @@ abfs_to_process <- abfs_to_process %>%
   mutate(Processed = F)
 
 
-# let's start with one experiment
-# arrange so that gjvc/gjcc are on top.
-abfs_one_exp <- abfs_to_process %>% 
-  filter(Experiment == "190808a") %>% #FIXME 
-  arrange(desc(ABFType), File)
-
-abfs_one_ABF <- abfs_one_exp[abfs_one_exp$File == "190808a_0018.abf", ]
 
 
 
+# # let's start with one experiment
+# # arrange so that gjvc/gjcc are on top.
+# abfs_one_exp <- abfs_to_process %>% 
+#   filter(Experiment == "190808a") %>% #FIXME 
+#   arrange(desc(ABFType), File)
+# 
+# abfs_one_ABF <- abfs_one_exp[abfs_one_exp$File == "190808a_0018.abf", ]
 
 # current_file <- as.character(abfs_one_ABF[1, "File"])
 # current_ABFType <- as.character(abfs_one_ABF[1, "ABFType"])
@@ -379,183 +379,116 @@ abfs_one_ABF <- abfs_one_exp[abfs_one_exp$File == "190808a_0018.abf", ]
 #"CC"          "R1"          "R11"         "R12"         "Rc"          "Tau_est"     "Tau_std.err" "Vrest"
 
 
-## Should we process the current ABF? ====
-# process_current_ABF <- F
-# # Does it exist?
-# if(!file.exists(paste0(abf_dir_path, current_file))){
-#   # write out couldn't find this, doesn't exist, into log
-#   warning(paste(current_file, "was not found in the specified location.\nRefer to /data/data_audits/RejectedABFs.csv"))
-#   
-#   FileRejectionReport <- data.frame(
-#     FilePath = abf_dir_path,
-#     FileName = current_file,
-#     ABFType = NA,
-#     FileFound = F,
-#     ExpectedSize = NA,
-#     ExpectedSweeps = NA,
-#     AttemptTime = Sys.time()
-#   )
-#   
-#   write.table(FileRejectionReport, 
-#               file = here("data", "data_audits", "RejectedABFs.csv"), 
-#               sep = ",",
-#               append = T, 
-#               row.names = F)
-#   
-# } else {
-#   temp_trace_size <- gdata::humanReadable(file.size(paste0(abf_dir_path, current_file)))
-#   temp_trace <- prep_abf(Path = abf_dir_path, FileName = current_file)
-#   
-#   # Is the file the right size? Does it have the right number of sweeps?
-#   if(current_ABFType == "gjvc"){
-#     expected_size <- temp_trace_size == "5.5 MiB"
-#     expected_sweeps <- length(unique(temp_trace$Sweep))==9
-#     # require_rin_tau <- T
-#     
-#   }else if(current_ABFType == "gjcc"){
-#     expected_size <- temp_trace_size == "14.3 MiB"
-#     expected_sweeps <- length(unique(temp_trace$Sweep))==5
-#     # require_rin_tau <- T
-#     
-#   } else if(current_ABFType == "epsp"){
-#     expected_size <- temp_trace_size == "3.8 MiB"
-#     expected_sweeps <- length(unique(temp_trace$Sweep))==4
-#     # require_rin_tau <- F
-#     
-#   } else if (current_ABFType == "fi"){
-#     expected_size <- temp_trace_size == "45.8 MiB"
-#     expected_sweeps <- length(unique(temp_trace$Sweep))==11
-#     # require_rin_tau <- F
-#   }
-#   
-#   
-#   # Should we set `process_current_ABF` to TRUE?
-#   # Was everthing as expected OR is it in the "run anyway" list?
-#   if ((expected_size & expected_sweeps) | (current_file %in% force_process_ABF)){
-#     process_current_ABF <- T
-#   } else {
-#     # TODO If there was a problem write out to a log in data/data_audits/    
-#     
-#     warning(paste(current_file, "was rejected. \nAdd it to `force_process_ABF` if you're sure it should be included. \nRefer to /data/data_audits/RejectedABFs.csv"))
-#     
-#     # write out a doc with those files not run named and why they were not run. Put this in data/data_audits
-#     
-#     FileRejectionReport <- data.frame(
-#       FilePath = abf_dir_path,
-#       FileName = current_file,
-#       ABFType = current_ABFType,
-#       FileFound = T,
-#       ExpectedSize = expected_size,
-#       ExpectedSweeps = expected_sweeps,
-#       AttemptTime = Sys.time()
-#     )
-#     
-#     write.table(FileRejectionReport, 
-#                 file = here("data", "data_audits", "RejectedABFs.csv"), 
-#                 sep = ",",
-#                 append = T, 
-#                 row.names = F)
-#   }
-# }
-# 
 
 
-check_abf_expected <- function(
+
+```  
+
+Process gjvcs
+```{r}
+tictoc::tic()
+
+process_these_abfs <- abfs_to_process %>% filter(ABFType == "gjvc")
+
+unique_abfs <- unique(process_these_abfs$File)
+
+
+unique_abfs[i]
+
+# inelegant, but functional. 
+unique_abfs <- unique_abfs[!(unique_abfs %in% c(
+  "190903_0027.abf",
   
-  # force_process_ABF = force_process_ABF,
-  # abf_dir_path = abf_dir_path,
-  # current_file = as.character(abfs_one_ABF[1, "File"]),
-  # current_ABFType = as.character(abfs_one_ABF[1, "ABFType"])  
-    exempt_ABF = force_process_ABF,
-  dir_path = abf_dir_path,
-  file_name = as.character(abfs_one_ABF[1, "File"]),
-  file_type = as.character(abfs_one_ABF[1, "ABFType"])  
-){
-  process_current_ABF <- F
+  "190904_0017.abf", #lm.fit
+  "190904_0027.abf", #lm.fit
   
-  if(!file.exists(paste0(dir_path, file_name))){
-    # write out couldn't find this, doesn't exist, into log
-    warning(paste(file_name, "was not found in the specified location.\nRefer to /data/data_audits/RejectedABFs.csv"))
+  "190906_0031.abf",
+  "190906_0041.abf",
+  
+  "190915_0023.abf"
+))]
+
+# FIXME it seems that "190903_0027.abf" is being run even though it should be rejected\
+ # Error in lm.fit(x, y, offset = offset, singular.ok = singular.ok, ...) : 
+ #  0 (non-NA) cases 
+
+# walk(seq_along(unique_abfs), function(i){
+for (i in seq_along(unique_abfs)){
+  print(i)
+  # process_these_abfs[process_these_abfs$File == unique_abfs[i], ]
+
+  current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
+  ## Should we process the current ABF? ====
+  current_trace <- check_abf_expected(
+    exempt_ABF = force_process_ABF, 
+    dir_path = abf_dir_path,
+    file_name = current_file,
+    file_type = as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "ABFType"])[1])
+  )
+  
+  
+  if (current_trace$process){
+    current_trace <- current_trace$trace
     
-    FileRejectionReport <- data.frame(
-      FilePath = dir_path,
-      FileName = file_name,
-      ABFType = NA,
-      FileFound = F,
-      ExpectedSize = NA,
-      ExpectedSweeps = NA,
-      AttemptTime = Sys.time()
-    )
+    # added to deal with this error:
+    # Error in lm.fit(x, y, offset = offset, singular.ok = singular.ok, ...) : 
+    #  0 (non-NA) cases 
     
-    write.table(FileRejectionReport, 
-                file = here("data", "data_audits", "RejectedABFs.csv"), 
-                sep = ",",
-                append = T, 
-                row.names = F)
+    # out <- tryCatch({process_gjvc_trace(trace = current_trace)}, 
+    #          error = function(e) {
+    #            return(list(error_msg = e))
+    #          })
     
-    temp_trace <-  NA
-    return(list(process = process_current_ABF, trace = temp_trace))
+    out <- process_gjvc_trace(trace = current_trace)
     
-  } else {
-    temp_trace_size <- gdata::humanReadable(file.size(paste0(dir_path, file_name)))
-    temp_trace <- prep_abf(Path = dir_path, FileName = file_name)
-    
-    # Is the file the right size? Does it have the right number of sweeps?
-    if(file_type == "gjvc"){
-      expected_size <- temp_trace_size == "5.5 MiB"
-      expected_sweeps <- length(unique(temp_trace$Sweep))==9
-      # require_rin_tau <- T
+    if (exists("out$error_msg")){
       
-    }else if(file_type == "gjcc"){
-      expected_size <- temp_trace_size == "14.3 MiB"
-      expected_sweeps <- length(unique(temp_trace$Sweep))==5
-      # require_rin_tau <- T
-      
-    } else if(file_type == "epsp"){
-      expected_size <- temp_trace_size == "3.8 MiB"
-      expected_sweeps <- length(unique(temp_trace$Sweep))==4
-      # require_rin_tau <- F
-      
-    } else if (file_type == "fi"){
-      expected_size <- temp_trace_size == "45.8 MiB"
-      expected_sweeps <- length(unique(temp_trace$Sweep))==11
-      # require_rin_tau <- F
-    }
-    
-    
-    # Should we set `process_current_ABF` to TRUE?
-    # Was everthing as expected OR is it in the "run anyway" list?
-    if ((expected_size & expected_sweeps) | (file_name %in% exempt_ABF)){
-      process_current_ABF <- T
+      # # If there was an error write it out here
+      # FileRejectionReport <- data.frame(
+      #   FilePath = dir_path,
+      #   FileName = file_name,
+      #   ABFType = file_type,
+      #   FileFound = T,
+      #   ExpectedSize = expected_size,
+      #   ExpectedSweeps = expected_sweeps,
+      #   AttemptTime = Sys.time(),
+      #   ErrorMsg = out$error_msg
+      # )
+      # 
+      # write.table(FileRejectionReport,
+      #             file = here("data", "data_audits", "RejectedABFs.csv"),
+      #             sep = ",",
+      #             append = T,
+      #             row.names = F)
     } else {
-      # TODO If there was a problem write out to a log in data/data_audits/    
-      
-      warning(paste(file_name, "was rejected. \nAdd it to `exempt_ABF` if you're sure it should be included. \nRefer to /data/data_audits/RejectedABFs.csv"))
-      
-      # write out a doc with those files not run named and why they were not run. Put this in data/data_audits
-      
-      FileRejectionReport <- data.frame(
-        FilePath = dir_path,
-        FileName = file_name,
-        ABFType = file_type,
-        FileFound = T,
-        ExpectedSize = expected_size,
-        ExpectedSweeps = expected_sweeps,
-        AttemptTime = Sys.time()
-      )
-      
-      write.table(FileRejectionReport, 
-                  file = here("data", "data_audits", "RejectedABFs.csv"), 
-                  sep = ",",
-                  append = T, 
-                  row.names = F)
+          process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In4", "Ig"] <-  out$df[1, "In4_to_In9"]
+          process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In9", "Ig"] <-  out$df[1, "In9_to_In4"]
+          process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In4", "R1c"] <- out$df[1, "In4_R1c"]
+          process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In9", "R1c"] <- out$df[1, "In9_R1c"]
+          
+          # Save for review: ####
+          save_plot(here("data", "data_audits", "gjvc", paste(str_remove(current_file, ".abf"), "gjvc", "trace.pdf", sep = "-")),
+                    out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+          
+          save_plot(here("data", "data_audits", "gjvc", paste(str_remove(current_file, ".abf"), "gjvc", "fit.pdf", sep = "-")),
+                    out$diagnostic_plots$fit, base_height = 7, base_width = 10)   
+          
+          # write.csv(out$df,
+          #           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "df.csv", sep = "-"))          )
     }
-    return(list(process = process_current_ABF, trace = temp_trace))
-  }
+
+    
+  } 
 }
+# })
 
-check_abf_expected()
+tictoc::toc()
 
+
+```
+
+
+```{r}
 
 ## If we decided to, then process it. ====
 if (process_current_ABF) {
@@ -620,7 +553,8 @@ if (process_current_ABF) {
 
     
   } 
-```  
+```
+
 
 Get expected voltage response 
 ```{r}
