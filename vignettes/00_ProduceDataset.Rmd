@@ -484,6 +484,8 @@ for (i in seq_along(unique_abfs)){
 
 tictoc::toc()
 
+# merge back
+abfs_to_process <- full_join(abfs_to_process, process_these_abfs)
 
 ```
 
