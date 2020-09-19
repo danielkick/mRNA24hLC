@@ -393,7 +393,7 @@ process_these_abfs <- abfs_to_process %>% filter(ABFType == "gjvc")
 unique_abfs <- unique(process_these_abfs$File)
 
 
-unique_abfs[i]
+# unique_abfs[i]
 
 # inelegant, but functional. 
 unique_abfs <- unique_abfs[!(unique_abfs %in% c(
@@ -458,6 +458,129 @@ tictoc::toc()
 # merge back
 abfs_to_process <- full_join(abfs_to_process, process_these_abfs)
 
+```
+
+
+
+Process gjccs
+```{r}
+tictoc::tic()
+
+process_these_abfs <- abfs_to_process %>% filter(ABFType == "gjcc")
+
+unique_abfs <- unique(process_these_abfs$File)
+
+
+# unique_abfs[i]
+
+# inelegant, but functional. 
+unique_abfs <- unique_abfs[!(unique_abfs %in% c(
+"190830_0033.abf",
+"190905_0018.abf",
+"190906_0032.abf",
+"190906_0050.abf",
+"190907_0014.abf",
+"190918_0029.abf",
+"190924_0021.abf",
+"190924_0036.abf",
+"190924_0037.abf",
+"190926_0016.abf",
+"190927a_0014.abf",
+"190930_0012.abf",
+"191001_0016.abf",
+"191001_0017.abf"
+# 
+#    Error in UseMethod("rename_") : 
+#    no applicable method for 'rename_' applied to an object of class "NULL" 
+# 
+))]
+
+
+
+for (i in seq_along(unique_abfs)
+     ){
+  print(i)
+  # process_these_abfs[process_these_abfs$File == unique_abfs[i], ]
+
+  current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
+  ## Should we process the current ABF? ====
+  current_trace <- check_abf_expected(
+    exempt_ABF = force_process_ABF, 
+    dir_path = abf_dir_path,
+    file_name = current_file,
+    file_type = as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "ABFType"])[1])
+  )
+  
+  
+  if (current_trace$process){
+    current_trace <- current_trace$trace
+    
+    out <- NA
+    out <- process_gjcc_trace(trace = current_trace)
+    
+    # process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In4", "Ig"] <-  out$df[1, "In4_to_In9"]
+    # process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In9", "Ig"] <-  out$df[1, "In9_to_In4"]
+    # process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In4", "R1c"] <- out$df[1, "In4_R1c"]
+    # process_these_abfs[process_these_abfs$File == current_file & process_these_abfs$Channel == "In9", "R1c"] <- out$df[1, "In9_R1c"]
+    # 
+    # # Save for review: ####
+    # save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
+    #           out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+    # 
+    # save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit.pdf", sep = "-")),
+    #           out$diagnostic_plots$fit, base_height = 7, base_width = 10)   
+    # 
+    # # write.csv(out$df,
+    # #           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjvc", "df.csv", sep = "-"))          )
+
+    out_df <- out$df
+    
+    out_df <- out_df %>% 
+      gather("key", "value", names(out_df)[names(out_df) != "Sweep"]) %>% 
+      mutate(key = str_replace_all(key, "In4_", replacement = "In4-"),
+             key = str_replace_all(key, "In9_", replacement = "In9-")) %>% 
+      separate(col = key, sep = "-", into = c("Ch", "DV")) %>% 
+      spread(key = "DV", value = "value") %>% 
+      mutate(File = current_file)
+    
+    
+    process_these_abfs <- full_join(process_these_abfs, out_df)
+    # abfs_one_exp <- full_join(abfs_one_exp, out_df)
+    
+    
+    
+    # Save for review:
+    # Estimates of Tau look poor.
+    save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
+              out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+    
+    save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "segment.pdf", sep = "-")),
+              out$diagnostic_plots$segment, base_height = 7, base_width = 10)
+    
+    save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in4.pdf", sep = "-")),
+              out$diagnostic_plots$fit_In4, base_height = 7, base_width = 10)
+    
+    save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in9.pdf", sep = "-")),
+              out$diagnostic_plots$fit_In9, base_height = 7, base_width = 10)
+    
+    # write.csv(out$df,
+    #           here("data", "data_audits", paste(str_remove(input_file, ".abf"), "gjcc", "df.csv", sep = "-")))
+          
+  } 
+}
+
+
+tictoc::toc()
+
+# merge back
+abfs_to_process <- full_join(abfs_to_process, process_these_abfs)
+
+```
+
+
+```{r}
+i
+current_file
 ```
 
 
