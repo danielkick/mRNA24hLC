@@ -491,6 +491,24 @@ unique_abfs <- unique_abfs[!(unique_abfs %in% c(
 ))]
 
 
+# unique_abfs <- "191004_0027.abf"
+# process_these_abfs <- filter(process_these_abfs, File == "191004_0027.abf") 
+
+# Add cols to fill
+process_these_abfs <- full_join(select(process_these_abfs, -Sweep), 
+                                expand.grid(Experiment = process_these_abfs$Experiment, 
+                                            Sweep = 1:5,
+                                            CC = NA,
+                                            R1 = NA,
+                                            R11 = NA,
+                                            R12 = NA,
+                                            Rc = NA,
+                                            Tau_est = NA,
+                                            Tau_std.err = NA,
+                                            Vrest = NA))
+
+
+
 for (i in seq_along(unique_abfs)){
   print(i)
   # process_these_abfs[process_these_abfs$File == unique_abfs[i], ]
@@ -518,12 +536,26 @@ for (i in seq_along(unique_abfs)){
              key = str_replace_all(key, "In9_", replacement = "In9-")) %>% 
       separate(col = key, sep = "-", into = c("Ch", "DV")) %>% 
       spread(key = "DV", value = "value") %>% 
-      mutate(File = current_file) %>% 
+      mutate(File = current_file,
+             Sweep = as.numeric(Sweep)) %>% 
       rename(Channel = Ch)
     
     
     process_these_abfs <- full_join(process_these_abfs, out_df)
 
+    # row_ids <- out_df %>% select(Sweep, Channel, File) %>% distinct()
+    # # inefficient but functional -- merging isn't working properly
+    # for (j in seq(1, nrow(row_ids))){
+    #   t_sw <- unlist(row_ids[j, "Sweep"])
+    #   t_ch <- unlist(row_ids[j, "Channel"])
+    #   t_fl <- unlist(row_ids[j, "File"])
+    #   
+    #   for (param in c("CC", "R1", "R11", "R12", "Rc", "Tau_est", "Tau_std.err", "Vrest")){
+    #     process_these_abfs[process_these_abfs$File == t_fl & process_these_abfs$Channel == t_ch & process_these_abfs$Sweep == t_sw, param] <- unlist(out_df[out_df$File == t_fl & out_df$Channel == t_ch & out_df$Sweep == t_sw, param])
+    #   }
+    # }
+    
+    
     # Save for review:
     # Estimates of Tau look poor.
     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
@@ -545,11 +577,38 @@ for (i in seq_along(unique_abfs)){
   } 
 }
 
-
+process_these_abfs <- distinct(process_these_abfs) %>% filter(!is.na(R11))
 tictoc::toc()
 
+
+
+# abfs_to_process <- full_join(abfs_to_process, 
+#           process_these_abfs) 
+
+full_join(abfs_to_process, 
+          process_these_abfs) 
+
+process_these_abfs[is.na(process_these_abfs$Experiment), ]
+
+
+t1 <- abfs_to_process %>% filter(File == "190808a_0019.abf")
+t2 <- process_these_abfs %>% filter(File == "190808a_0019.abf")
+
+
+full_join(t1, 
+          select(t2, 
+                 File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
+          ) %>% tail()
+
+
+
+temp_join <- full_join(
+  abfs_to_process, 
+  select(process_these_abfs, 
+         File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
+          )
 # merge back
-abfs_to_process <- full_join(abfs_to_process, process_these_abfs)
+# abfs_to_process <- full_join(abfs_to_process, mutate(, Sweep = as.character(Sweep)))
 
 ```
 
@@ -562,35 +621,78 @@ load('myEnvironment.RData')
 
 
 Data review:
+
+gjcc seems to predict bigger junctional conductance, R1 than gjvc would. 
 ```{r}
-DVs <- c("Ig", "R1c", "CC", "R1", "R11", "R12", "Rc", "Tau_est", "Tau_std.err", "Vrest")
+# abfs_to_process %>% 
+temp_join %>% 
+  group_by(Experiment, Cell) %>% 
+  mutate(Ig = median(Ig, na.rm = T),
+         R1c = median(R1c, na.rm = T)) %>% #tail()
+  ggplot(aes(x = Rc^-1, y = abs(Ig)))+
+  geom_abline(slope = 1, intercept = 0, color = 'firebrick')+
+  # geom_line(data = data.frame(x = seq(1, 50, length.out = 100), y = seq(1, 50, length.out = 100)),
+  #                              aes(x=x,y=y), color = "firebrick")+
+  geom_point()
+  # coord_cartesian(x = c(0, 100))+
+  # scale_x_log10()
 
 
-abfs_medians <- abfs_to_process
 
-# Experiment is missing from a lot of the files
-abfs_medians$Experiment <- unlist(transpose(str_split(abfs_medians$File, pattern = "_"))[1])
-
-abfs_medians <- abfs_medians %>% 
-  ungroup() %>% 
-  select(-Sweep, -ABFType, -Channel, -Processed) %>% 
-  group_by(Experiment, File, Cell) %>%
-  mutate_at(DVs, median, na.rm=T) %>%
-  distinct() %>%
-  ungroup() #%>%
-  # select(-File) %>%
-  # group_by(Experiment, Cell) %>%
-  # mutate_at(DVs, median, na.rm=T) %>%
-  # ungroup() %>%
-  # distinct()
-
-#TODO check that the cells match what we would expect
-#FIXME why are there so many empty metadata cells?
-
-
-abfs_medians %>% View
+temp_join %>% 
+  group_by(Experiment, Cell) %>% 
+  mutate(Ig = median(Ig, na.rm = T),
+         R1c = median(R1c, na.rm = T)) %>% #tail()
+  unite(uid, Experiment, Cell) %>% 
+  ggplot(aes(x = R1, y = R1c, group = uid))+
+  # geom_line()+
+  geom_point()+
+  # geom_abline(slope = 1, intercept = 0, color = 'firebrick')+
+  geom_line(data = data.frame(x = seq(1, 13, length.out = 100), 
+                              y = seq(1, 13, length.out = 100),
+                              uid = "a"),
+  aes(x=x,y=y), color = "firebrick")+
   
-  
+  scale_x_log10()
+  # coord_cartesian(x = c(0, 100))
+```
+
+
+
+```{r}
+# DVs <- c("Ig", "R1c", "CC", "R1", "R11", "R12", "Rc", "Tau_est", "Tau_std.err", "Vrest")
+# 
+# 
+# abfs_medians <- abfs_to_process
+# 
+# 
+# abfs_to_process %>% 
+#   select(-Processed) %>% 
+#   group_by(Experiment, Cell) %>% 
+#   mutate_at(DVs, median, na.rm = T)
+# 
+# 
+# # Experiment is missing from a lot of the files
+# # abfs_medians$Experiment <- unlist(transpose(str_split(abfs_medians$File, pattern = "_"))[1])
+# 
+# # abfs_medians <- abfs_medians %>% 
+# #   ungroup() %>% 
+# #   select(-Sweep, -ABFType, -Channel, -Processed) %>% 
+# #   group_by(Experiment, File, Cell) %>%
+# #   mutate_at(DVs, median, na.rm=T) %>%
+# #   distinct() %>%
+# #   ungroup() %>%
+# #   select(-File) %>%
+# #   group_by(Experiment, Cell) %>%
+# #   mutate_at(DVs, median, na.rm=T) %>%
+# #   ungroup() %>%
+# #   distinct()
+# 
+# 
+# abfs_medians %>% View
+#   
+
+#TODO what is the distance between the automatically and manualy measured values?  
 ```
 
 
