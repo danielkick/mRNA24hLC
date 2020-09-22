@@ -561,14 +561,50 @@ load('myEnvironment.RData')
 ```
 
 
+Data review:
+```{r}
+DVs <- c("Ig", "R1c", "CC", "R1", "R11", "R12", "Rc", "Tau_est", "Tau_std.err", "Vrest")
+
+
+abfs_medians <- abfs_to_process
+
+# Experiment is missing from a lot of the files
+abfs_medians$Experiment <- unlist(transpose(str_split(abfs_medians$File, pattern = "_"))[1])
+
+abfs_medians <- abfs_medians %>% 
+  ungroup() %>% 
+  select(-Sweep, -ABFType, -Channel, -Processed) %>% 
+  group_by(Experiment, File, Cell) %>%
+  mutate_at(DVs, median, na.rm=T) %>%
+  distinct() %>%
+  ungroup() #%>%
+  # select(-File) %>%
+  # group_by(Experiment, Cell) %>%
+  # mutate_at(DVs, median, na.rm=T) %>%
+  # ungroup() %>%
+  # distinct()
+
+#TODO check that the cells match what we would expect
+#FIXME why are there so many empty metadata cells?
+
+
+abfs_medians %>% View
+  
+  
+```
+
+
+```{r}
+#TODO Add in manually measured taus for each cell with unreasonable data. 
+```
 
 
 
 
+Repeat pattern for epsp
 
 
-
-
+Placeholder for fi
 
 
 
