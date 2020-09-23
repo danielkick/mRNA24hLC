@@ -585,24 +585,24 @@ tictoc::toc()
 # abfs_to_process <- full_join(abfs_to_process, 
 #           process_these_abfs) 
 
-full_join(abfs_to_process, 
-          process_these_abfs) 
+# full_join(abfs_to_process, 
+#           process_these_abfs) 
+# 
+# process_these_abfs[is.na(process_these_abfs$Experiment), ]
+# 
+# 
+# t1 <- abfs_to_process %>% filter(File == "190808a_0019.abf")
+# t2 <- process_these_abfs %>% filter(File == "190808a_0019.abf")
+# 
+# 
+# full_join(t1, 
+#           select(t2, 
+#                  File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
+#           ) %>% tail()
 
-process_these_abfs[is.na(process_these_abfs$Experiment), ]
 
 
-t1 <- abfs_to_process %>% filter(File == "190808a_0019.abf")
-t2 <- process_these_abfs %>% filter(File == "190808a_0019.abf")
-
-
-full_join(t1, 
-          select(t2, 
-                 File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
-          ) %>% tail()
-
-
-
-temp_join <- full_join(
+abfs_to_process <- full_join(
   abfs_to_process, 
   select(process_these_abfs, 
          File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
@@ -613,19 +613,19 @@ temp_join <- full_join(
 ```
 
 
-
+### Backup Point
 ```{r}
 save.image(file='myEnvironment.RData')
 load('myEnvironment.RData')
 ```
 
 
-Data review:
+#### Data review:
 
 gjcc seems to predict bigger junctional conductance, R1 than gjvc would. 
 ```{r}
 # abfs_to_process %>% 
-temp_join %>% 
+abfs_to_process %>% 
   group_by(Experiment, Cell) %>% 
   mutate(Ig = median(Ig, na.rm = T),
          R1c = median(R1c, na.rm = T)) %>% #tail()
@@ -639,7 +639,7 @@ temp_join %>%
 
 
 
-temp_join %>% 
+abfs_to_process %>% 
   group_by(Experiment, Cell) %>% 
   mutate(Ig = median(Ig, na.rm = T),
          R1c = median(R1c, na.rm = T)) %>% #tail()
@@ -698,12 +698,872 @@ temp_join %>%
 
 ```{r}
 #TODO Add in manually measured taus for each cell with unreasonable data. 
+
+
+abfs_to_process
+
+```
+
+
+
+```{r}
+#FIXME make sure all the inputs are clean before batch processing epsp/fi
+
+abfs_to_process
+```
+
+Repeat pattern for epsp
+
+```{r}
+tictoc::tic()
+
+process_these_abfs <- abfs_to_process %>% filter(ABFType == "epsp")
+
+unique_abfs <- unique(process_these_abfs$File)
+
+
+# inelegant, but functional. 
+unique_abfs <- unique_abfs[!(unique_abfs %in% c(
+
+))]
+
+
+unique_abfs <- "190808a_0014.abf"
+current_cell_params <- filter(abfs_to_process, Experiment == "190808a", Cell == 4) %>% #FIXME
+  summarise(
+    Experiment = Experiment,
+    Cell = Cell,
+    Channel = Channel,
+    Rin = median(R11, na.rm = T),
+    Tau = median(Tau_est, na.rm = T)) %>% 
+  distinct()
+
+# # A tibble: 1 x 5
+#   Experiment  Cell Channel   Rin   Tau
+#   <chr>      <dbl> <chr>   <dbl> <dbl>
+# 1 190808a        4 In4      14.3 -11.8
+
+
+
+for (i in seq_along(unique_abfs)){
+  print(i)
+  
+  current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
+  ## Should we process the current ABF? ====
+  current_trace <- check_abf_expected(
+    exempt_ABF = force_process_ABF,
+    dir_path = abf_dir_path,
+    file_name = current_file,
+    file_type = as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "ABFType"])[1])
+  )
+  
+  
+  if (current_trace$process){
+    current_trace <- current_trace$trace
+    
+    if (unlist(current_cell_params[, "Channel"]) == "In4"){
+      out <- predict_epsp_responses(trace = current_trace,
+                                    tau = abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+                                    rin = as.numeric(unlist(current_cell_params[, "Rin"])),
+                                    v_ch = "In4",
+                                    i_ch = "In7")
+      
+      # Save for review:
+      saveRDS(current_trace[, c("In4", "In7", "Sweep", "Time")], 
+              here("data", "predicted_voltage", paste(
+                str_remove(current_file, ".abf"), "epsp", "In4", "actual_v.rds", sep = "-")))
+      
+      saveRDS(out$predictions, 
+              here("data", "predicted_voltage", paste(
+                str_remove(current_file, ".abf"), "epsp", "In4", "predict_v.rds", sep = "-")))
+      
+      
+      
+       
+      save_plot(here("data", "data_audits", "epsp", paste(
+        str_remove(current_file, ".abf"), "epsp", "In4", "segment.pdf", sep = "-")),
+        out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+      
+      
+    } else if (unlist(current_cell_params[, "Channel"]) == "In9"){
+      out <- predict_epsp_responses(trace = current_trace,
+                                    tau = abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+                                    rin = as.numeric(unlist(current_cell_params[, "Rin"])),
+                                    v_ch = "In9",
+                                    i_ch = "In12")
+      
+      # Save for review:
+      saveRDS(current_trace[, c("In9", "In12", "Sweep", "Time")], 
+              here("data", "predicted_voltage", paste(
+                str_remove(current_file, ".abf"), "epsp", "In4", "actual_v.rds", sep = "-")))
+      
+      saveRDS(out$predictions, 
+              here("data", "predicted_voltage", paste(
+                str_remove(current_trace, ".abf"), "epsp", "In9", "predict_v.rds", sep = "-")))
+      
+      save_plot(here("data", "data_audits", "epsp", paste(
+        str_remove(current_trace, ".abf"), "epsp", "In9", "segment.pdf", sep = "-")),
+        out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+    }
+  }
+}
+
+
+tictoc::toc()
+
+# for (i in seq_along(unique_abfs)){
+#   print(i)
+#   # process_these_abfs[process_these_abfs$File == unique_abfs[i], ]
+# 
+#   current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
+#   ## Should we process the current ABF? ====
+#   current_trace <- check_abf_expected(
+#     exempt_ABF = force_process_ABF, 
+#     dir_path = abf_dir_path,
+#     file_name = current_file,
+#     file_type = as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "ABFType"])[1])
+#   )
+#   
+#   
+#   if (current_trace$process){
+#     current_trace <- current_trace$trace
+#     
+#     
+#     out <- process_gjcc_trace(trace = current_trace)
+#     
+#     out_df <- out$df 
+#     out_df <- out_df %>% 
+#       gather("key", "value", names(out_df)[names(out_df) != "Sweep"]) %>% 
+#       mutate(key = str_replace_all(key, "In4_", replacement = "In4-"),
+#              key = str_replace_all(key, "In9_", replacement = "In9-")) %>% 
+#       separate(col = key, sep = "-", into = c("Ch", "DV")) %>% 
+#       spread(key = "DV", value = "value") %>% 
+#       mutate(File = current_file,
+#              Sweep = as.numeric(Sweep)) %>% 
+#       rename(Channel = Ch)
+#     
+#     
+#     process_these_abfs <- full_join(process_these_abfs, out_df)
+# 
+#     
+#     
+#     
+#     # Save for review:
+#     # Estimates of Tau look poor.
+#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
+#               out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+#     
+#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "segment.pdf", sep = "-")),
+#               out$diagnostic_plots$segment, base_height = 7, base_width = 10)
+#     
+#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in4.pdf", sep = "-")),
+#               out$diagnostic_plots$fit_In4, base_height = 7, base_width = 10)
+#     
+#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in9.pdf", sep = "-")),
+#               out$diagnostic_plots$fit_In9, base_height = 7, base_width = 10)
+#     
+#     
+#          
+# 
+#     
+#   } 
+# }
+# 
+# process_these_abfs <- distinct(process_these_abfs) %>% filter(!is.na(R11))
+# tictoc::toc()
+# 
+# 
+# 
+# # abfs_to_process <- full_join(abfs_to_process, 
+# #           process_these_abfs) 
+# 
+# full_join(abfs_to_process, 
+#           process_these_abfs) 
+# 
+# process_these_abfs[is.na(process_these_abfs$Experiment), ]
+# 
+# 
+# t1 <- abfs_to_process %>% filter(File == "190808a_0019.abf")
+# t2 <- process_these_abfs %>% filter(File == "190808a_0019.abf")
+# 
+# 
+# full_join(t1, 
+#           select(t2, 
+#                  File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
+#           ) %>% tail()
+# 
+# 
+# 
+# abfs_to_process <- full_join(
+#   abfs_to_process, 
+#   select(process_these_abfs, 
+#          File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
+#           )
+# # merge back
+# # abfs_to_process <- full_join(abfs_to_process, mutate(, Sweep = as.character(Sweep)))
+
+```
+
+
+workspace -- getting metrics from epsp
+```{r}
+# read in trace
+brian2_trace_files <- list.files(here("data", "predicted_voltage"))
+
+brian2_trace_sets <- brian2_trace_files %>% 
+  str_remove(pattern = "-actual_v.rds") %>% 
+  str_remove(pattern = "-predict_v.rds") %>% 
+  unique()
+
+i=1 #FIXME for i in seq all sets
+brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
+
+
+temp <- map(brian2_read_in, function(read_file){
+  temp_predict <- readRDS(here("data", "predicted_voltage", read_file))
+  
+  if(str_detect(read_file, pattern = "predict_v")){
+  #consolidate into one df
+  for (j in seq(1, length(temp_predict))){
+    temp_predict[[j]]$Sweep <- j
+  }
+  temp_predict <- do.call(rbind, temp_predict)
+  }
+  return(temp_predict)
+})
+
+names(temp) <- brian2_read_in
+
+temp_a <- temp[str_detect(names(temp), pattern = "actual_v")][[1]]
+temp_p <- temp[str_detect(names(temp), pattern = "predict_v")][[1]] %>% as.data.frame() %>% as_tibble()
+temp_a$nrow <- seq(1, nrow(temp_a))
+temp_p$nrow <- seq(1, nrow(temp_p))
+temp_a$Sweep <- as.character(temp_a$Sweep)
+temp_p$Sweep <- as.character(temp_p$Sweep)
+
+temp <- full_join(temp_a, select(temp_p, -Time)) %>% select(-nrow)
+
+
+
+
+temp
+
+
+
+```
+
+## Inspiration from dynamic clamp project
+
+```{r eval=FALSE, include=FALSE}
+# First pass at annotation ----
+
+# one.trace %>% ggplot()+
+#   geom_line(aes(x = Time, y = IN.4), color = "Steelblue")+
+#   geom_line(aes(x = Time, y = IN.9), color = "Firebrick")+
+#   geom_hline(yintercept = min(one.trace$IN.4, na.rm = T), color = "Steelblue")+
+#   geom_hline(yintercept = min(one.trace$IN.9, na.rm = T), color = "Firebrick")
+
+
+# one.trace %>%
+#   # Voltage difference
+#   mutate(diff = IN.4 - IN.9) %>% # Not really useful atm
+#   mutate(intersect.V = ifelse( # lower of the two, used for overlap
+#     IN.4 <= IN.9,
+#     IN.4, IN.9
+#     )
+#     ) %>%
+#     mutate(union.V = ifelse( # Higher of the two.
+#     IN.4 >= IN.9,
+#     IN.4, IN.9
+#     )
+#     ) %>%
+#   mutate(higher.V.min = ifelse(
+#     min(one.trace$IN.4, na.rm = T) >= min(one.trace$IN.9, na.rm = T),
+#      min(one.trace$IN.4, na.rm = T),
+#      min(one.trace$IN.9, na.rm = T)
+#   )) %>%
+#   mutate(Overlap.V =  intersect.V - higher.V.min) %>%
+#   ggplot()+
+#   geom_line(aes(x = Time, y = Overlap.V))+
+#   geom_ribbon(aes(x = Time, ymin=min(Overlap.V), ymax=Overlap.V))+
+#   geom_line(aes(x = Time, y = IN.4 - min(one.trace$IN.4, na.rm = T)),
+#             color = "Steelblue",
+#             size = 1)+
+#   geom_line(aes(x = Time, y = IN.9 - min(one.trace$IN.9, na.rm = T)),
+#             color = "Firebrick",
+#             size = 1)
+
+# geom_line(aes(x = Time, y = IN.4), color = "Steelblue")+
+# geom_line(aes(x = Time, y = IN.9), color = "Firebrick")
+# geom_hline(yintercept = min(one.trace$IN.4, na.rm = T), color = "Steelblue")+
+# geom_hline(yintercept = min(one.trace$IN.9, na.rm = T), color = "Firebrick")
+
+# geom_line(aes(x = Time, y = IN.4 - min(one.trace$IN.4, na.rm = T)), color = "Steelblue")+
+# geom_line(aes(x = Time, y = IN.9 - min(one.trace$IN.9, na.rm = T)), color = "Firebrick")+
+# geom_line(aes(x = Time, y = diff))
+
+# Second pass at annotation ----
+
+## Group by trace and add possible predictors to it ====
+
+### min, baseline, max, median, and mean mV, and duration (period) ####
+one.trace <-
+  one.trace %>%
+  ungroup() %>%
+  gather(Ch, mV, c("IN.4", "IN.9")) %>%
+  group_by(Trace, Ch) %>%
+  # Min Voltage
+  mutate(Min.V = min(mV, na.rm = T)) %>%
+  # Baseline voltage
+  # Defining as average of the lowest 20% of points
+  mutate(Use.in.Base = quantile(mV, probs = .2, na.rm = T)) %>%
+  mutate(Use.in.Base = ifelse(mV <= Use.in.Base,
+    mV,
+    NA
+  )) %>%
+  mutate(Use.in.Base = mean(Use.in.Base, na.rm = T)) %>%
+  # Max voltage
+  mutate(Max.V = max(mV, na.rm = T)) %>%
+  # Median Voltage
+  mutate(Med.V = median(mV, na.rm = T)) %>%
+  # Mean Voltage
+  mutate(Mean.V = mean(mV, na.rm = T)) %>%
+  # Duration
+  mutate(Max.Time = max(Time, na.rm = T))
+
+### Delay between channels ####
+# Get time at which voltage traces cross a threshold. Then compute the abs(difference)
+delays.to.annotate <- one.trace %>%
+  mutate(Delay = (mV >= quantile(mV, probs = .9, na.rm = T))) %>%
+  filter(Delay == T) %>%
+  summarise(
+    Thres.Time.b = min(Time, na.rm = T),
+    Thres.Time.e = max(Time, na.rm = T)
+  )
+
+one.trace$Onset <- NA
+one.trace$Termination <- NA
+walk(seq(1, nrow(delays.to.annotate)), function(i) {
+  one.trace[
+    one.trace$Trace == as.character(delays.to.annotate[i, "Trace"]) &
+      one.trace$Ch == as.character(delays.to.annotate[i, "Ch"]),
+    "Onset"
+  ] <<- as.numeric(delays.to.annotate[i, "Thres.Time.b"])
+
+  one.trace[
+    one.trace$Trace == as.character(delays.to.annotate[i, "Trace"]) &
+      one.trace$Ch == as.character(delays.to.annotate[i, "Ch"]),
+    "Termination"
+  ] <<- as.numeric(delays.to.annotate[i, "Thres.Time.e"])
+})
+
+### Add in On duration, Duty Cycle, and AUC ####
+one.trace <- one.trace %>%
+  # On duration
+  mutate(On.Duration = Termination - Onset) %>%
+  # Duty Cycle
+  mutate(Duty.Cycle = On.Duration / Max.Time) %>%
+  # AUC
+  # Using Min.V
+  mutate(AUC = (mV - Min.V))
+
+
+## make a list with more user friendly names ====
+
+# Each elemen tof the list consists of only one channel.
+one.trace.list <- map(c("IN.4", "IN.9"), function(i) {
+  temp <- filter(one.trace, Ch == i)
+
+  temp.names <- names(temp)
+
+  temp.names[!(temp.names %in% c("Trace", "Time", "Ch"))] <-
+    paste(temp.names[!(temp.names %in% c("Trace", "Time", "Ch"))], i, sep = "_")
+
+  names(temp) <- temp.names
+
+  temp %>% ungroup()
+
+  return(temp)
+})
+
+# put the channels back together
+one.trace <- full_join(
+  one.trace.list[[1]],
+  one.trace.list[[2]],
+  by = c("Trace", "Time")
+)
+
+
+##add in delay for each channel (if it starts first it's 0), percent delay, corrlation between channels, and intersectional overlap between channels ==== 
+one.trace <- one.trace %>%
+  dplyr::group_by(Trace) %>%
+  # Delay
+  mutate(Delay_IN.4 = ifelse(
+    Onset_IN.4 <= Onset_IN.9,
+    0,
+    Onset_IN.4 - Onset_IN.9
+  )) %>%
+  mutate(Delay_IN.9 = ifelse(
+    Onset_IN.9 <= Onset_IN.4,
+    0,
+    Onset_IN.9 - Onset_IN.4
+  )) %>%
+  # Percent Delay (can be converted into phase)
+  mutate(P.Delay_IN.4 = Delay_IN.4 / Max.Time_IN.4) %>%
+  mutate(P.Delay_IN.9 = Delay_IN.9 / Max.Time_IN.9) %>%
+  # Correlation
+  mutate(Cor = cor(mV_IN.4, mV_IN.9,
+    use = "pairwise.complete.obs",
+    method = "pearson"
+  )) %>%
+  # intersect AUC / % overlap
+  mutate(Min.AUC = ifelse(AUC_IN.4 <= AUC_IN.9,
+    AUC_IN.4,
+    AUC_IN.9
+  ))
+
+
+## show that min AUC is acting as expected ====
+# one.trace %>%
+#   ggplot(aes(group = Trace)) +
+#   geom_line(aes(x = Time, y = mV_IN.4 - Min.V_IN.4), color = "Blue", alpha = 0.4) +
+#   geom_line(aes(x = Time, y = mV_IN.9 - Min.V_IN.9), color = "Red", alpha = 0.4) +
+#   geom_line(aes(x = Time, y = Min.AUC), color = "Purple") +
+#   facet_grid(. ~ Trace)
+```
+
+```{r eval=FALSE, include=FALSE}
+## Get summary of all ====
+
+# 1. Get single value descriptors for each trace
+one.trace  <- one.trace %>% 
+  ungroup() %>% 
+  dplyr::group_by(Trace) %>% 
+  # Voltages
+  mutate(Mean.Min.V = mean(mean(Min.V_IN.4, na.rm = T), mean(Min.V_IN.9, na.rm = T))) %>% 
+  mutate(Mean.Max.V = mean(mean(Max.V_IN.4, na.rm = T), mean(Max.V_IN.9, na.rm = T))) %>% 
+  mutate(Mean.Med.V = mean(mean(Med.V_IN.4, na.rm = T), mean(Med.V_IN.9, na.rm = T))) %>% 
+  mutate(Mean.Mean.V = mean(mean(Mean.V_IN.4, na.rm = T), mean(Mean.V_IN.9, na.rm = T))) %>% 
+  
+  # Times
+  mutate(Mean.Duration = mean(mean(Max.Time_IN.4, na.rm = T), mean(Max.Time_IN.9, na.rm = T))) %>%
+  mutate(Mean.On.Duration = mean(mean(On.Duration_IN.4, na.rm = T), mean(On.Duration_IN.9, na.rm = T))) %>% 
+  mutate(Mean.Duty.Cycle = mean(mean(Duty.Cycle_IN.4, na.rm = T), mean(Duty.Cycle_IN.9, na.rm = T))) %>% 
+  
+  mutate(Onset.Delay = max(Delay_IN.4, Delay_IN.9, na.rm = T)) %>% 
+  mutate(P.Onset.Delay = max(P.Delay_IN.4, P.Delay_IN.9, na.rm = T)) %>% 
+  
+  # AUCs -- convert to single value of mV/trace
+  mutate(Mean.AUC = mean(sum(AUC_IN.4, na.rm = T), sum(AUC_IN.9, na.rm = T))) %>% 
+  mutate(Min.AUC = sum(Min.AUC, na.rm = T)) %>% 
+  ## and mV/S
+  mutate(Mean.AUC.mV.S = Mean.AUC/Mean.Duration) %>%
+  mutate(Min.AUC.mV.S = Min.AUC/Mean.Duration) %>%
+
+  # Clean up selection
+  dplyr::select(Trace, #Time, 
+                Mean.Min.V, Mean.Max.V, Mean.Med.V, Mean.Mean.V, 
+                Mean.Duration, Mean.On.Duration, Mean.Duty.Cycle, 
+                Onset.Delay, P.Onset.Delay,
+                Mean.AUC, Min.AUC, 
+                Mean.AUC.mV.S, Min.AUC.mV.S,
+                Cor) %>% ungroup()
+ 
+# 2. Remove the duplicate measures.  
+one.trace <- one.trace[!(duplicated(one.trace)), ] 
+
+# 3. Join with gj change datasets
+## get the OG dataset ====
+# Orig <- M.clean %>% 
+Orig <- M.d %>%
+  dplyr::filter(Condition %in% c("PS.0.orig",     
+                                 "PS.22.orig",   
+                                 "PS.45.orig",   
+                                 "PS.90.orig",
+                                 "PS.180.orig"))
+Orig.exps <- Orig$Experiment %>% unique()
+
+## get the standardized dataset ====
+Standard <- M.d %>% 
+  dplyr::filter(Condition %in% c("PS.0.High.Amp", 
+                                 "PS.22.High.Amp", 
+                                 "PS.90.HA",
+                                 "PS.0", 
+                                 "PS.22", 
+                                 "PS.45", 
+                                 "PS.90"))
+
+## Make trace names join-able ====
+new.Trace.names <- stringr::str_split(one.trace$Trace, pattern = "_0") %>% 
+  map(function(i){
+    pluck(i,1)
+  }) %>% unlist()
+
+# Manually fix two
+# Orig.exps[!(Orig.exps %in% new.Trace.names)]
+# new.Trace.names[!(new.Trace.names %in% Orig.exps)]
+new.Trace.names[new.Trace.names == "171016_B"] <- "171016"
+new.Trace.names[new.Trace.names == "171017_A"] <- "171017"
+
+one.trace <- one.trace %>% mutate(Experiment = new.Trace.names)
+
+
+## Produce New Datasets ====
+one.trace.orig <- one.trace[!(one.trace$Trace %in% 
+                                c("180221_0029.abf", 
+                                  "180308_0013.abf",
+                                  "180425_0017.abf",
+                                  "180510_0034.abf",
+                                  "180604_0009.abf",
+                                  "190408_0026.abf",
+                                  "191209_0011.abf")), ]
+
+one.trace.standard <- one.trace[one.trace$Trace %in% 
+                                  c("180221_0029.abf", 
+                                    "180308_0013.abf",
+                                    "180425_0017.abf",
+                                    "180510_0034.abf",
+                                    "180604_0009.abf",
+                                    "190408_0026.abf",
+                                    "191209_0011.abf"), ]
+
+one.trace.standard$Condition <- NA
+one.trace.standard[one.trace.standard$Trace == "180221_0029.abf", "Condition"] <- "PS.0.High.Amp"
+one.trace.standard[one.trace.standard$Trace == "180308_0013.abf", "Condition"] <- "PS.22"
+one.trace.standard[one.trace.standard$Trace == "180425_0017.abf", "Condition"] <- "PS.45"
+one.trace.standard[one.trace.standard$Trace == "180510_0034.abf", "Condition"] <- "PS.0"
+one.trace.standard[one.trace.standard$Trace == "180604_0009.abf", "Condition"] <- "PS.22.High.Amp"
+one.trace.standard[one.trace.standard$Trace == "190408_0026.abf", "Condition"] <- "PS.90"
+one.trace.standard[one.trace.standard$Trace == "191209_0011.abf", "Condition"] <- "PS.90.HA"
+
+
+
+Orig <- full_join(Orig, one.trace.orig, by = "Experiment")
+
+Standard <- full_join(Standard, one.trace.standard, by = "Condition")
+```
+
+Version 1 of the figure displaying individualized data.
+```{r eval=FALSE, include=FALSE}
+# plt.trace.variation <- plt.trace.variation[plt.trace.variation$Trace %in% unique(plt.trace.variation$Trace)[c(1,2,4,11,14,#17,19,
+#                                                                                                               20,21,26)], ]
+
+
+plt.trace.variation <- plt.trace.variation[!(plt.trace.variation$Trace %in% 
+                                c("180221_0029.abf", 
+                                  "180308_0013.abf",
+                                  "180425_0017.abf",
+                                  "180510_0034.abf",
+                                  "180604_0009.abf",
+                                  "190408_0026.abf",
+                                  "191209_0011.abf")),]
+
+# Add in labels for facetting
+temp <- Orig %>% dplyr::select(Condition, Experiment#, Mean.Duration, Mean.On.Duration
+                               ) %>% rename(Trace = Experiment) %>% distinct() 
+
+
+
+# which experiments use the same stim protocol?
+temp1 <- left_join(mutate(plt.trace.variation, Trace = unlist(transpose(str_split(plt.trace.variation$Trace, "_"))[[1]]) ) , temp) %>% dplyr::select(-Condition)
+
+temp1 %>% 
+  group_by(Trace) %>% 
+  summarise(Duration = max(Time)) %>% arrange(Duration)
+	
+#     Trace   Duration
+# 1	  170623b	2.799864
+
+# 2	  170803b	3.165165
+
+# 3	  170825a	3.200130
+# 4	  170925A	3.200130
+
+# 5	  170705a	3.240090
+# 6  	170710	3.240090
+# 7  	170711e	3.240090
+
+# 8	  170814b	4.300029
+
+# 9	  170808a	4.399929
+# 10	170808b	4.399929
+# 11	170811	4.399929
+# 12	171016	4.399929
+# 13	171017	4.399929
+# 14	171201	4.399929
+
+# 15	180717a	5.000000
+
+# 16	170828a	5.200128
+# 17	180717	5.200128
+
+# 18	170728a	5.435892
+# 19	170801a	5.435892
+# 20	170802a	5.435892
+# 21	170803a	5.435892
+
+# 22	180718	5.660000
+# 23	180718a	5.660000
+
+# 24	170817b	5.900094
+
+# 25	170713b	6.216777
+
+# 26	170824a	9.300024
+
+
+
+temp1 %>% 
+  filter(Trace %in% c(
+    # "170623b", "170803b", 
+    # "170825a", "170925A", #same stim
+    # "170705a", "170710", #same stim
+                 "170711e",
+               
+    # "170814b", 
+    # "170808a", "170808b",  "170811",  # Same Stim
+                 "171016",  "171017",  "171201" #(171016 and 171201 look to be the same but the clamp on the latter is much worse -- unlikely that it acts as the same stim. Code it as a separate variable?)
+    # "180717a", 
+    # "170828a", "180717"  # Same Stim
+    # "170728a", "170801a", "170802a", "170803a", #same stim
+    # "180718",  "180718a"#same stim
+    # "170817b", "170713b", "170824a"
+  )) %>% 
+  group_by(Trace) %>% 
+  mutate(Duration = round(max(Time), digits = 2)) %>% 
+  gather(key = Ch, value = mV, c("IN.4", "IN.9")) %>% 
+  ggplot()+
+  geom_line(aes(x = Time, y = mV, group = Trace, color = as.character(Duration)))+
+  facet_grid(Trace~Ch)+
+  theme(legend.position = "")
+
+
+
+```
+
+First test of showing individualized phase
+```{r eval=FALSE, include=FALSE}
+# denomerator <- 16
+for (denomerator in c(16, 8, 4, 2)){
+
+temp2 <- left_join(mutate(plt.trace.variation, Trace = unlist(transpose(str_split(plt.trace.variation$Trace, "_"))[[1]]) ) , temp)
+
+# time.tol <- 0.01
+# temp2[(temp2$Mean.Duration > 3.24-time.tol & temp2$Mean.Duration < 3.24+time.tol) |
+#         (temp2$Mean.Duration > 5.900094-time.tol & temp2$Mean.Duration < 5.900094+time.tol) | 
+#         (temp2$Mean.Duration > 9.300024-time.tol & temp2$Mean.Duration < 9.300024+time.tol), ] %>% 
+
+temp2 <- temp2 %>% dplyr::filter(Trace %in% c("170711e", "170817b")) %>% dplyr::select(-IN.4)
+
+
+
+
+temp2 <- temp2 %>% 
+  group_by(Trace) %>% 
+  mutate(IN.9 = IN.9 - min(IN.9, na.rm = T)) %>%
+  # mutate(mV2 = mV - max(mV, na.rm = T)) %>% 
+  mutate(ShiftSec = max(Time, na.rm = T)/denomerator) %>% 
+  mutate(Time2 = ifelse(Time < max(Time, na.rm = T)-ShiftSec, Time+ShiftSec, Time-(max(Time, na.rm = T)-ShiftSec)) )
+
+# temp2[temp2$Trace == "170817b", "mV2"] <- temp2[temp2$Trace == "170817b", "mV2"] + min(temp2[temp2$Trace == "170711e", "mV2"], na.rm = T)
+# temp2[temp2$Trace == "170817b", "mV"] <- temp2[temp2$Trace == "170817b", "mV2"] + min(temp2[temp2$Trace == "170711e", "mV2"], na.rm = T)
+
+
+X.shift <- (1.57 -0.355)
+
+ggplot(temp2)+
+  geom_line(data = temp2[temp2$Trace == "170711e",], aes(x = Time + X.shift, y = IN.9, group = Trace))+
+  geom_line(data = temp2[temp2$Trace == "170711e",], aes(x = Time2 + X.shift, y = IN.9-10, group = Trace))+
+  geom_line(data = temp2[temp2$Trace == "170817b",], aes(x = Time, y = IN.9-20, group = Trace))+
+  geom_line(data = temp2[temp2$Trace == "170817b",], aes(x = Time2, y = IN.9-30, group = Trace))+
+  geom_segment(aes(x = 0, xend = 1, y = -30, yend = -30), size = 1)+
+  geom_segment(aes(x = 0, xend = 0, y = -30, yend = -25), size = 1)+
+    # geom_vline(xintercept = 1.56)+
+  geom_segment(aes(x = 1.56, xend = 1.56+0.2025056, y = 10, yend = 10), size = 1, color = "cornflowerblue")+
+  geom_segment(aes(x = 1.56, xend = 1.56+0.3687559 , y = -10, yend = -10), size = 1, color = "cornflowerblue")+
+  theme_void()
+  
+ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v1.pdf"))), 
+       width = 8.79, height = 7.21)
+
+ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v1.svg"))), 
+       width = 8.79, height = 7.21)
+}
+```
+
+Second test
+```{r eval=FALSE, include=FALSE}
+# Use fraction shift
+
+
+temp3 <- left_join(mutate(plt.trace.variation, Trace = unlist(transpose(str_split(plt.trace.variation$Trace, "_"))[[1]]) ) , temp)
+
+	
+#   Trace mtime
+# 1	170623b	2.799864
+# 2	170803b	3.165165
+# 3	170825a	3.200130
+# 4	170925A	3.200130
+# 5	170705a	3.240090
+# 6	170710	3.240090
+# 7	170711e	3.240090
+# 8	170814b	4.300029
+# 9	170808a	4.399929
+# 10	170808b	4.399929
+# 11	170811	4.399929
+# 12	171016	4.399929
+# 13	171017	4.399929
+# 14	171201	4.399929
+# 15	180717a	5.000000
+# 16	170828a	5.200128
+# 17	180717	5.200128
+# 18	170728a	5.435892
+# 19	170801a	5.435892
+# 20	170802a	5.435892
+# 21	170803a	5.435892
+# 22	180718	5.660000
+# 23	180718a	5.660000
+# 24	170817b	5.900094
+# 25	170713b	6.216777
+# 26	170824a	9.300024
+
+temp3 <- temp3 %>% dplyr::filter(Trace %in% c("170711e", "170814b", "180718a", "170817b")) %>% dplyr::select(-IN.4)
+
+temp3$Trace <- factor(temp3$Trace, level = c("170711e", "170814b", "180718a", "170817b"))
+
+
+# denomerator <- 16
+
+for (denomerator in c(16, 8, 4, 2)){
+
+temp3 <- temp3 %>% 
+  group_by(Trace) %>% 
+  mutate(IN.9 = IN.9 - min(IN.9, na.rm = T)) %>%
+  # mutate(mV2 = mV - max(mV, na.rm = T)) %>% 
+  mutate(ShiftSec = max(Time, na.rm = T)/denomerator) %>% 
+  mutate(Time2 = ifelse(Time < max(Time, na.rm = T)-ShiftSec, Time+ShiftSec, Time-(max(Time, na.rm = T)-ShiftSec)) ) %>% 
+  ungroup() %>% 
+  mutate(shift_down = max(IN.9, na.rm = T)) %>% 
+  mutate(numeric_fac = as.numeric(as.factor(Trace))) %>% 
+  mutate(mV = IN.9 - (((numeric_fac-1) * 2) * shift_down) - shift_down ) %>% 
+  mutate(mV2 = IN.9 - ((numeric_fac-1) * 2) * shift_down)
+
+  
+annotation_df <- temp3 %>% 
+  group_by(Trace, ShiftSec, numeric_fac) %>% 
+  summarise(#mV_max = max(mV, na.rm = T), 
+            mV_min = min(mV, na.rm = T)#,
+            # mV2_max = max(mV2, na.rm = T)#, 
+            #mV2_min = min(mV2, na.rm = T)
+            ) %>% 
+  ungroup() %>% 
+  mutate(ShiftSec = round(ShiftSec, digits = 3))
+
+
+tic <- Sys.time()
+temp3 %>% 
+  ggplot()+
+  geom_segment(data = annotation_df, aes(x = 0, xend = ShiftSec, y = mV_min, yend = mV_min), color = "cornflowerblue", size = 2)+
+  geom_line(aes(x = Time, y = mV2, group = Trace))+
+  geom_line(aes(x = Time2, y = mV, group = Trace))+
+  geom_text(data = annotation_df, 
+            aes(x = 0.12, y = mV_min+2, label = ShiftSec, group = Trace), 
+            parse = T )+
+  geom_path(data = data.frame(x = c(-0.1, -0.1, 0.9), y = c(-72, -82, -82)), aes(x = x, y = y))+
+  # annotate("text", x = 0.12, y = 11, parse = TRUE, label = as.character(expression(paste(phi, 
+  #                                                                                        " = "
+  #                                                                                        )
+  #                                                                                  )
+  #                                                                       )
+  #          )+
+  theme_void()
+
+ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v2.pdf"))), 
+       width = 8.79, height = 7.21)
+
+ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v2.svg"))), 
+       width = 8.79, height = 7.21)
+}
+```
+
+PCA is now shelved.
+```{r eval=FALSE, include=FALSE}
+
+# temp <- Orig[, c(
+#   "Time",
+#   "r11", "r12", "r1", "rc", "cc", "rmp", 
+#   # "gj", 
+#   # "intercept.peak_htk", "slope.peak_htk", "intercept.end_htk", "slope.end_htk", "intercept.peak_a", "slope.peak_a", "intercept.end_a", "slope.end_a", "a.peak.nA", "htk.peak.nA", 
+#   # "inter", "Trace", 
+#   "Mean.Min.V", "Mean.Max.V", "Mean.Med.V", "Mean.Mean.V", "Mean.Duration", "Mean.On.Duration", "Mean.Duty.Cycle", "Onset.Delay", "P.Onset.Delay", "Mean.AUC", "Min.AUC", "Mean.AUC.mV.S", "Min.AUC.mV.S", "Cor"
+# )] %>% 
+#   dplyr::filter(Time == 40) %>% 
+#   dplyr::select(-Time)
+# 
+# library(factoextra)
+# z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
+# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
+# fviz_pca_var(z, col.var="contrib",
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE # Avoid text overlapping
+#              )
+# 
+# 
+# ## Standardized protocols
+# plt.list <- map(list(
+#   c("PS.0.High.Amp", "PS.22.High.Amp", "PS.90.HA"),
+#   c("PS.22", "PS.45", "PS.0", "PS.90"),
+#   c("PS.0.High.Amp", "PS.22.High.Amp", "PS.90.HA", "PS.22", "PS.45", "PS.0", "PS.90")
+# ), function(i){
+#   temp <- Standard[Standard$Condition %in% i , c(
+#     "Time",
+#     "r11", "r12", "r1", "rc", "cc", "rmp", 
+#     # "gj",
+#     # "intercept.peak_htk", "slope.peak_htk", "intercept.end_htk", "slope.end_htk", "intercept.peak_a", "slope.peak_a", "intercept.end_a", "slope.end_a", "a.peak.nA", "htk.peak.nA",
+#     # "inter", "Trace", 
+#     "Mean.Min.V", "Mean.Max.V", "Mean.Med.V", "Mean.Mean.V", #"Mean.Duration", 
+#          "Mean.On.Duration", "Mean.Duty.Cycle", "Onset.Delay", "P.Onset.Delay", "Mean.AUC", "Min.AUC", "Mean.AUC.mV.S", "Min.AUC.mV.S", "Cor"
+#   )] %>% 
+#     dplyr::filter(Time == 40) %>% 
+#     dplyr::select(-Time)
+#   
+#   z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
+#   plt.scree <- fviz_screeplot(z, addlabels = TRUE#, ylim = c(0, 50)
+#                               )
+#   plt.biplt <- fviz_pca_var(z, col.var="contrib",
+#                             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#                             repel = TRUE # Avoid text overlapping
+#   )
+#   
+#   return(list(scree = plt.scree,
+#               biplt = plt.biplt))
+# })
+# 
+# 
+# plt.list[[1]]$scree
+# plt.list[[1]]$biplt
+# plt.list[[2]]$scree
+# plt.list[[2]]$biplt
+# plt.list[[3]]$scree
+# plt.list[[3]]$biplt
 ```
 
 
 
 
-Repeat pattern for epsp
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 Placeholder for fi
@@ -1543,617 +2403,6 @@ ephys_meta <- ephys_meta %>%
 # }
 
 ```
-
-
-
-
-
-
-## Inspiration from dynamic clamp project
-
-```{r eval=FALSE, include=FALSE}
-# First pass at annotation ----
-
-# one.trace %>% ggplot()+
-#   geom_line(aes(x = Time, y = IN.4), color = "Steelblue")+
-#   geom_line(aes(x = Time, y = IN.9), color = "Firebrick")+
-#   geom_hline(yintercept = min(one.trace$IN.4, na.rm = T), color = "Steelblue")+
-#   geom_hline(yintercept = min(one.trace$IN.9, na.rm = T), color = "Firebrick")
-
-
-# one.trace %>%
-#   # Voltage difference
-#   mutate(diff = IN.4 - IN.9) %>% # Not really useful atm
-#   mutate(intersect.V = ifelse( # lower of the two, used for overlap
-#     IN.4 <= IN.9,
-#     IN.4, IN.9
-#     )
-#     ) %>%
-#     mutate(union.V = ifelse( # Higher of the two.
-#     IN.4 >= IN.9,
-#     IN.4, IN.9
-#     )
-#     ) %>%
-#   mutate(higher.V.min = ifelse(
-#     min(one.trace$IN.4, na.rm = T) >= min(one.trace$IN.9, na.rm = T),
-#      min(one.trace$IN.4, na.rm = T),
-#      min(one.trace$IN.9, na.rm = T)
-#   )) %>%
-#   mutate(Overlap.V =  intersect.V - higher.V.min) %>%
-#   ggplot()+
-#   geom_line(aes(x = Time, y = Overlap.V))+
-#   geom_ribbon(aes(x = Time, ymin=min(Overlap.V), ymax=Overlap.V))+
-#   geom_line(aes(x = Time, y = IN.4 - min(one.trace$IN.4, na.rm = T)),
-#             color = "Steelblue",
-#             size = 1)+
-#   geom_line(aes(x = Time, y = IN.9 - min(one.trace$IN.9, na.rm = T)),
-#             color = "Firebrick",
-#             size = 1)
-
-# geom_line(aes(x = Time, y = IN.4), color = "Steelblue")+
-# geom_line(aes(x = Time, y = IN.9), color = "Firebrick")
-# geom_hline(yintercept = min(one.trace$IN.4, na.rm = T), color = "Steelblue")+
-# geom_hline(yintercept = min(one.trace$IN.9, na.rm = T), color = "Firebrick")
-
-# geom_line(aes(x = Time, y = IN.4 - min(one.trace$IN.4, na.rm = T)), color = "Steelblue")+
-# geom_line(aes(x = Time, y = IN.9 - min(one.trace$IN.9, na.rm = T)), color = "Firebrick")+
-# geom_line(aes(x = Time, y = diff))
-
-# Second pass at annotation ----
-
-## Group by trace and add possible predictors to it ====
-
-### min, baseline, max, median, and mean mV, and duration (period) ####
-one.trace <-
-  one.trace %>%
-  ungroup() %>%
-  gather(Ch, mV, c("IN.4", "IN.9")) %>%
-  group_by(Trace, Ch) %>%
-  # Min Voltage
-  mutate(Min.V = min(mV, na.rm = T)) %>%
-  # Baseline voltage
-  # Defining as average of the lowest 20% of points
-  mutate(Use.in.Base = quantile(mV, probs = .2, na.rm = T)) %>%
-  mutate(Use.in.Base = ifelse(mV <= Use.in.Base,
-    mV,
-    NA
-  )) %>%
-  mutate(Use.in.Base = mean(Use.in.Base, na.rm = T)) %>%
-  # Max voltage
-  mutate(Max.V = max(mV, na.rm = T)) %>%
-  # Median Voltage
-  mutate(Med.V = median(mV, na.rm = T)) %>%
-  # Mean Voltage
-  mutate(Mean.V = mean(mV, na.rm = T)) %>%
-  # Duration
-  mutate(Max.Time = max(Time, na.rm = T))
-
-### Delay between channels ####
-# Get time at which voltage traces cross a threshold. Then compute the abs(difference)
-delays.to.annotate <- one.trace %>%
-  mutate(Delay = (mV >= quantile(mV, probs = .9, na.rm = T))) %>%
-  filter(Delay == T) %>%
-  summarise(
-    Thres.Time.b = min(Time, na.rm = T),
-    Thres.Time.e = max(Time, na.rm = T)
-  )
-
-one.trace$Onset <- NA
-one.trace$Termination <- NA
-walk(seq(1, nrow(delays.to.annotate)), function(i) {
-  one.trace[
-    one.trace$Trace == as.character(delays.to.annotate[i, "Trace"]) &
-      one.trace$Ch == as.character(delays.to.annotate[i, "Ch"]),
-    "Onset"
-  ] <<- as.numeric(delays.to.annotate[i, "Thres.Time.b"])
-
-  one.trace[
-    one.trace$Trace == as.character(delays.to.annotate[i, "Trace"]) &
-      one.trace$Ch == as.character(delays.to.annotate[i, "Ch"]),
-    "Termination"
-  ] <<- as.numeric(delays.to.annotate[i, "Thres.Time.e"])
-})
-
-### Add in On duration, Duty Cycle, and AUC ####
-one.trace <- one.trace %>%
-  # On duration
-  mutate(On.Duration = Termination - Onset) %>%
-  # Duty Cycle
-  mutate(Duty.Cycle = On.Duration / Max.Time) %>%
-  # AUC
-  # Using Min.V
-  mutate(AUC = (mV - Min.V))
-
-
-## make a list with more user friendly names ====
-
-# Each elemen tof the list consists of only one channel.
-one.trace.list <- map(c("IN.4", "IN.9"), function(i) {
-  temp <- filter(one.trace, Ch == i)
-
-  temp.names <- names(temp)
-
-  temp.names[!(temp.names %in% c("Trace", "Time", "Ch"))] <-
-    paste(temp.names[!(temp.names %in% c("Trace", "Time", "Ch"))], i, sep = "_")
-
-  names(temp) <- temp.names
-
-  temp %>% ungroup()
-
-  return(temp)
-})
-
-# put the channels back together
-one.trace <- full_join(
-  one.trace.list[[1]],
-  one.trace.list[[2]],
-  by = c("Trace", "Time")
-)
-
-
-##add in delay for each channel (if it starts first it's 0), percent delay, corrlation between channels, and intersectional overlap between channels ==== 
-one.trace <- one.trace %>%
-  dplyr::group_by(Trace) %>%
-  # Delay
-  mutate(Delay_IN.4 = ifelse(
-    Onset_IN.4 <= Onset_IN.9,
-    0,
-    Onset_IN.4 - Onset_IN.9
-  )) %>%
-  mutate(Delay_IN.9 = ifelse(
-    Onset_IN.9 <= Onset_IN.4,
-    0,
-    Onset_IN.9 - Onset_IN.4
-  )) %>%
-  # Percent Delay (can be converted into phase)
-  mutate(P.Delay_IN.4 = Delay_IN.4 / Max.Time_IN.4) %>%
-  mutate(P.Delay_IN.9 = Delay_IN.9 / Max.Time_IN.9) %>%
-  # Correlation
-  mutate(Cor = cor(mV_IN.4, mV_IN.9,
-    use = "pairwise.complete.obs",
-    method = "pearson"
-  )) %>%
-  # intersect AUC / % overlap
-  mutate(Min.AUC = ifelse(AUC_IN.4 <= AUC_IN.9,
-    AUC_IN.4,
-    AUC_IN.9
-  ))
-
-
-## show that min AUC is acting as expected ====
-# one.trace %>%
-#   ggplot(aes(group = Trace)) +
-#   geom_line(aes(x = Time, y = mV_IN.4 - Min.V_IN.4), color = "Blue", alpha = 0.4) +
-#   geom_line(aes(x = Time, y = mV_IN.9 - Min.V_IN.9), color = "Red", alpha = 0.4) +
-#   geom_line(aes(x = Time, y = Min.AUC), color = "Purple") +
-#   facet_grid(. ~ Trace)
-```
-
-```{r eval=FALSE, include=FALSE}
-## Get summary of all ====
-
-# 1. Get single value descriptors for each trace
-one.trace  <- one.trace %>% 
-  ungroup() %>% 
-  dplyr::group_by(Trace) %>% 
-  # Voltages
-  mutate(Mean.Min.V = mean(mean(Min.V_IN.4, na.rm = T), mean(Min.V_IN.9, na.rm = T))) %>% 
-  mutate(Mean.Max.V = mean(mean(Max.V_IN.4, na.rm = T), mean(Max.V_IN.9, na.rm = T))) %>% 
-  mutate(Mean.Med.V = mean(mean(Med.V_IN.4, na.rm = T), mean(Med.V_IN.9, na.rm = T))) %>% 
-  mutate(Mean.Mean.V = mean(mean(Mean.V_IN.4, na.rm = T), mean(Mean.V_IN.9, na.rm = T))) %>% 
-  
-  # Times
-  mutate(Mean.Duration = mean(mean(Max.Time_IN.4, na.rm = T), mean(Max.Time_IN.9, na.rm = T))) %>%
-  mutate(Mean.On.Duration = mean(mean(On.Duration_IN.4, na.rm = T), mean(On.Duration_IN.9, na.rm = T))) %>% 
-  mutate(Mean.Duty.Cycle = mean(mean(Duty.Cycle_IN.4, na.rm = T), mean(Duty.Cycle_IN.9, na.rm = T))) %>% 
-  
-  mutate(Onset.Delay = max(Delay_IN.4, Delay_IN.9, na.rm = T)) %>% 
-  mutate(P.Onset.Delay = max(P.Delay_IN.4, P.Delay_IN.9, na.rm = T)) %>% 
-  
-  # AUCs -- convert to single value of mV/trace
-  mutate(Mean.AUC = mean(sum(AUC_IN.4, na.rm = T), sum(AUC_IN.9, na.rm = T))) %>% 
-  mutate(Min.AUC = sum(Min.AUC, na.rm = T)) %>% 
-  ## and mV/S
-  mutate(Mean.AUC.mV.S = Mean.AUC/Mean.Duration) %>%
-  mutate(Min.AUC.mV.S = Min.AUC/Mean.Duration) %>%
-
-  # Clean up selection
-  dplyr::select(Trace, #Time, 
-                Mean.Min.V, Mean.Max.V, Mean.Med.V, Mean.Mean.V, 
-                Mean.Duration, Mean.On.Duration, Mean.Duty.Cycle, 
-                Onset.Delay, P.Onset.Delay,
-                Mean.AUC, Min.AUC, 
-                Mean.AUC.mV.S, Min.AUC.mV.S,
-                Cor) %>% ungroup()
- 
-# 2. Remove the duplicate measures.  
-one.trace <- one.trace[!(duplicated(one.trace)), ] 
-
-# 3. Join with gj change datasets
-## get the OG dataset ====
-# Orig <- M.clean %>% 
-Orig <- M.d %>%
-  dplyr::filter(Condition %in% c("PS.0.orig",     
-                                 "PS.22.orig",   
-                                 "PS.45.orig",   
-                                 "PS.90.orig",
-                                 "PS.180.orig"))
-Orig.exps <- Orig$Experiment %>% unique()
-
-## get the standardized dataset ====
-Standard <- M.d %>% 
-  dplyr::filter(Condition %in% c("PS.0.High.Amp", 
-                                 "PS.22.High.Amp", 
-                                 "PS.90.HA",
-                                 "PS.0", 
-                                 "PS.22", 
-                                 "PS.45", 
-                                 "PS.90"))
-
-## Make trace names join-able ====
-new.Trace.names <- stringr::str_split(one.trace$Trace, pattern = "_0") %>% 
-  map(function(i){
-    pluck(i,1)
-  }) %>% unlist()
-
-# Manually fix two
-# Orig.exps[!(Orig.exps %in% new.Trace.names)]
-# new.Trace.names[!(new.Trace.names %in% Orig.exps)]
-new.Trace.names[new.Trace.names == "171016_B"] <- "171016"
-new.Trace.names[new.Trace.names == "171017_A"] <- "171017"
-
-one.trace <- one.trace %>% mutate(Experiment = new.Trace.names)
-
-
-## Produce New Datasets ====
-one.trace.orig <- one.trace[!(one.trace$Trace %in% 
-                                c("180221_0029.abf", 
-                                  "180308_0013.abf",
-                                  "180425_0017.abf",
-                                  "180510_0034.abf",
-                                  "180604_0009.abf",
-                                  "190408_0026.abf",
-                                  "191209_0011.abf")), ]
-
-one.trace.standard <- one.trace[one.trace$Trace %in% 
-                                  c("180221_0029.abf", 
-                                    "180308_0013.abf",
-                                    "180425_0017.abf",
-                                    "180510_0034.abf",
-                                    "180604_0009.abf",
-                                    "190408_0026.abf",
-                                    "191209_0011.abf"), ]
-
-one.trace.standard$Condition <- NA
-one.trace.standard[one.trace.standard$Trace == "180221_0029.abf", "Condition"] <- "PS.0.High.Amp"
-one.trace.standard[one.trace.standard$Trace == "180308_0013.abf", "Condition"] <- "PS.22"
-one.trace.standard[one.trace.standard$Trace == "180425_0017.abf", "Condition"] <- "PS.45"
-one.trace.standard[one.trace.standard$Trace == "180510_0034.abf", "Condition"] <- "PS.0"
-one.trace.standard[one.trace.standard$Trace == "180604_0009.abf", "Condition"] <- "PS.22.High.Amp"
-one.trace.standard[one.trace.standard$Trace == "190408_0026.abf", "Condition"] <- "PS.90"
-one.trace.standard[one.trace.standard$Trace == "191209_0011.abf", "Condition"] <- "PS.90.HA"
-
-
-
-Orig <- full_join(Orig, one.trace.orig, by = "Experiment")
-
-Standard <- full_join(Standard, one.trace.standard, by = "Condition")
-```
-
-Version 1 of the figure displaying individualized data.
-```{r eval=FALSE, include=FALSE}
-# plt.trace.variation <- plt.trace.variation[plt.trace.variation$Trace %in% unique(plt.trace.variation$Trace)[c(1,2,4,11,14,#17,19,
-#                                                                                                               20,21,26)], ]
-
-
-plt.trace.variation <- plt.trace.variation[!(plt.trace.variation$Trace %in% 
-                                c("180221_0029.abf", 
-                                  "180308_0013.abf",
-                                  "180425_0017.abf",
-                                  "180510_0034.abf",
-                                  "180604_0009.abf",
-                                  "190408_0026.abf",
-                                  "191209_0011.abf")),]
-
-# Add in labels for facetting
-temp <- Orig %>% dplyr::select(Condition, Experiment#, Mean.Duration, Mean.On.Duration
-                               ) %>% rename(Trace = Experiment) %>% distinct() 
-
-
-
-# which experiments use the same stim protocol?
-temp1 <- left_join(mutate(plt.trace.variation, Trace = unlist(transpose(str_split(plt.trace.variation$Trace, "_"))[[1]]) ) , temp) %>% dplyr::select(-Condition)
-
-temp1 %>% 
-  group_by(Trace) %>% 
-  summarise(Duration = max(Time)) %>% arrange(Duration)
-	
-#     Trace   Duration
-# 1	  170623b	2.799864
-
-# 2	  170803b	3.165165
-
-# 3	  170825a	3.200130
-# 4	  170925A	3.200130
-
-# 5	  170705a	3.240090
-# 6  	170710	3.240090
-# 7  	170711e	3.240090
-
-# 8	  170814b	4.300029
-
-# 9	  170808a	4.399929
-# 10	170808b	4.399929
-# 11	170811	4.399929
-# 12	171016	4.399929
-# 13	171017	4.399929
-# 14	171201	4.399929
-
-# 15	180717a	5.000000
-
-# 16	170828a	5.200128
-# 17	180717	5.200128
-
-# 18	170728a	5.435892
-# 19	170801a	5.435892
-# 20	170802a	5.435892
-# 21	170803a	5.435892
-
-# 22	180718	5.660000
-# 23	180718a	5.660000
-
-# 24	170817b	5.900094
-
-# 25	170713b	6.216777
-
-# 26	170824a	9.300024
-
-
-
-temp1 %>% 
-  filter(Trace %in% c(
-    # "170623b", "170803b", 
-    # "170825a", "170925A", #same stim
-    # "170705a", "170710", #same stim
-                 "170711e",
-               
-    # "170814b", 
-    # "170808a", "170808b",  "170811",  # Same Stim
-                 "171016",  "171017",  "171201" #(171016 and 171201 look to be the same but the clamp on the latter is much worse -- unlikely that it acts as the same stim. Code it as a separate variable?)
-    # "180717a", 
-    # "170828a", "180717"  # Same Stim
-    # "170728a", "170801a", "170802a", "170803a", #same stim
-    # "180718",  "180718a"#same stim
-    # "170817b", "170713b", "170824a"
-  )) %>% 
-  group_by(Trace) %>% 
-  mutate(Duration = round(max(Time), digits = 2)) %>% 
-  gather(key = Ch, value = mV, c("IN.4", "IN.9")) %>% 
-  ggplot()+
-  geom_line(aes(x = Time, y = mV, group = Trace, color = as.character(Duration)))+
-  facet_grid(Trace~Ch)+
-  theme(legend.position = "")
-
-
-
-```
-
-First test of showing individualized phase
-```{r eval=FALSE, include=FALSE}
-# denomerator <- 16
-for (denomerator in c(16, 8, 4, 2)){
-
-temp2 <- left_join(mutate(plt.trace.variation, Trace = unlist(transpose(str_split(plt.trace.variation$Trace, "_"))[[1]]) ) , temp)
-
-# time.tol <- 0.01
-# temp2[(temp2$Mean.Duration > 3.24-time.tol & temp2$Mean.Duration < 3.24+time.tol) |
-#         (temp2$Mean.Duration > 5.900094-time.tol & temp2$Mean.Duration < 5.900094+time.tol) | 
-#         (temp2$Mean.Duration > 9.300024-time.tol & temp2$Mean.Duration < 9.300024+time.tol), ] %>% 
-
-temp2 <- temp2 %>% dplyr::filter(Trace %in% c("170711e", "170817b")) %>% dplyr::select(-IN.4)
-
-
-
-
-temp2 <- temp2 %>% 
-  group_by(Trace) %>% 
-  mutate(IN.9 = IN.9 - min(IN.9, na.rm = T)) %>%
-  # mutate(mV2 = mV - max(mV, na.rm = T)) %>% 
-  mutate(ShiftSec = max(Time, na.rm = T)/denomerator) %>% 
-  mutate(Time2 = ifelse(Time < max(Time, na.rm = T)-ShiftSec, Time+ShiftSec, Time-(max(Time, na.rm = T)-ShiftSec)) )
-
-# temp2[temp2$Trace == "170817b", "mV2"] <- temp2[temp2$Trace == "170817b", "mV2"] + min(temp2[temp2$Trace == "170711e", "mV2"], na.rm = T)
-# temp2[temp2$Trace == "170817b", "mV"] <- temp2[temp2$Trace == "170817b", "mV2"] + min(temp2[temp2$Trace == "170711e", "mV2"], na.rm = T)
-
-
-X.shift <- (1.57 -0.355)
-
-ggplot(temp2)+
-  geom_line(data = temp2[temp2$Trace == "170711e",], aes(x = Time + X.shift, y = IN.9, group = Trace))+
-  geom_line(data = temp2[temp2$Trace == "170711e",], aes(x = Time2 + X.shift, y = IN.9-10, group = Trace))+
-  geom_line(data = temp2[temp2$Trace == "170817b",], aes(x = Time, y = IN.9-20, group = Trace))+
-  geom_line(data = temp2[temp2$Trace == "170817b",], aes(x = Time2, y = IN.9-30, group = Trace))+
-  geom_segment(aes(x = 0, xend = 1, y = -30, yend = -30), size = 1)+
-  geom_segment(aes(x = 0, xend = 0, y = -30, yend = -25), size = 1)+
-    # geom_vline(xintercept = 1.56)+
-  geom_segment(aes(x = 1.56, xend = 1.56+0.2025056, y = 10, yend = 10), size = 1, color = "cornflowerblue")+
-  geom_segment(aes(x = 1.56, xend = 1.56+0.3687559 , y = -10, yend = -10), size = 1, color = "cornflowerblue")+
-  theme_void()
-  
-ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v1.pdf"))), 
-       width = 8.79, height = 7.21)
-
-ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v1.svg"))), 
-       width = 8.79, height = 7.21)
-}
-```
-
-Second test
-```{r eval=FALSE, include=FALSE}
-# Use fraction shift
-
-
-temp3 <- left_join(mutate(plt.trace.variation, Trace = unlist(transpose(str_split(plt.trace.variation$Trace, "_"))[[1]]) ) , temp)
-
-	
-#   Trace mtime
-# 1	170623b	2.799864
-# 2	170803b	3.165165
-# 3	170825a	3.200130
-# 4	170925A	3.200130
-# 5	170705a	3.240090
-# 6	170710	3.240090
-# 7	170711e	3.240090
-# 8	170814b	4.300029
-# 9	170808a	4.399929
-# 10	170808b	4.399929
-# 11	170811	4.399929
-# 12	171016	4.399929
-# 13	171017	4.399929
-# 14	171201	4.399929
-# 15	180717a	5.000000
-# 16	170828a	5.200128
-# 17	180717	5.200128
-# 18	170728a	5.435892
-# 19	170801a	5.435892
-# 20	170802a	5.435892
-# 21	170803a	5.435892
-# 22	180718	5.660000
-# 23	180718a	5.660000
-# 24	170817b	5.900094
-# 25	170713b	6.216777
-# 26	170824a	9.300024
-
-temp3 <- temp3 %>% dplyr::filter(Trace %in% c("170711e", "170814b", "180718a", "170817b")) %>% dplyr::select(-IN.4)
-
-temp3$Trace <- factor(temp3$Trace, level = c("170711e", "170814b", "180718a", "170817b"))
-
-
-# denomerator <- 16
-
-for (denomerator in c(16, 8, 4, 2)){
-
-temp3 <- temp3 %>% 
-  group_by(Trace) %>% 
-  mutate(IN.9 = IN.9 - min(IN.9, na.rm = T)) %>%
-  # mutate(mV2 = mV - max(mV, na.rm = T)) %>% 
-  mutate(ShiftSec = max(Time, na.rm = T)/denomerator) %>% 
-  mutate(Time2 = ifelse(Time < max(Time, na.rm = T)-ShiftSec, Time+ShiftSec, Time-(max(Time, na.rm = T)-ShiftSec)) ) %>% 
-  ungroup() %>% 
-  mutate(shift_down = max(IN.9, na.rm = T)) %>% 
-  mutate(numeric_fac = as.numeric(as.factor(Trace))) %>% 
-  mutate(mV = IN.9 - (((numeric_fac-1) * 2) * shift_down) - shift_down ) %>% 
-  mutate(mV2 = IN.9 - ((numeric_fac-1) * 2) * shift_down)
-
-  
-annotation_df <- temp3 %>% 
-  group_by(Trace, ShiftSec, numeric_fac) %>% 
-  summarise(#mV_max = max(mV, na.rm = T), 
-            mV_min = min(mV, na.rm = T)#,
-            # mV2_max = max(mV2, na.rm = T)#, 
-            #mV2_min = min(mV2, na.rm = T)
-            ) %>% 
-  ungroup() %>% 
-  mutate(ShiftSec = round(ShiftSec, digits = 3))
-
-
-tic <- Sys.time()
-temp3 %>% 
-  ggplot()+
-  geom_segment(data = annotation_df, aes(x = 0, xend = ShiftSec, y = mV_min, yend = mV_min), color = "cornflowerblue", size = 2)+
-  geom_line(aes(x = Time, y = mV2, group = Trace))+
-  geom_line(aes(x = Time2, y = mV, group = Trace))+
-  geom_text(data = annotation_df, 
-            aes(x = 0.12, y = mV_min+2, label = ShiftSec, group = Trace), 
-            parse = T )+
-  geom_path(data = data.frame(x = c(-0.1, -0.1, 0.9), y = c(-72, -82, -82)), aes(x = x, y = y))+
-  # annotate("text", x = 0.12, y = 11, parse = TRUE, label = as.character(expression(paste(phi, 
-  #                                                                                        " = "
-  #                                                                                        )
-  #                                                                                  )
-  #                                                                       )
-  #          )+
-  theme_void()
-
-ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v2.pdf"))), 
-       width = 8.79, height = 7.21)
-
-ggsave(here("data", "figures", as.character(paste0("individual_pro_", as.character(round(360/denomerator, digits = 2)), "_v2.svg"))), 
-       width = 8.79, height = 7.21)
-}
-```
-
-PCA is now shelved.
-```{r eval=FALSE, include=FALSE}
-
-# temp <- Orig[, c(
-#   "Time",
-#   "r11", "r12", "r1", "rc", "cc", "rmp", 
-#   # "gj", 
-#   # "intercept.peak_htk", "slope.peak_htk", "intercept.end_htk", "slope.end_htk", "intercept.peak_a", "slope.peak_a", "intercept.end_a", "slope.end_a", "a.peak.nA", "htk.peak.nA", 
-#   # "inter", "Trace", 
-#   "Mean.Min.V", "Mean.Max.V", "Mean.Med.V", "Mean.Mean.V", "Mean.Duration", "Mean.On.Duration", "Mean.Duty.Cycle", "Onset.Delay", "P.Onset.Delay", "Mean.AUC", "Min.AUC", "Mean.AUC.mV.S", "Min.AUC.mV.S", "Cor"
-# )] %>% 
-#   dplyr::filter(Time == 40) %>% 
-#   dplyr::select(-Time)
-# 
-# library(factoextra)
-# z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
-# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
-# fviz_pca_var(z, col.var="contrib",
-#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-#              repel = TRUE # Avoid text overlapping
-#              )
-# 
-# 
-# ## Standardized protocols
-# plt.list <- map(list(
-#   c("PS.0.High.Amp", "PS.22.High.Amp", "PS.90.HA"),
-#   c("PS.22", "PS.45", "PS.0", "PS.90"),
-#   c("PS.0.High.Amp", "PS.22.High.Amp", "PS.90.HA", "PS.22", "PS.45", "PS.0", "PS.90")
-# ), function(i){
-#   temp <- Standard[Standard$Condition %in% i , c(
-#     "Time",
-#     "r11", "r12", "r1", "rc", "cc", "rmp", 
-#     # "gj",
-#     # "intercept.peak_htk", "slope.peak_htk", "intercept.end_htk", "slope.end_htk", "intercept.peak_a", "slope.peak_a", "intercept.end_a", "slope.end_a", "a.peak.nA", "htk.peak.nA",
-#     # "inter", "Trace", 
-#     "Mean.Min.V", "Mean.Max.V", "Mean.Med.V", "Mean.Mean.V", #"Mean.Duration", 
-#          "Mean.On.Duration", "Mean.Duty.Cycle", "Onset.Delay", "P.Onset.Delay", "Mean.AUC", "Min.AUC", "Mean.AUC.mV.S", "Min.AUC.mV.S", "Cor"
-#   )] %>% 
-#     dplyr::filter(Time == 40) %>% 
-#     dplyr::select(-Time)
-#   
-#   z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
-#   plt.scree <- fviz_screeplot(z, addlabels = TRUE#, ylim = c(0, 50)
-#                               )
-#   plt.biplt <- fviz_pca_var(z, col.var="contrib",
-#                             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-#                             repel = TRUE # Avoid text overlapping
-#   )
-#   
-#   return(list(scree = plt.scree,
-#               biplt = plt.biplt))
-# })
-# 
-# 
-# plt.list[[1]]$scree
-# plt.list[[1]]$biplt
-# plt.list[[2]]$scree
-# plt.list[[2]]$biplt
-# plt.list[[3]]$scree
-# plt.list[[3]]$biplt
-```
-
-
-
-
-
-
-
-
-
-
 
 
 
