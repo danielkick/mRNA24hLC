@@ -1,0 +1,1873 @@
+---
+title: "01_VisualizeDataset"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(here)
+library(readxl)
+library(tidyverse)
+
+theme_set(ggplot2::theme_minimal())
+```
+
+```{r reference}
+# ref ----
+# c(
+#   ## Ion Channels ====
+#   #Kv
+#   "Shab", "Shaker", "Shal", "Shaw1", "Shaw2",
+#   "KCNQ1", "KCNQ2", 
+#   "KCNH1", "KCNH2", "KCNH3",
+#   #K
+#   "BKKCa", "SKKCa", 
+#   "KCNT1", "IRK", "KCNK1", "KCNK2", 
+#   #Ca
+#   "CaV1", "CaV2", "CaV3", 
+#   #Na
+#   "CbNaV", 
+#   "NALCN", 
+#   #Hyp/CyclNuc Activated/Gated
+#   "IH", 
+#   ## CNGs
+#   
+#   #TRPs
+#   "TRP-A1", "TRP-A-like", "TRP-M1", "TRP-M3", "TRP-M-like", 
+#   ##-V5, -V6, -Pyrexia
+#   
+#   
+#   #Biogenic amine activated
+#   "HisCL", 
+#   
+#   ## Receptors Biogenic Amines ====
+#   #octopamine
+#   
+#   #dopamine
+#   "DAR1A", "DAR2",  "Dopa-1Br",
+#   #serotonin
+#   "HTR1A", "HTR2", "HTR7", "5HTr-1Br",  
+#   
+#   #histamine
+#   "His-1r", "His-2r", "His-3r", 
+#   #gaba
+#   "GABAB-R1",
+#   "LCCH3r",
+#   "RDLr", 
+#   "mGABA2", "mGABA3", 
+#   
+#   ## Receptors Glutamate/Acetylcholine ====
+#   #metabotropic glutamate receptors
+#   "mGluR1", "mGluR2", "mGluR4", "mGluR5", "mGluR7",
+#   #kainate-like receptors
+#   "Kainate-1A", "Kainate-1B", "Kainate-2A", "Kainate-2B", "Kainate-2C",
+#   #NMDA-like receptors
+#   "NMDA-1A", "NMDA-1B", "NMDA-2A", "NMDA-2B", "NMDA-2-like", 
+#   #glutamate-gated chloride channel
+#   "GluCl",
+#   #acetylcholine receptors
+#   "mACHrA", "mACHrB", 
+#   
+#   # Crustacean cardioactive peptide receptor ===
+#   "CCAPr", 
+#   
+#   #Acetylcholinesterase
+#   "ACHE", 
+#   # Actylcholine catalyst
+#   "ChAT", 
+#   
+#   #vesicular ach transporter
+#   "vAChT", 
+#   #vesicular glut transporter
+#   "vGluT", 
+#   
+#   ## Innexins ====
+#   "INX1", "INX2", "INX3", "INX4", "INX5"
+# )
+```
+
+```{r user defined functions}
+
+library(ggpmisc) # for labeling through stat_poly_eq
+
+scatter_w_wo_flag <- function(temp = mutate(filter(M, Time == "Baseline"), flag = ifelse(Ia.0 < 75 & shal < 300, T, F)),
+                              X = "shal", 
+                              Y = "Ia.0"){
+  # Duplicate so we have dataset 1, 2 (introduces duplicates)
+  temp <- rbind(temp[temp$flag == T, ], mutate(temp, flag = F))
+  
+  formula1 <- y ~ x
+  
+  plt <- ggplot(temp, aes_string(X, Y, color = "flag"))+
+    geom_smooth(data = temp, method = lm, se = F, fullrange = T)+
+    geom_point(data = temp)+
+    geom_point(data = temp, color = "black", shape = 1)+
+    geom_point(data = temp[temp$flag, ])+
+    ggpmisc::stat_poly_eq(aes(label =  paste(stat(eq.label), "*\" with \"*", 
+                                             stat(rr.label), "*\", \"*", 
+                                             stat(f.value.label), "*\", and \"*",
+                                             stat(p.value.label), "*\".\"",
+                                             sep = "")),
+                          formula = formula1, parse = TRUE, size = 4)+
+    
+    scale_color_manual(values = c("darkgray", "black"))+
+    theme_bw()+
+    theme(legend.position = "")
+  
+  return(plt)
+}
+
+scatter_w_wo_outliers <- function(temp = filter(M, Time == "Baseline"),
+                                  X = "bkkca", 
+                                  Y = "Ihtk.0"){
+  # flag outliers based on 1.5xIQR from median
+  X_low  <- median(temp[[X]], na.rm = T) - (1.5 * IQR(temp[[X]], na.rm = T))
+  X_high <- median(temp[[X]], na.rm = T) + (1.5 * IQR(temp[[X]], na.rm = T))
+  Y_low  <- median(temp[[Y]], na.rm = T) - (1.5 * IQR(temp[[Y]], na.rm = T))
+  Y_high <- median(temp[[Y]], na.rm = T) + (1.5 * IQR(temp[[Y]], na.rm = T))
+  X_pass <- (temp[[X]] > X_low) * (temp[[X]] < X_high)
+  Y_pass <- (temp[[Y]] > Y_low) * (temp[[Y]] < Y_high)
+  temp$flag <- ifelse((X_pass * Y_pass) == 1, T, F)
+  # Duplicate so we have dataset 1, 2 (introduces duplicates)
+  temp <- rbind(temp[temp$flag == T, ], mutate(temp, flag = F))
+  formula1 <- y ~ x
+  plt <- ggplot(temp, aes_string(X, Y, color = "flag"))+
+    geom_smooth(data = temp, method = lm, se = F, fullrange = T)+
+    geom_point(data = temp)+
+    geom_point(data = temp, color = "black", shape = 1)+
+    geom_point(data = temp[temp$flag, ])+
+    ggpmisc::stat_poly_eq(aes(label =  paste(stat(eq.label), "*\" with \"*", 
+                                             stat(rr.label), "*\", \"*", 
+                                             stat(f.value.label), "*\", and \"*",
+                                             stat(p.value.label), "*\".\"",
+                                             sep = "")),
+                          formula = formula1, parse = TRUE, size = 4)+
+    scale_color_manual(values = c("darkgray", "black"))+
+    theme_bw()+
+    theme(legend.position = "")
+  return(plt)
+}
+
+win_x_iqr <- function(col_in, multiplier = 1.5){
+  col_in <- as.vector(col_in)
+  
+  X_low  <- median(col_in, na.rm = T) - (multiplier * IQR(col_in, na.rm = T))
+  X_high <- median(col_in, na.rm = T) + (multiplier * IQR(col_in, na.rm = T))
+  X_pass <- (col_in > X_low) * (col_in < X_high)
+  
+  return(as.logical(X_pass))
+}
+
+
+
+plot_ecdf_ks <- function(
+  df = rbind(temp1, temp2),
+  data.col = "Corr",
+  group.col = "group",
+  group1 = "Baseline",
+  group2 = "Compensated",
+  colors = c("#4d4d4d", 
+             #"#67a9cf", 
+             "#1c9099")) {
+  
+  # Adapted from:
+  # https://rpubs.com/mharris/KSplot
+  df <- filter(df, df[[group.col]] %in% c(group1, group2))
+  
+  df[df[[group.col]] == group1, data.col]
+  
+  
+  data1 <- unlist(df[df[[group.col]] == group1, data.col])
+  data2 <- unlist(df[df[[group.col]] == group2, data.col])
+  
+  ecdf1 <- ecdf(data1)
+  ecdf2 <- ecdf(data2)
+  
+  # used to get the most extreme difference between the two samples
+  MostExtremeDiff <- seq(min(data1, data2, na.rm = T), max(data1, data2, na.rm = T), length.out = length(data1))
+  x0 <- MostExtremeDiff[which(abs(ecdf1(MostExtremeDiff) - ecdf2(MostExtremeDiff)) == 
+                                max(abs(ecdf1(MostExtremeDiff) - ecdf2(MostExtremeDiff))))]
+  y0 <- ecdf1(x0)
+  y1 <- ecdf2(x0)
+  
+  graph.df <- data.frame(data1, data2) %>% gather(Condition, Value, 1:2)
+  graph.df[graph.df$Condition == "data1", "Condition"] <- group1
+  graph.df[graph.df$Condition == "data2", "Condition"] <- group2
+  
+  # Run two sided KS test on data
+  test.res <- ks.test(data1, data2)
+  
+  plt <- 
+    ggplot(graph.df)+
+    geom_segment(aes(x = x0[1], y = y0[1], xend = x0[1], yend = y1[1]),
+                 linetype = "dashed", color = "black", size = 1)+
+    geom_point(aes(x = x0[1] , y= y0[1]), color="black", size=2) +
+    geom_point(aes(x = x0[1] , y= y1[1]), color="black", size=2) +
+    stat_ecdf(aes(x = Value, group = Condition, color = Condition))+
+    labs(x = "Sample", 
+         y = "ECDF", 
+         title = paste("K-S Test", as.character(group1), "vs", as.character(group2), 
+                       "\np-value:", as.character(test.res$p.value, digits = 4)))+
+    theme_minimal()+
+    theme(legend.position = "bottom")+
+    scale_color_manual(values = colors)#+
+    # theme(text=element_text(family="Calibri Light", size=14)) 
+  
+  return(plt)
+  
+}
+```
+
+
+
+```{r}
+load(here("data", "ionic.rds"))
+load(here("data", "tevc.rds"))
+load(here("data", "tecc.rds"))
+load(here("data", "mrna.rds"))
+
+mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) # tables from Northcutt 2016 and annotations
+```
+
+# ionic ~ mrna?
+
+## Make a joint dataset
+```{r}
+M <- left_join(ionic, mrna)
+
+M <- M[!is.na(M$x18s), ]
+
+MeasuredmRNA <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]
+
+# temp.plts <- map(seq_along(MeasuredmRNA), function(i){
+#   ggplot(M, aes_string(MeasuredmRNA[i], y = "Ihtk.0", color = "Time"))+
+#   geom_smooth(method = "lm", se = F)+
+#   geom_point()
+# })
+# 
+# cowplot::plot_grid(plotlist = temp.plts)
+# 
+# mrna
+```
+
+## Clean up data cols
+```{r}
+PercentNotNA <- map(MeasuredmRNA, function(i){
+  mean(!is.na(M[[i]]))
+}) %>% unlist()
+
+ThresholdPercentNotNA <- 0.6
+MeasuredmRNA <- MeasuredmRNA[PercentNotNA >= ThresholdPercentNotNA] # use in map call
+MeasuredKCurrents <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope") # use in map call
+```
+
+## How well does this work for currents we know something about?
+Ia ~ shal
+```{r}
+# TEXTING WITH DAVE
+scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
+                  X = "shal", 
+                  Y = "Ia.0")
+
+# broom::tidy(lm(Ia.0 ~ shal, temp))
+# broom::tidy(lm(Ia.0 ~ shal, temp[temp$flag, ]))
+```
+
+
+```{r eval=FALSE, include=FALSE}
+library(brms)
+# Loading required package: StanHeaders
+# rstan (Version 2.19.3, GitRev: 2e1f913d3ca3)
+# For execution on a local, multicore CPU with excess RAM we recommend calling
+options(mc.cores = parallel::detectCores())
+# To avoid recompilation of unchanged Stan programs, we recommend calling
+rstan_options(auto_write = TRUE)
+# For improved execution time, we recommend calling
+Sys.setenv(LOCAL_CPPFLAGS = '-march=corei7 -mtune=corei7')
+# although this causes Stan to throw an error on a few processors.
+
+
+temp <- temp[!is.na(temp$Ia.0), ]
+
+tic <- Sys.time()
+fm1 <- lm(Ia.0 ~ shal, temp)
+toc1 <- Sys.time() - tic
+
+tic <- Sys.time()
+fm2 <- brm(Ia.0 ~ shal, data  = temp, family = gaussian())
+toc2 <- Sys.time() - tic
+
+tic <- Sys.time()
+fm3 <- brm(Ia.0 ~ shal, data  = temp, family = student())
+toc3 <- Sys.time() - tic
+
+
+
+toc1
+toc2
+toc3
+
+t1 <- broom::tidy(fm1)
+t2 <- broom::tidy(fm2)
+t3 <- broom::tidy(fm3)
+
+
+
+bayes_ex1 <- 
+ggplot(temp, aes(x = shal, y = Ia.0))+
+  geom_point()+
+  geom_abline(slope = as.numeric(t1[2, "estimate"]), intercept = as.numeric(t1[1, "estimate"]), size = 1, color = "gray")+
+  geom_abline(slope = as.numeric(t2[2, "estimate"]), intercept = as.numeric(t2[1, "estimate"]), size = 1, color = "cornflowerblue")+
+  geom_abline(slope = as.numeric(t3[2, "estimate"]), intercept = as.numeric(t3[1, "estimate"]), size = 1, color = "firebrick")+
+  theme_bw()
+```
+
+
+
+Ia ~ shaker
+```{r}
+scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
+                  X = "shaker", 
+                  Y = "Ia.0")
+```
+
+
+Model comparison *shal best predicts Ia*
+```{r}
+temp <- filter(M, Time == "Baseline") 
+# What's the best model?
+library(AICcmodavg)
+# no rm points
+aictab(cand.set = list(
+  lm(Ia.0 ~ shal, temp),
+  lm(Ia.0 ~ shaker, temp),
+  lm(Ia.0 ~ shal+shaker, temp),
+  lm(Ia.0 ~ shal*shaker, temp)
+))
+
+# rm points
+temp_no_outliers <- temp %>% 
+  mutate(shal = ifelse(win_x_iqr(shal), shal, NA)) %>% 
+  mutate(shaker = ifelse(win_x_iqr(shaker), shaker, NA)) %>% 
+  mutate(Ia.0 = ifelse(win_x_iqr(Ia.0), Ia.0, NA))
+
+
+aictab(cand.set = list(
+  lm(Ia.0 ~ shal, temp_no_outliers),
+  lm(Ia.0 ~ shaker, temp_no_outliers),
+  lm(Ia.0 ~ shal+shaker, temp_no_outliers),
+  lm(Ia.0 ~ shal*shaker, temp_no_outliers)
+))
+```
+
+
+
+
+IHTK ~ bkkca
+```{r}
+scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
+                  X = "bkkca", 
+                  Y = "Ihtk.0")
+```
+
+
+
+
+
+How might we exclude outliers? Cooks Distance? Iterated Cooks?
+```{r eval=FALSE, include=FALSE}
+temp <- filter(M, Time == "Baseline") %>%
+  mutate(flag = ifelse(bkkca < 3000, T, F))
+
+fm <- lm(Ihtk.0 ~ bkkca, temp)
+
+temp$cooksd <- cooks.distance(fm)
+
+ggplot(temp, aes_string("bkkca", "Ihtk.0", color = "flag"))+
+  geom_smooth(method = lm, se = F, color = "gray")+
+  geom_smooth(data = temp[temp$flag == T, ], method = lm, se = F, fullrange = T)+
+  geom_point(aes(color = cooksd < (mean(cooks.distance(fm))*2.2) ))+
+  scale_color_manual(values = c("gray", "black"))+
+  theme_bw()+
+  theme(legend.position = "")
+
+# broom::tidy(lm(Ihtk.0 ~ bkkca, temp))
+# broom::tidy(lm(Ihtk.0 ~ bkkca, temp[temp$flag, ]))
+broom::tidy(lm(Ihtk.0 ~ bkkca, temp[temp$cooksd < (mean(cooks.distance(fm))*4) , ]))
+# temp %>% filter(flag == F)
+
+```
+
+Checking the use of iterated Cook's distance 
+Using cooks is going to be challenging. It'll be hard to choose a stopping criteria as 
+```{r eval=FALSE, include=FALSE}
+flag_cooks_outliers <- function(
+  df = filter(M, Time == "Baseline"),
+  mod = "Ihtk.0 ~ bkkca",
+  multiplier = 4,
+  center = "mean"){
+  
+  fm <- lm(as.formula(mod), df)
+  
+  cd <- cooks.distance(fm)
+  
+  if (center == "mean"){
+    cd_outlier <- cd > mean(cd)*multiplier 
+  } else if (center == "median") {
+    cd_outlier <- cd > median(cd)*multiplier 
+  } else {
+    warning("center must be mean or median")
+  }
+  
+  return(cd_outlier)
+}
+
+# run 10 iterations of cooks distance. When a cell is identified as an outlier, drop it and note when it was deamed an outlier
+
+temp <- M %>% dplyr::select(Ihtk.0, bkkca, Time) %>% filter(Time == "Baseline")
+temp$dropout <- NA
+
+for (i in 1:10){
+  current_outliers <- flag_cooks_outliers(df = temp[is.na(temp$dropout), ],
+                    mod = "Ihtk.0 ~ bkkca",
+                    multiplier = 4,
+                    center = "mean")
+  
+  temp[is.na(temp$dropout), ][current_outliers, "dropout"] <- i
+  
+}
+
+ggplot(temp, aes(x = bkkca, y = Ihtk.0, color = as.factor(dropout)))+
+  geom_point()
+
+bkkca_cook_outliers <- temp$dropout
+temp %>% group_by(dropout) %>% tally()
+# # A tibble: 5 x 2
+#   dropout     n
+#     <int> <int>
+# 1       1     1
+# 2       2     1
+# 3       3     1
+# 4       4     1
+# 5      NA    12
+
+
+
+
+
+temp <- M  %>% filter(Time == "Baseline")
+temp$dropout <- NA
+for (i in 1:10){
+  current_outliers <- flag_cooks_outliers(df = temp[is.na(temp$dropout), ],
+                    mod = "Ia.0 ~ shal",
+                    multiplier = 4,
+                    center = "mean")
+  temp[is.na(temp$dropout), ][current_outliers, "dropout"] <- i
+}
+
+temp %>% group_by(dropout) %>% tally()
+
+
+temp <- M  %>% filter(Time == "Baseline")
+temp$dropout <- NA
+for (i in 1:10){
+  current_outliers <- flag_cooks_outliers(df = temp[is.na(temp$dropout), ],
+                    mod = "Ia.0 ~ shaker",
+                    multiplier = 4,
+                    center = "mean")
+  temp[is.na(temp$dropout), ][current_outliers, "dropout"] <- i
+}
+
+temp %>% group_by(dropout) %>% tally()
+```
+
+contrast cooks with a fit t distribution.
+```{r eval=FALSE, include=FALSE}
+# temp <- filter(M, Time == "Baseline")
+# 
+# tic <- Sys.time()
+# fm0 <- lm(Ihtk.0 ~ bkkca, temp[temp$bkkca < 3000, ])
+# toc1 <- Sys.time() - tic
+# 
+# tic <- Sys.time()
+# fm1 <- lm(Ihtk.0 ~ bkkca, temp)
+# toc1 <- Sys.time() - tic
+# 
+# tic <- Sys.time()
+# fm2 <- brm(Ihtk.0 ~ bkkca, data  = temp, family = gaussian())
+# toc2 <- Sys.time() - tic
+# 
+# tic <- Sys.time()
+# fm3 <- brm(Ihtk.0 ~ bkkca, data  = temp, family = student())
+# toc3 <- Sys.time() - tic
+# 
+# 
+# 
+# toc1
+# toc2
+# toc3
+# 
+# t0 <- broom::tidy(fm0)
+# t1 <- broom::tidy(fm1)
+# t2 <- broom::tidy(fm2)
+# t3 <- broom::tidy(fm3)
+# 
+# 
+# temp$dropout <- bkkca_cook_outliers
+# # temp[is.na(temp$dropout), "dropout"] <- 11
+# 
+# alpha_param <-  0.8
+# # bayes_ex1 <- 
+# ggplot(temp, aes(x = bkkca, y = Ihtk.0, color = as.factor(dropout)))+
+#   
+#   geom_abline(slope = as.numeric(t0[2, "estimate"]), intercept = as.numeric(t0[1, "estimate"]), size = 1, alpha = alpha_param, color = "black")+
+#   geom_abline(slope = as.numeric(t1[2, "estimate"]), intercept = as.numeric(t1[1, "estimate"]), size = 1, alpha = alpha_param, color = "black")+
+#   geom_abline(slope = as.numeric(t2[2, "estimate"]), intercept = as.numeric(t2[1, "estimate"]), size = 1, alpha = alpha_param, color = "cornflowerblue")+
+#   geom_abline(slope = as.numeric(t3[2, "estimate"]), intercept = as.numeric(t3[1, "estimate"]), size = 1, alpha = alpha_param, color = "firebrick")+
+#   
+#   geom_point(size = 2, color = "white")+
+#   geom_point(size = 2)+
+#   geom_point(size = 2, color = "black", shape = 1)+
+#   
+#   theme_bw()+
+#   theme(legend.position = "bottom")+
+#   scale_color_brewer(type = "div", palette = "PuOr")
+
+
+
+
+```
+
+
+
+IHTK ~ skkca
+```{r}
+scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
+                  X = "skkca", 
+                  Y = "Ihtk.0")
+```
+
+
+How do K channels predict IKv intercepts?
+```{r}
+# TODO redo this using the info in mRNAInfo 
+# TODO use next block as inspiration.
+
+# filter(M, Time == "Baseline") %>% 
+#   select(Ihtk.0, Ihtk.Slope, Ia.0, Ia.Slope, 
+#          #Kv
+#          shab, shaker, shal, shaw1, shaw2,
+#          kcnq1, kcnq2,
+#          kcnh1, kcnh2, kcnh3,
+#          #k
+#          bkkca, skkca,
+#          kcnt1, irk, kcnk1, kcnk2
+#   ) %>% 
+#   pivot_longer(cols = c(
+#     #kv
+#     "shab", "shaker", "shal", "shaw1", "shaw2", 
+#     "kcnq1", "kcnq2",
+#     "kcnh1", "kcnh2", "kcnh3", 
+#     #k
+#     "bkkca", "skkca", 
+#     "kcnt1", "irk", "kcnk1", "kcnk2"
+#   ), names_to = "mRNA", values_to = "Count") %>% 
+#   pivot_longer(cols = c("Ihtk.0", 
+#                         # "Ihtk.Slope", 
+#                         "Ia.0"#, 
+#                         # "Ia.Slope"
+#                         ),
+#                names_to = "Key", values_to = "Value") %>% 
+#   ggplot(aes(x = Count, y = Value))+
+#   geom_smooth(method = lm, se = F)+
+#   geom_point()+
+#   # facet_wrap(Key ~ mRNA, nrow = 4, scales = "free")
+#   facet_grid(Key ~ mRNA)+
+#   theme_bw()
+#   
+# 
+# PlotList <- 
+# map(c(
+#   #Kv
+#   "Shab", "Shaker", "Shal", "Shaw1", "Shaw2", 
+#   "Kcnq1", "Kcnq2",
+#   "Kcnh1", "Kcnh2", "Kcnh3", 
+#   #K
+#   "BkkCa", "SkkCa", 
+#   "Kcnt1", "Irk", "Kcnk1", "Kcnk2"
+# ), function(X){
+#   map(c("Ihtk.0", 
+#         # "Ihtk.Slope", 
+#         "Ia.0"#, 
+#         # "Ia.Slope"
+#   ), function(Y){
+#     ggplot(filter(M, Time == "Baseline"), aes_string(X, Y))+
+#       geom_smooth(method = lm, se = F)+
+#       geom_point()+
+#       theme_bw()
+#   })
+# })
+#   
+# PlotList <- transpose(PlotList)  
+# 
+# library(cowplot)
+# cowplot::plot_grid(plotlist = PlotList[[1]])
+# 
+# cowplot::plot_grid(plotlist = PlotList[[2]])
+```
+
+
+
+
+
+## Linear models -- what predicts ionics?
+This falls under the auspices of EDA. 
+```{r}
+KCurrent = "Ihtk.0"
+mRNA = "BkkCa"
+
+# Make outlier free version of the baseline data
+
+M_baseline_outlier_free <- filter(M, Time == "Baseline")
+
+for (NAME in names(M)[!(names(M) %in% c("Condition" , "Cell", "Experiment", "Source", "Pharm", "Time", "Sample"))]){
+  M_baseline_outlier_free[[NAME]] <- ifelse(win_x_iqr(M_baseline_outlier_free[[NAME]]), M_baseline_outlier_free[[NAME]], NA)
+}
+
+
+
+# Which have relationships at baseline?
+fm.list <- map(MeasuredKCurrents, function(KCurrent){
+  map(MeasuredmRNA, function(mRNA){
+    lm(as.formula(paste0(KCurrent, " ~ ", mRNA)), data = M_baseline_outlier_free)
+  })
+})
+
+
+p.list <- map(fm.list, function(ListLvl1){
+  map(ListLvl1, function(ListLvl2){
+    broom::tidy(ListLvl2)[2, "p.value"] # non-intercept p
+  }) %>% unlist()
+})
+
+p.df <- do.call(cbind, p.list) %>% as.data.frame()
+
+names(p.df) <- MeasuredKCurrents
+p.df$mRNA <- MeasuredmRNA
+
+
+
+
+
+# Uncorrected
+p.df.long <- p.df %>% 
+  gather(iK, pValue, all_of(MeasuredKCurrents))
+  # dplyr::filter(iK %in% c("Ia.0", "Ihtk.0")) %>% 
+  # mutate(pAdj = p.adjust(pValue, method = "fdr")) %>% 
+  
+highlight.text.temp.df <- p.df.long %>% 
+  mutate(highlight = ifelse(pValue <= 0.05, 1, 0)) %>% 
+  select(-pValue) %>% pivot_wider(names_from = iK, values_from = highlight) %>% 
+  mutate(highlight = ifelse(Ihtk.0 == 0, 
+                     ifelse(Ihtk.Slope == 0,
+                     ifelse(Ia.0 == 0, 
+                     ifelse(Ia.Slope == 0, 
+                            0, 1), 1), 1), 1) ) %>% 
+  mutate(highlight = ifelse(highlight == 1, "firebrick", "black")) %>% 
+  arrange(mRNA)
+
+plt.fm <-   
+p.df.long %>% 
+  ggplot(aes(x = mRNA, color = pValue <= 0.05))+
+  geom_hline(yintercept = 0.95, color = "gray", linetype = "dashed")+
+  # geom_point()+
+  # geom_rect(aes(xmin = mRNA, xmax = mRNA, ymin = 0, ymax = 1- pValue), size = 2, color = "gray", alpha = 0.0001)+
+  geom_rect(aes(xmin = mRNA, xmax = mRNA, ymin = 0, ymax = 1- pValue), size = 2)+
+  
+  # geom_segment(aes(x = mRNA, xend = mRNA, y = 0, yend = 1- pValue), size = 2)+
+  # geom_segment(aes(x = mRNA, xend = mRNA, y = 0, yend = 1- pAdj), size = 2)+
+  facet_grid(iK~.)+
+  scale_color_manual(values = c("black", "firebrick"))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, color = highlight.text.temp.df[["highlight"]]),
+        legend.position = "")
+
+# Corrected with fdr
+plt.fm.fdr <- 
+p.df %>% 
+  gather(iK, pValue, all_of(MeasuredKCurrents)) %>% 
+  # dplyr::filter(iK %in% c("Ia.0", "Ihtk.0")) %>% 
+  mutate(pAdj = p.adjust(pValue, method = "fdr")) %>% 
+  ggplot(aes(x = mRNA, color = pAdj <= 0.05))+
+  geom_hline(yintercept = 0.95, color = "gray", linetype = "dashed")+
+  # geom_point()+
+  geom_rect(aes(xmin = mRNA, xmax = mRNA, ymin = 0, ymax = 1- pValue), size = 2, color = "gray", alpha = 0.0001)+
+  geom_rect(aes(xmin = mRNA, xmax = mRNA, ymin = 0, ymax = 1- pAdj), size = 2, color = "black")+
+  
+  # geom_segment(aes(x = mRNA, xend = mRNA, y = 0, yend = 1- pValue), size = 2)+
+  # geom_segment(aes(x = mRNA, xend = mRNA, y = 0, yend = 1- pAdj), size = 2)+
+  facet_grid(iK~.)+
+  scale_color_manual(values = c("black", "firebrick"))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "")
+```
+
+## PCA what loads with ionics?
+```{r}
+library(factoextra)
+# library(missMDA) # for imputePCA 
+library("FactoMineR") #PCA
+
+MNumericOnly <- M_baseline_outlier_free
+MNumericOnly <- MNumericOnly[, c(MeasuredKCurrents, MeasuredmRNA)]
+
+ResPCA <- PCA(MNumericOnly, scale.unit = T)
+
+get_eig(ResPCA)
+
+fviz_screeplot(ResPCA, addlabels = T)
+
+fviz_pca_biplot(ResPCA, repel = T)
+# Ihtk.Slope, Ihtk.0, Ia.0, Ia.Slope, and Kainate1A are all loading together (roughly)
+
+fviz_pca_var(ResPCA, 
+             col.var = "contrib",
+             # gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping
+             )
+```
+
+## What correlates with ionics?
+```{r}
+library(corrr)
+
+MCorrr <- MNumericOnly %>% 
+  correlate()
+
+temp <- MCorrr %>% 
+  as_tibble() %>% 
+  select(rowname, Ihtk.0, Ihtk.Slope, Ia.0, Ia.Slope) %>% 
+  gather(colname, Cor, c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")) 
+
+# temp$rowname <- as.factor(temp$rowname) 
+#TODO fix ordering
+
+
+temp %>% 
+  ggplot(aes(rowname, Cor, color = Cor))+
+  geom_segment(aes(x = rowname, xend = rowname, y = 0, yend = Cor))+
+  geom_point()+
+  geom_point(shape = 1, color = "black")+
+  geom_hline(yintercept = 0)+
+  ylim(-1,1)+
+  facet_grid(colname~.)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  scale_color_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                         mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                         high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                         midpoint = 0, 
+                         na.value = "#00000000")
+
+
+
+# 
+# 
+# 
+# # rplot(MCorrr)
+# 
+# # You have to zoom or the chords don't show up. ¯\_(ツ)_/¯
+# # network_plot(MCorrr, min_cor = .7)
+# 
+# 
+# library(ggcorrplot)
+# 
+MCorr <- cor(MNumericOnly, use = "pairwise.complete.obs")
+
+pMat <- cor_pmat(MNumericOnly)
+# 
+# library(RColorBrewer)
+# ggcorrplot(MCorr, 
+#            colors = RColorBrewer::brewer.pal(7, "PuOr")[c(1, 4 ,7)]#,
+#            # p.mat = pMat
+#            # lab = T
+#            )
+# 
+# # library(GGally)
+# # GGally::ggscatmat(MNumericOnly)
+# GGally::ggcorr(MCorr,
+#        # nbreaks = 5,
+#        low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+#                          mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+#                          high = RColorBrewer::brewer.pal(7, "PuOr")[7])
+
+
+library(corrplot)
+corrplot(MCorr, method = "square", type = "upper", tl.col = "black", order = "hclust", col = brewer.pal(n = 9, name = "PuOr"),
+         p.mat = pMat,
+         sig.level = 0.01, insig = "blank")
+  
+
+```
+
+
+## What relationships exist at baseline?
+
+```{r}
+#TODO
+```
+
+
+## How do these relationships change for TEA over time?
+
+### globally, clustering etc
+```{r}
+
+temp <- unite(data = M, "Pharm_Condition", Pharm, Condition) 
+
+# baseline, compensated, delayed
+no_outlier_tea_list <- map(unique(temp$Pharm_Condition)[order(unique(temp$Pharm_Condition))], function(PhCon){
+  temp2 <- temp[temp$Pharm_Condition == PhCon, ]
+  
+  for (NAME in names(M)[!(names(M) %in% c("Pharm_Condition" , "Pharm", "Condition", "Cell", "Experiment", "Source", "Time", "Sample"))]){
+    temp2[[NAME]] <- ifelse(win_x_iqr(temp2[[NAME]]), temp2[[NAME]], NA)
+  }
+  
+  return(temp2)
+})
+
+# walk(seq_along(no_outlier_tea_list), function(i){
+#   for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
+#   
+#   MCorr <- cor(for_corr, use = "pairwise.complete.obs")
+#   
+#   pMat <- cor_pmat(for_corr)
+#   
+#   png(filename=c("plots/BaselineTEA.png", "plots/CompensatedTEA.png", "plots/DelayedTEA.png")[i])
+#   # plot(faithful)
+#   corrplot(MCorr, method = "square", type = "upper", tl.col = "black", 
+#            # order = "hclust", 
+#            col = brewer.pal(n = 9, name = "PuOr"),
+#            p.mat = pMat,
+#            sig.level = 0.05, insig = "blank")  
+#   dev.off()
+# })
+
+
+tea_plt_list <- map(seq_along(no_outlier_tea_list), function(i){
+  for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
+  
+  MCorr <- cor(for_corr, use = "pairwise.complete.obs")
+  
+  pMat <- cor_pmat(for_corr)
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  pMat <- as.data.frame(pMat) 
+  pMat$row_names <- rownames(pMat)
+  pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
+  
+  
+  
+  ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
+    geom_tile()+
+    geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+    scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                         mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                         high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                         midpoint = 0, 
+                         na.value = "#00000000")+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+    labs(x = "", y = "")
+})
+
+cowplot::plot_grid(plotlist = tea_plt_list, labels = letters)
+```
+
+![](../plots/BaselineTEA.png)
+![](../plots/CompensatedTEA.png)
+![](../plots/DelayedTEA.png)
+
+ecdfs
+```{r}
+tea_cor_list <- map(seq_along(no_outlier_tea_list), function(i){
+  for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
+  
+  MCorr <- cor(for_corr, use = "pairwise.complete.obs")
+  
+  pMat <- cor_pmat(for_corr)
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  pMat <- as.data.frame(pMat) 
+  pMat$row_names <- rownames(pMat)
+  pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
+  
+  return(list(Corr = MCorr, pValue = pMat))
+})
+
+
+temp1 <- tea_cor_list[[1]]$Corr
+temp2 <- tea_cor_list[[2]]$Corr
+temp3 <- tea_cor_list[[3]]$Corr
+
+temp1$group <- "Baseline"
+temp2$group <- "Compensated"
+temp3$group <- "Delayed"
+
+# plot_ecdf_ks(
+#   df = rbind(temp1, temp2),
+#   data.col = "Corr",
+#   group.col = "group",
+#   group1 = "Baseline",
+#   group2 = "Compensated",
+#   colors = c("#4d4d4d",
+#              #"#67a9cf",
+#              "#1c9099"))
+
+
+
+
+ecdf_corr_list <- 
+map(list(
+  list(
+    rbind(temp1, temp2),
+    c("Baseline", "Compensated"),
+    c("#4d4d4d", 
+      "#67a9cf"#, 
+      #"#1c9099"
+      )
+  ),
+  list(
+    rbind(temp1, temp3),
+    c("Baseline", "Delayed"),
+    c("#4d4d4d", 
+      #"#67a9cf", 
+      "#1c9099")
+  ),
+  list(
+    rbind(temp2, temp3),
+    c("Compensated", "Delayed"),
+    c(#"#4d4d4d", 
+      "#67a9cf",
+      "#1c9099")
+  )
+), function(list.obj){
+  plot_ecdf_ks(
+  df = list.obj[[1]],
+  data.col = "Corr",
+  group.col = "group",
+  group1 = list.obj[[2]][1],
+  group2 = list.obj[[2]][2],
+  colors = list.obj[[3]])
+})
+
+cowplot::plot_grid(plotlist = ecdf_corr_list)
+```
+
+What does this look like without the currents?
+```{r}
+temp1_nocurrents <- temp1[!((temp1$row_names %in% MeasuredKCurrents) | (temp1$col_names %in% MeasuredKCurrents)), ]
+temp2_nocurrents <- temp2[!((temp2$row_names %in% MeasuredKCurrents) | (temp2$col_names %in% MeasuredKCurrents)), ]
+temp3_nocurrents <- temp3[!((temp3$row_names %in% MeasuredKCurrents) | (temp3$col_names %in% MeasuredKCurrents)), ]
+
+
+ecdf_corr_nocurrents_list <- 
+map(list(
+  list(
+    rbind(temp1_nocurrents, temp2_nocurrents),
+    c("Baseline", "Compensated"),
+    c("#4d4d4d", 
+      "#67a9cf"#, 
+      #"#1c9099"
+      )
+  ),
+  list(
+    rbind(temp1_nocurrents, temp3_nocurrents),
+    c("Baseline", "Delayed"),
+    c("#4d4d4d", 
+      #"#67a9cf", 
+      "#1c9099")
+  ),
+  list(
+    rbind(temp2_nocurrents, temp3_nocurrents),
+    c("Compensated", "Delayed"),
+    c(#"#4d4d4d", 
+      "#67a9cf",
+      "#1c9099")
+  )
+), function(list.obj){
+  plot_ecdf_ks(
+  df = list.obj[[1]],
+  data.col = "Corr",
+  group.col = "group",
+  group1 = list.obj[[2]][1],
+  group2 = list.obj[[2]][2],
+  colors = list.obj[[3]])
+})
+
+cowplot::plot_grid(plotlist = ecdf_corr_nocurrents_list)
+```
+
+
+Combined fig corr/ecdf
+```{r}
+temp_list <- tea_plt_list
+
+temp_list[[4]] <- ecdf_corr_list[[1]]
+temp_list[[5]] <- ecdf_corr_list[[2]]
+temp_list[[6]] <- ecdf_corr_list[[3]]
+
+
+cowplot::plot_grid(plotlist = temp_list)
+#TODO how much of the difference in KS between compensated and baseline is noise? I guess we have to cut out the currents and redo it to figure out...
+```
+
+Contrast ecdfs with and without currents.
+```{r}
+temp_list2 <- ecdf_corr_list
+
+temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
+temp_list2[[5]] <- ecdf_corr_nocurrents_list[[2]]
+temp_list2[[6]] <- ecdf_corr_nocurrents_list[[3]]
+
+cowplot::plot_grid(plotlist = temp_list2)
+```
+
+How do they separate? cluster?
+
+
+```{r}
+
+no_outlier_tea_df <- do.call(rbind, no_outlier_tea_list)
+
+# require at least X of observations to contain data in a column to be allowed.
+require_complete_rate <- 0.4
+
+skim_df <- skimr::skim(no_outlier_tea_df)
+retain_cols <- skim_df[skim_df$complete_rate > require_complete_rate, "skim_variable"] %>% unlist()
+
+no_outlier_tea_df <- no_outlier_tea_df[, retain_cols]
+
+library(imputeMissings)
+no_outlier_tea_df <- imputeMissings::impute(no_outlier_tea_df, method = "median/mode")
+
+rownames(no_outlier_tea_df) <- paste(no_outlier_tea_df$Experiment, no_outlier_tea_df$Cell, no_outlier_tea_df$Time, sep = "-")
+```
+
+dendrogram 
+```{r}
+library(pvclust)
+library(ggdendro)
+set.seed(654684)
+cluster <- pvclust(t(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)]),
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+```
+
+
+dendrogram plot method 1
+```{r}
+library(dendextend)
+cluster %>% 
+  as.dendrogram() %>% 
+  set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
+  plot()
+
+# plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
+```
+
+dendrogram plot method 2
+```{r}
+plt <- ggdendro::ggdendrogram(cluster$hclust)
+
+cluster_dend <- ggdendro::dendro_data(as.dendrogram(cluster$hclust), type = "rectangle")
+cluster_dend_segments <- ggdendro::segment(cluster_dend)
+
+
+label_df <- data.frame(labels = no_outlier_tea_df[, "Time"],
+                       exps = no_outlier_tea_df[, "Experiment"])
+label_df$orderby <- as.numeric(as.character(ggdendro::label(cluster_dend)$label))
+label_df <- arrange(label_df, orderby)
+
+
+# cluster_dend_labs <- data.frame(ggdendro::label(cluster_dend), Time = as.factor(no_outlier_tea_df[match(label(no_outlier_tea_df)$label, rownames(no_outlier_tea_df)), "Time"]))
+
+ggplot()+
+  geom_segment(data = cluster_dend_segments,
+               aes(x = x, y = y, xend = xend, yend = yend),
+               size = 1.25,
+               colour = "black",
+               lineend = "round")+ 
+  geom_text(data = data.frame(ggdendro::label(cluster_dend),
+                              Time = label_df$labels,
+                              exps = label_df$exps), 
+            aes(x = x, y = y, label = exps, colour = Time), 
+            nudge_y = 0, family = "boldserif", size = 5, angle = 90, hjust = 1)+ 
+  xlab("")+ 
+  ylab("Height")+
+  lims(y = c(-0.1, 0.8))+
+  theme(axis.line.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        text = element_text(family = "serif"),
+        legend.position = "bottom")
+```
+
+
+have dendrogram on both sides
+```{r}
+cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+
+mrna_cluster_dend <- as.dendrogram(cluster)
+cell_cluster_dend <- as.dendrogram(cluster_2)
+
+
+mrna_cutree <- cutree(mrna_cluster_dend, k = 5)
+cell_cutree <- cutree(cell_cluster_dend, k = 4)
+
+
+library(RColorBrewer)
+mypalette <- rev(brewer.pal(9, "PuOr")[-1])
+
+
+matrix_for_heatmap <- as.matrix(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)])
+
+# Reference
+# https://rpubs.com/Sammi/132435
+heatmap(
+matrix_for_heatmap,
+Rowv = mrna_cluster_dend,
+Colv = cell_cluster_dend,
+
+RowSideColors = as.character(mrna_cutree),
+ColSideColors = as.character(cell_cutree),
+# scale = "col"
+
+key = T, 
+col = mypalette
+)
+
+
+library(gplots)
+heatmap.2(
+matrix_for_heatmap,
+Rowv = mrna_cluster_dend,
+Colv = cell_cluster_dend,
+
+RowSideColors = as.character(mrna_cutree),
+ColSideColors = as.character(cell_cutree),
+# scale = "col"
+
+trace = "none",
+key = T
+# col = mypalette
+)
+
+
+# source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/my.colorFct.R")
+# heatmap(y, 
+#         Rowv = as.dendrogram(hr), 
+#         Colv = as.dendrogram(hc), 
+#         col=my.colorFct(), 
+#         scale="row")
+```
+
+
+Evaluating clustering quality
+```{r}
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("BiocGenerics")
+library(BiocGenerics)
+library(imputeMissings)
+library(magrittr) # for %>% (this is part of tidyverse)
+library(clues)
+library(NMF)
+
+## Evaluate clustering performance ==========================================
+get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
+                                    generated.clustering) {
+  if (length(reference.clustering) != length(generated.clustering)) {
+    warning("Input vectors are not of the same length!")
+  } else {
+    # reference.clustering = mrna_raw$Cell
+    # generated.clustering = kmeans.m$cluster
+    output <- array(0, dim = 6)
+    reference.clustering <- as.numeric(reference.clustering) %>% as.factor()
+    generated.clustering <- as.numeric(generated.clustering) %>% as.factor()
+    output <- NMF::purity(reference.clustering, generated.clustering)
+    names(output) <- "Purity"
+    # Get a lot of concurrance measures
+    # https://davetang.org/muse/2017/09/21/adjusted-rand-index/
+    output <- c(
+      output,
+      clues::adjustedRand(
+        BiocGenerics::as.vector(reference.clustering),
+        BiocGenerics::as.vector(generated.clustering)
+      )
+    )
+    return(output)
+  }
+}
+```
+
+
+```{r}
+temp.clust <- as.dendrogram(cluster$hclust)
+assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
+
+# use names to get groupings
+time_groups <- as.factor(unlist(transpose(stringr::str_split(names(assignment), pattern = "-"))[[3]]))
+
+library(purrr)
+set.seed(9348957)
+resample.indices <- map(1:10001, function(i){
+  if (i == 1){
+    indices <- get_cluster_comparisons(reference.clustering = time_groups,
+                                       assignment)
+  }else{
+    indices <- get_cluster_comparisons(reference.clustering = time_groups,
+                                       sample(assignment, replace = F))
+  }
+})
+resample.indices <- do.call(rbind, resample.indices)
+resample.indices <- resample.indices %>% as.data.frame()
+
+library(ggplot2)
+resample.indices %>% 
+  ggplot(aes(x = Jaccard))+
+  geom_density()+
+  geom_vline(xintercept = as.numeric(resample.indices[1, "Jaccard"]))+
+  xlim(0,1)+
+  theme_minimal()
+# empirical p-value from 10,000 random samplings
+mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"])
+```
+
+
+
+pca 
+```{r}
+library(factoextra)
+library(FactoMineR) #PCA
+library(car)
+# library(cowplot)
+library(patchwork)
+
+
+mk_pca_multi_plt <- function(input.df = t_pass,
+                             scree.max.y = 100){
+  
+  res.pca <- PCA(input.df,  graph = FALSE)
+  # Extract eigenvalues/variances
+  # get_eig(res.pca)
+  
+  # Visualize eigenvalues/variances
+  p0 <- fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, scree.max.y))
+  
+  p1 <- fviz_contrib(res.pca, choice = "var", axes = 1, top = 20)
+  p2 <- fviz_contrib(res.pca, choice = "var", axes = 2, top = 20)
+  p3 <- fviz_contrib(res.pca, choice = "var", axes = 3, top = 20)
+  
+  # Control variable colors using their contributions
+  p4 <- fviz_pca_var(res.pca, col.var="contrib",
+                     gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+                     repel = TRUE # Avoid text overlapping
+  )
+  
+  # pca.multi <- {p4|p0}/{p1+p2+p3}
+  # return(pca.multi)
+  return(list(scree = p0, 
+              cont1 = p1, 
+              cont2 = p2, 
+              cont3 = p3, 
+              biplt = p4))
+}
+
+pca_summary_descriptions <- map(list(
+  no_outlier_tea_df[no_outlier_tea_df$Time == "Baseline", c(MeasuredKCurrents, MeasuredmRNA)],
+  no_outlier_tea_df[no_outlier_tea_df$Time == "Compensated", c(MeasuredKCurrents, MeasuredmRNA)],
+  no_outlier_tea_df[no_outlier_tea_df$Time == "Delayed", c(MeasuredKCurrents, MeasuredmRNA)]
+  
+), function(df){
+  mk_pca_multi_plt(input.df = df,
+                 scree.max.y = 100)
+})
+
+
+# {p4|p0}/{p1+p2+p3}
+
+{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}
+
+{pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
+
+{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[3]]$biplt}
+
+```
+
+
+```{r}
+library(rgl)
+
+
+vis_pca_3D <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::select(-lc, -net, -pass),
+                       color.by = M[M$pass == T, "lc"],
+                       turn.x.times = 2,
+           use.colors = RColorBrewer::brewer.pal(8, "Set1")){
+  
+  res.pca <- PCA(input.df,  graph = FALSE)
+  
+  indivduals <- get_pca_ind(res.pca)
+  indivduals <- as.data.frame(indivduals$coord)
+  indivduals$cell.num <- as.factor(as.character(color.by))
+  
+  car::scatter3d(x = indivduals$Dim.1,
+                 z = indivduals$Dim.3,
+                 y = indivduals$Dim.2,
+                 groups = indivduals$cell.num,
+                 
+                 
+                 
+                 surface=F, 
+                 # fit = "smooth",
+                 # surface.alpha = 0.5,
+                 grid = F,
+                 # residuals = F,
+                 bg.col = "white", # white black
+                 surface.col = use.colors, 
+                 point.col = use.colors,                 
+                 
+                 xlab = "Dim. 1",
+                 ylab = "Dim. 2",
+                 zlab = "Dim. 3",
+                 revolutions=turn.x.times, 
+                 # revolutions = 1,
+                 
+                 # surface = F,
+                 ellipsoid = TRUE
+  )
+}
+
+
+
+vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
+           color.by = no_outlier_tea_df[, "Time"],
+           turn.x.times = 1,
+           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+)
+
+
+```
+
+Is the overlap in "compensated" due to k currents? (no)
+```{r}
+vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredmRNA)],
+           color.by = no_outlier_tea_df[, "Time"],
+           turn.x.times = 1,
+           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+)
+```
+
+### specifically
+
+```{r}
+
+```
+
+
+
+
+# from untitled 2
+
+
+
+```{r}
+#TODO read in ionic
+
+
+```
+
+Marginal plot
+```{r}
+# p <- ionic %>% filter(!is.na(Ihtk.0) & !is.na(Ia.0)) %>% 
+#   ggplot(aes(Ihtk.0, Ia.0, group = Condition, color = Condition))+
+#   # geom_smooth(method = "lm", se = F)+
+#     geom_point(size = 2)+
+#     theme_minimal()+
+#   theme(legend.position = "bottom")
+# 
+# p <- ggExtra::ggMarginal(
+#   p,
+#   type = 'density',
+#   margins = 'both',
+#   size = 5,
+#   groupColour = TRUE, groupFill = TRUE
+# )
+# 
+# ggsave(plot = p, filename = "Ionic0M.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+# p <- ionic %>% filter(!is.na(Ihtk.Slope) & !is.na(Ia.Slope)) %>% 
+#   ggplot(aes(Ihtk.Slope, Ia.Slope, group = Condition, color = Condition))+
+#   # geom_smooth(method = "lm", se = F)+
+#     geom_point(size = 2)+
+#     theme_minimal()+
+#   theme(legend.position = "bottom")
+# 
+# p <- ggExtra::ggMarginal(
+#   p,
+#   type = 'density',
+#   margins = 'both',
+#   size = 5,
+#   groupColour = TRUE, groupFill = TRUE
+# )
+# 
+# ggsave(plot = p, filename = "IonicDM.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+# cowplot::plot_grid(plotlist = 
+# map(c("Ihtk.0", "Ia.0", "Ihtk.Slope", "Ia.Slope"), function(i){
+#     ggplot(ionic, aes(x = Condition, group = Condition, fill = Condition))+
+#   # geom_smooth(method = "lm", se = F)+
+#     geom_boxplot(aes_string(y = i), width = 0.1)+
+#     ggbeeswarm::geom_beeswarm(aes_string(y = i), shape = 1)+
+#     # geom_point(size = 2)+
+#     stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "line")+
+#     stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "point", size = 4, shape = 4)+
+#     theme_minimal()+
+#   theme(legend.position = "")+
+#   labs(x = "", y = "", title = i)
+# })
+# 
+# )
+# 
+# ggsave(plot = last_plot(), filename = "IonicDelta.tiff", path = here("data", "figures"))
+```
+
+
+```{r}
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition, Cell) %>% 
+  tally()
+
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ia.0, Ia.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition, Cell) %>% 
+  tally()
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition) %>% 
+  tally()
+
+ionic %>% 
+  filter(!is.na(Cell)) %>% 
+  select(-c(Ia.0, Ia.Slope)) %>%  
+  distinct() %>% 
+  group_by(Condition) %>% 
+  tally()
+
+
+
+```
+
+
+### from untitled2 assumes df = brians joined data
+
+
+```{r}
+# install.packages("corrr")
+library(corrr)
+
+x <- df %>% 
+  filter(Pharm == "tea" & Condition == "Delayed") %>% 
+  select( -c(UID, Pharm, Condition)) %>% 
+correlate() # Create correlation data frame (cor_df)
+
+x %>% 
+  rearrange() %>%  # rearrange by correlations
+  shave() # Shave off the upper triangle for a clean result
+
+rplot(x)
+
+# You have to zoom or the chord don't show up. ¯\_(ツ)_/¯
+network_plot(x, min_cor = .7)
+```
+
+
+```{r}
+x %>% 
+  gather(mrna, cor, 2:ncol(.)) %>% 
+  ggplot(aes(rowname, mrna, fill = cor))+
+  geom_tile()+
+  scale_fill_gradient2(low = "Red", mid = "White", high = "Blue")
+
+library("corrplot")
+
+x <- as.data.frame(x)
+
+rownames(x) <- x$rowname
+
+corrplot::corrplot(
+  as.matrix(select(x, -rowname)), method = "color", order = "hclust", 
+  addrect = 3,
+  na.label = " "
+  )
+
+# corrplot.mixed(as.matrix(select(x, -rowname)), upper = "color")
+
+cowplot::plot_grid(plotlist = list(pp, pp))
+
+# install.packages("ggcorrplot")
+library(ggcorrplot)
+
+
+
+df <- df %>% mutate(Set = paste(Pharm, Condition))
+
+
+Sets <- unique(df$Set)
+
+baseline <- df %>% filter(Set == "none Baseline") %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+  baseline <- as.data.frame(baseline)
+  rownames(baseline) <- baseline$rowname
+  baseline <- baseline %>% select(-rowname)
+
+
+cowplot::plot_grid(plotlist = 
+map(Sets, function(i){
+  temp <- df %>% filter(Set == i) %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+  temp <- as.data.frame(temp)
+  rownames(temp) <- temp$rowname
+  temp <- temp %>% select(-rowname)
+  
+  # temp <- temp-baseline
+  
+  ggcorrplot(temp)+labs(title = i)
+})
+)
+
+
+
+```
+
+
+
+
+##Attempts at visualizing correlations
+```{r}
+treatments <- unique(M$TREATMENT)
+mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
+
+
+cor.list <- map(treatments, function(i){
+  temp <- M[M$TREATMENT == i, ]  
+  cor(temp[, mrnas], temp[, mrnas], use = "pairwise.complete.obs", method = "spearman")
+})
+names(cor.list) <- treatments
+
+library("corrplot")
+walk(treatments, function(i){
+  print(i)
+  corrplot(cor.list[[i]], method = "color")
+})
+
+
+corrplot(cor.list$`24h-CONTROL`, method = "color")
+
+#corrplot((cor.list$`4AP24h` - cor.list$Control), method = "color")
+
+walk(treatments[-3], function(i){
+  print(i)
+gplots::heatmap.2((cor.list[[i]] - cor.list$`TEA-Acute`),
+  cellnote = round((cor.list[[i]] - cor.list$`TEA-Acute`), digits = 2),  # same data set for cell labels
+  #main = "Correlation", # heat map title
+  notecol="black",      # change font color of cell labels to black
+  density.info="none",  # turns off density plot inside color legend
+  trace="none",         # turns off trace lines inside the heat map
+  #margins =c(12,9),     # widens margins around plot
+  #col=my_palette,       # use on color palette defined earlier
+  #breaks=col_breaks,    # enable color transition at specified limits
+  dendrogram="none",     # only draw a row dendrogram
+  Colv="NA")            # turn off column clustering
+})
+
+library("PerformanceAnalytics")
+chart.Correlation(temp[, mrnas], histogram=TRUE, pch=19)
+```
+
+
+### vis with line plot?
+```{r}
+N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
+N$cor <- ""
+
+walk(1:length(cor.list), function(i){
+  temp <- as.data.frame(cor.list[[i]])
+  temp$cor <- rownames(temp)
+  temp$TREATMENT <- treatments[i]
+  N <<- full_join(N, temp) 
+})
+N <- N[-1, ]
+#N <- gather(N, )
+```
+
+```{r}
+ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
+  geom_point()+
+  geom_line()
+```
+
+
+```{r}
+# make network plots
+library(corrplot)
+library(psych)
+library(qgraph)
+temp <- cor.list[[1]]
+
+mk_plt <- function(use.matrix, use.name){
+  qgraph(use.matrix,
+  # minimum= 0,
+  vsize = 5,
+  # border.color="#006600",
+  title = use.name,
+  label.font = 4,
+  # edge.color="black",
+  border.width = 4,
+  esize = 7,
+  curveAll = TRUE,
+  curveDefault = 0.5,
+  curveShape = -2,
+  # color= "#006600",
+  node.width = 1.5,
+  # border.color= "black",
+  # borders=TRUE,
+  # border.color= "black",
+  # layout= "circle",
+  fade = FALSE,
+  labels = colnames(use.matrix) # , labels=TRUE
+)
+}
+
+walk(1:length(cor.list), function(i){
+  mk_plt(cor.list[[i]], treatements[i])
+})
+```
+
+
+###
+
+
+
+# Deep dive on the effects of TEA
+## Electrophysiology
+
+## Molecular bio
+
+## Merging and processing
+
+### Quality control and outlier analysis
+
+### Characterizing the baseline
+
+### 
+### Compare Brian's and My molecular data
+
+
+
+
+```{r}
+M <- readxl::read_excel(here("inst", "extdata", "LCTEAhr0hr1hr24.xlsx"))
+
+M.long <- M %>% 
+  gather(mRNA, Count, 5:75)
+
+M.long %>% 
+  ggplot(aes(mRNA, Count))+
+  geom_jitter()+
+  scale_y_log10()
+
+
+M.long <-
+M.long %>%
+  mutate(type =
+             ifelse(mRNA %in% c(
+               ## Ion Channels ====
+               #Kv
+               "Shab", "Shaker", "Shal", "Shaw1", "Shaw2",
+               "KCNQ1", "KCNQ2",
+               "KCNH1", "KCNH2", "KCNH3",
+               #K
+               "BKKCa", "SKKCa",
+               "KCNT1", "IRK", "KCNK1", "KCNK2",
+               #Ca
+               "CaV1", "CaV2", "CaV3",
+               #Na
+               "CbNaV",
+               "NALCN",
+               #Hyp/CyclNuc Activated/Gated
+               "IH",
+               #TRPs
+               "TRP-A1", "TRP-A-like", "TRP-M1", "TRP-M3", "TRP-M-like",
+               #Biogenic amine activated
+               "HisCL"
+             ),
+             "IonChannel",
+             ifelse(mRNA %in% c(
+               ## Receptors Biogenic Amines ====
+               #octopamine
+               #dopamine
+               "DAR1A", "DAR2",  "Dopa-1Br",
+               #serotonin
+               "HTR1A", "HTR2", "HTR7", "5HTr-1Br",
+               #histamine
+               "His-1r", "His-2r", "His-3r",
+               #gaba
+               "GABAB-R1",
+               "LCCH3r",
+               "RDLr",
+               "mGABA2", "mGABA3",
+               ## Receptors Glutamate/Acetylcholine ====
+               #metabotropic glutamate receptors
+               "mGluR1", "mGluR2", "mGluR4", "mGluR5", "mGluR7",
+               #kainate-like receptors
+               "Kainate-1A", "Kainate-1B", "Kainate-2A", "Kainate-2B", "Kainate-2C",
+               #NMDA-like receptors
+               "NMDA-1A", "NMDA-1B", "NMDA-2A", "NMDA-2B", "NMDA-2-like",
+               #glutamate-gated chloride channel
+               "GluCl",
+               #acetylcholine receptors
+               "mACHrA", "mACHrB",
+               # Crustacean cardioactive peptide receptor ===
+               "CCAPr"
+             ),
+             "Receptor",
+
+             ifelse(mRNA %in% c(
+               ## Innexins ====
+               "INX1", "INX2", "INX3", "INX4", "INX5"
+             ),
+             "Innexin",
+
+             ifelse(mRNA %in% c(
+               #Acetylcholinesterase
+               "ACHE",
+               # Actylcholine catalyst
+               "ChAT",
+               #vesicular ach transporter
+               "vAChT",
+               #vesicular glut transporter
+               "vGluT"
+             ),
+             "Misc",
+             NA
+             )))))
+
+ggplot(filter(M, type != "Innexin"), aes(mRNA, Count, color = type))+
+  geom_jitter()
+
+ggplot(filter(M, type == "Innexin" & mRNA != "INX5"), aes(mRNA, Count, color = type))+
+  geom_jitter()
+
+ggplot(filter(M, type == "Innexin" & mRNA == "INX5"), aes(mRNA, Count))+
+  geom_jitter()
+```
+
+```{r}
+
+temp <- M %>% 
+  filter(TEA == 0) %>% 
+  select(names(M[!names(M) %in% c("Sample", "TEA", "Experiment", "Cell")])) 
+
+numeric.cols <- sapply(temp, class) == "numeric"
+temp <- temp[numeric.cols]
+
+# z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
+# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
+# fviz_pca_var(z, col.var="contrib",
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE # Avoid text overlapping
+#              )
+
+
+library(factoextra)
+library(missMDA) # for imputePCA 
+library("FactoMineR") #PCA
+
+df = temp[, -"IH"]
+missMDA::imputePCA(df, ncp = 2) # using two components
+
+res.pca <- PCA(df,  graph = FALSE)
+# Extract eigenvalues/variances
+get_eig(res.pca)
+# Visualize eigenvalues/variances
+fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, 50))
+# Extract the results for variables
+var <- get_pca_var(res.pca)
+var
+
+# Graph of variables: default plot
+fviz_pca_var(res.pca, col.var = "black")
+
+# Control variable colors using their contributions
+fviz_pca_var(res.pca, col.var="contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping
+             )
+
+```
+
+```{r}
+# df <- EDA.r %>%
+#   filter(Time == 40) %>%
+#   select("r11", "r12", "r1", "rc", "cc", "rmp",
+#    "Mean.Min.V", "Mean.Max.V", "Mean.Med.V", "Mean.Mean.V",
+#     "Mean.Duration", "Mean.On.Duration", "Mean.Duty.Cycle",
+#     "Percent.Shift", "Onset.Delay", "P.Onset.Delay", "Cor",
+#     "Mean.AUC", "Min.AUC", "Mean.AUC.mV.S", "Min.AUC.mV.S")
+# 
+# 
+# z <- prcomp(~., data = df, center = TRUE, scale. = TRUE)
+# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
+# fviz_pca_var(z, col.var="contrib",
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE # Avoid text overlapping
+#              )
+
+# z <- prcomp(~ Fat + Lactose, data = M, center = TRUE, scale. = TRUE)
+#
+# str(z)
+# summary(z)
+# biplot(z)
+
+
+
+```
+## What structure is there in the dataset?
+
+
+## What correspondence between ephys ~ mRNA is there?
+
+## How can we extend this to the data Brian Collected?
