@@ -5,27 +5,21 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(readxl)
 library(here)
+library(readxl)
 library(tidyverse)
 library(janitor)
-
-library(zoo)
 library(readABF)
 
+library(zoo)
 library(broom)
-library(minpack.lm) # getting Tau
-library(patchwork)
+library(gdata) # for humanReadable, used in checking the files are the expected size
+library(minpack.lm) # for use in fit_tau_1term_exp() to get Tau
+
 library(ggsci)
 library(cowplot)
 library(patchwork)
-
-library(gdata) # for humanReadable
-
-library(minpack.lm) # for use in fit_tau_1term_exp()
-
 theme_set(ggplot2::theme_minimal())
-
 
 library(devtools)
 devtools::load_all()
@@ -1120,22 +1114,15 @@ Placeholder for fi
 #TODO
 ```
 
-
-## Retrieve manually processed data
-
----
-title: "Untitled"
-output: html_document
----
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-library(readxl)
-library(here)
-library(tidyverse)
-library(janitor)
-# library("xlsx")
+## Save automatically processed data
+```{r}
+#TODO
 ```
+
+
+# Retrieve manually processed data ----
+
+
 
 ## User Defined Functions
 ```{r}
