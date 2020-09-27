@@ -1131,32 +1131,7 @@ shrug <- function(){
   cat("¯\\_(ツ)_/¯")  }
 
 ## IV linear ====
-iv_linear <- function(input.df = temp,
-                             min.mV = -35,
-                             max.mV = 5,
-                             ch.i = "S2Max",
-                             ch.v = "S1Max"){
-  
-  # input.df = temp
-  # min.mV = -81
-  # max.mV = -39
-  # ch.i = "S2Max"
-  # ch.v = "S1Max"
-  
-  input.df <- as.data.frame(input.df)
-  
-        # input.df <- input.df[!is.na(input.df[[ch.v]]), ]
-  
-  if (nrow(input.df[!is.na(input.df[[ch.v]]), ]) > 1 ){
-      input.df <- input.df %>% rename(CH.I = ch.i) %>% rename(CH.V = ch.v)
-  
-  fm <- lm(CH.I ~ CH.V, input.df[input.df$CH.V >= min.mV & input.df$CH.V <= max.mV, ], na.action = "na.omit")
-  
-  }
-  return(list(intercept = fm$coefficients[[1]],
-       slope = fm$coefficients[[2]]))  
 
-}
 
 ## mk_filename ====
 # write file name from spreadsheet
@@ -1177,16 +1152,6 @@ mk_filename <- function(
   )
   return(filename)
 }
-```
-
-## Build metadata
-```{r}
-use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
-```
-
-## Check entries in metadata file vs data files
-```{r}
-
 ```
 
 ## Load Data Ephys Data
@@ -1269,7 +1234,7 @@ walk(1:length(iter.over), function(i){
     }}
 })
 
-# ia %>% 
+# ia %>%
 #   ggplot(aes(Condition, intercept))+
 #   geom_point()+
 #   theme_minimal()
@@ -1305,44 +1270,7 @@ ihtk <- full_join(temp1, temp2) %>% mutate(In4 = as.factor(In4)) %>% rename(Cell
 ```
 
 ```{r}
-## Subtract leak from ihtk protocol
-subtract_leak_df <- function(input.df = temp,
-                             min.mV = -81,
-                             max.mV = -39,
-                             ch.i = "S2Max",
-                             ch.v = "S1Max"){
-  
-  # input.df = temp
-  # min.mV = -81
-  # max.mV = -39
-  # ch.i = "S2Max"
-  # ch.v = "S1Max"
-  
-  input.df <- as.data.frame(input.df)
-  
-        # input.df <- input.df[!is.na(input.df[[ch.v]]), ]
-  
-  if (nrow(input.df[!is.na(input.df[[ch.v]]), ]) > 1 ){
-      input.df <- input.df %>% rename(CH.I = ch.i) %>% rename(CH.V = ch.v)
-  
-  fm <- lm(CH.I ~ CH.V, input.df[input.df$CH.V >= min.mV & input.df$CH.V <= max.mV, ], na.action = "na.omit")
-  
-  input.df <- input.df %>% mutate(leak = predict(object = fm, newdata = input.df), na.action = "na.omit")
-  input.df <- input.df %>% mutate(leak.sub = CH.I - leak)
-  
-  # input.df <- input.df %>% rename(ch.i = CH.I) %>% rename(ch.v = CH.V)
-  
-  names(input.df)[names(input.df) == "CH.I"] <- ch.i
-  names(input.df)[names(input.df) == "CH.V"] <- ch.v
-  
-  
-  # input.df %>% select(S1Max, S2Max, leak, leak.sub) %>% gather(type, value, 2:4) %>% ggplot(aes(x = S1Max, y = value, color = type))+geom_point()
-  
 
-  }
-  return(input.df)  
-
-}
 
 ihtk <- ihtk %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed"))
 
@@ -1362,6 +1290,8 @@ iter.over <- ihtk$iter.var %>% unique()
 
 # Add in leak subtracted measure
 ihtk$na.action <- NA
+ihtk$leak <- as.numeric(ihtk$leak) # necessary for merging
+ihtk$leak.sub <- as.numeric(ihtk$leak.sub) # necessary for merging
 walk(1:length(iter.over), function(i){
   print(i)
   temp <- ihtk[ihtk$iter.var == iter.over[i], ]
@@ -1375,7 +1305,7 @@ walk(1:length(iter.over), function(i){
   if(nrow(temp)>1){
     # make sure the columns are in the same order
     temp <- temp[, names(ihtk)]
-    
+   
     ihtk[ihtk$iter.var == iter.over[i], ] <<- temp      
   }
 })
