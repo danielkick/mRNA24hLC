@@ -689,6 +689,171 @@ abfs_to_process %>%
 #TODO what is the distance between the automatically and manualy measured values?  
 ```
 
+# Load same data measured manually ----
+## Voltage Clamp GJ Protocol
+```{r}
+
+ThresholdVoltage <- 4
+
+# Keep only those with steps greater than threshold
+ThresholdVector <- abs(tevc$R1S1Mean) >= ThresholdVoltage | abs(tevc$R1S3Mean) >= ThresholdVoltage 
+tevc <- tevc[ThresholdVector, ]
+
+# Look for the smallest deviation from baseline to find which cell is postsynaptic
+# if TRUE then S1 is the presynaptic cell
+tevc$S1Pre <- abs(tevc$R1S1Mean) >= abs(tevc$R1S3Mean)
+tevc$PreSyn <- ifelse(tevc$S1Pre, tevc$Signal1, tevc$Signal3)
+
+# Drop any rows where this wasn't a bool
+tevc <- tevc[!is.na(tevc$S1Pre), ]
+
+# conductance = i_post / delta_mV
+# Where S1Pre == T
+# c = R1S4Mean / R1S1Mean 
+# Otherwise 
+# c = R1S2Mean / R1S3Mean
+temp <- tevc %>% 
+  group_by(FileName, S1Pre) %>% 
+  mutate(Ig = ifelse(S1Pre, 
+                     abs(R1S4Mean / R1S1Mean), #abs to flip the current being used to prevent mV change into current coming across gj
+                     abs(R1S2Mean / R1S3Mean) 
+  )
+  ) %>% 
+  ungroup()
+
+# provide Median observation
+temp <- temp %>% 
+  select(FileName, S1Pre, R1S1Mean, R1S2Mean, R1S3Mean, R1S4Mean, Ig) %>% 
+  group_by(FileName, S1Pre) %>% 
+  mutate(MedianIg = median(Ig, na.rm = T)) %>% 
+  ungroup()
+
+# Merge back
+tevc <- full_join(tevc, temp)
+
+save(tevc, file = here("data", "tevc.rds"))
+```
+
+## Current Clamp GJ Protocol
+Bennet 1966's resistances:
+
+Apparant Cell resistances:
+$$r_{11}=\frac{v_1}{i_1}$$
+
+Transfer resistances:
+$$r_{12}=\frac{v_2}{i_1}$$
+
+Membrane resistance
+$$r_1= \frac{r_{11}*r_{22} - r_{12}^2}{r_{22} - r_{12}}$$
+
+Coupling resistance
+$$r_c = \frac{r_{11}*r_{22} - r_{12}^2}{r_{12}}$$
+
+```{r}
+ExperimentNames <- tecc$FileName %>% stringr::str_split(pattern = "_")
+ExperimentNames <- transpose(ExperimentNames)[[1]] %>% unlist()
+
+tecc$Experiment <- ExperimentNames
+```
+
+
+```{r}
+df = tecc
+v1 = "R1S1Mean"#"IN4_mean"
+i1 = "R1S3Mean"#"IN7_mean"
+v2 = "R1S4Mean"#"IN9_mean"
+i2 = "R1S6Mean"#"IN12_mean"
+exp = "Experiment"
+rec = "FileName"
+
+# Grouping prevents this from working.
+df <- ungroup(df)
+
+df <- df %>% mutate(cell = ifelse(abs(R1S3Mean) > abs(R1S6Mean), "a", "b"))
+
+## Set up selection vectors for when i1 (e.g. IN7) is being used to inject current
+inj_i1 <- abs(df[[i1]]) > abs(df[[i2]])
+inj_i2 <- abs(df[[i1]]) < abs(df[[i2]])
+## figure out coupling coef
+df[inj_i1, "cc"] <- df[inj_i1, v2] / df[inj_i1, v1] #when inj IN7
+df[inj_i2, "cc"] <- df[inj_i2, v1] / df[inj_i2, v2] #when inj IN12
+## figure out input resistance ====
+df[inj_i1, "r11"] <- df[inj_i1, v1] / df[inj_i1, i1] #when inj IN7
+df[inj_i2, "r11"] <- df[inj_i2, v2] / df[inj_i2, i2] #when inj IN12
+## figure out transfer resistance ====
+df[inj_i1, "r12"] <- df[inj_i1, v2] / df[inj_i1, i1]
+df[inj_i2, "r12"] <- df[inj_i2, v1] / df[inj_i2, i2]
+
+## figure out membrane resist and coupling resist for both cells ====
+temp <- df %>%
+  dplyr::select(
+    exp, rec, cell, r11, r12
+  ) %>%
+  group_by(Experiment, FileName, cell) %>% 
+  # mutate(cell = ifelse(inj_i1, "cell1", "cell2")) %>%
+  mutate(r11 = median(r11, na.rm = T),
+         r12 = median(r12, na.rm = T)) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = cell,
+              values_from = c("r11", "r12")
+  ) %>%
+  mutate(r1_a = ((r11_a*r11_b) - (r12_a^2)) / (r11_b - r12_a)) %>%
+  mutate(r1_b = ((r11_b*r11_a) - (r12_b^2)) / (r11_a - r12_b)) %>%
+  mutate(rc_a = ((r11_a*r11_b) - (r12_a^2)) / (r12_a)) %>%
+  mutate(rc_b = ((r11_b*r11_a) - (r12_b^2)) / (r12_b)) %>%
+  pivot_longer(
+    -c(exp, rec),
+    names_to = c(".value", "cell"),
+    names_sep = "_",
+    values_drop_na = TRUE
+  )
+
+# collapse df to medians
+df <- df[, c(
+  "Experiment", "cell", 
+  "FileName", 
+  # "Trace", "TraceStart", 
+  "Signal1", "Signal2", "Signal3", "Signal4", "Signal5", "Signal6", 
+  # "Region1", "StartTime", "EndTime", 
+  "R1S1Mean", "R1S2Mean", "R1S3Mean", "R1S4Mean", "R1S5Mean", "R1S6Mean", 
+  "R1S1Baseline", "R1S2Baseline", "R1S3Baseline", "R1S4Baseline", "R1S5Baseline", "R1S6Baseline", 
+  # "FilePath", 
+  "cc"#, 
+  # "r11", "r12"
+)] %>% 
+  group_by(Experiment, cell, FileName) %>% 
+  mutate(R1S1Mean = median(R1S1Mean, na.rm = T),
+         R1S2Mean = median(R1S2Mean, na.rm = T),
+         R1S3Mean = median(R1S3Mean, na.rm = T),
+         R1S4Mean = median(R1S4Mean, na.rm = T),
+         R1S5Mean = median(R1S5Mean, na.rm = T),
+         R1S6Mean = median(R1S6Mean, na.rm = T),
+         
+         R1S1Baseline = median(R1S1Baseline, na.rm = T),
+         R1S2Baseline = median(R1S2Baseline, na.rm = T),
+         R1S3Baseline = median(R1S3Baseline, na.rm = T),
+         R1S4Baseline = median(R1S4Baseline, na.rm = T),
+         R1S5Baseline = median(R1S5Baseline, na.rm = T),
+         R1S6Baseline = median(R1S6Baseline, na.rm = T),
+         
+         cc = median(cc, na.rm = T),
+  ) %>% 
+  distinct() %>% 
+  ungroup()
+
+# Merge
+df <- full_join(df, temp) %>% dplyr::select(-cell)
+
+tecc <- df
+```
+
+```{r}
+save(tecc, file = here("data", "tecc.rds"))
+```
+
+
+
 
 ```{r}
 #TODO Add in manually measured taus for each cell with unreasonable data. 
@@ -828,7 +993,7 @@ temp_summary$mean <- NA
 temp_summary$median <- NA
 temp_summary$sd <- NA
 temp_summary$iqr <- NA
-
+temp_summary$sum <- NA
 
 for (i in 1:nrow(temp_summary)){
 temp_array <- temp[, temp_summary[i, "Var1"]] - temp[, temp_summary[i, "Var2"]]
@@ -837,13 +1002,14 @@ temp_summary[i, "mean"] <- mean(temp_array) %>% round(digits = 2)
 temp_summary[i, "median"] <- median(temp_array) %>% round(digits = 2)
 temp_summary[i, "sd"] <- sd(temp_array) %>% round(digits = 2)
 temp_summary[i, "iqr"] <- IQR(temp_array) %>% round(digits = 2)
+temp_summary[i, "sum"] <- sum(temp_array) %>% round(digits = 2)
   
 }
 
-heatmap_list <- map(c("mean", "median", "sd", "iqr"), function(i){
+heatmap_list <- map(c("mean", "median", "sd", "iqr", "sum"), function(i){
   
 temp_summary %>% 
-  gather(key, value, c("mean", "median", "sd", "iqr")) %>% 
+  gather(key, value, c("mean", "median", "sd", "iqr", "sum")) %>% 
   filter(key == i) %>% 
   # ggplot(aes(x = Var1, y = Var2, fill = mean, label = mean))+
   ggplot(aes(x = Var1, y = Var2, fill = value, label = value))+
@@ -855,7 +1021,7 @@ temp_summary %>%
 
 plot_grid(plotlist = heatmap_list)
 
-
+heatmap_list[[5]]
 
 
 # plt_contrast_list_hex <- map(seq(1, nrow(plt_assignments)), function(i){
@@ -896,6 +1062,10 @@ tictoc::tic()
 
 process_these_abfs <- abfs_to_process %>% filter(ABFType == "epsp")
 
+# Based on the above analysis -- that tau within an expected band has a mean effect of ~.1mV or less on the 
+HARDCODED_TAU <- 25
+  
+  
 # unique_abfs <- unique(process_these_abfs$File)
 # 
 # # inelegant, but functional. 
@@ -990,7 +1160,7 @@ for (i in seq(8, 34)){#seq_along(unique_abfs)){
         
         if (unlist(current_cell_params[, "Channel"]) == "In4"){
           out <- predict_epsp_responses(trace = current_trace,
-                                        tau = abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+                                        tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
                                         rin = as.numeric(unlist(current_cell_params[, "Rin"])),
                                         v_ch = "In4",
                                         i_ch = "In7")
@@ -1014,7 +1184,7 @@ for (i in seq(8, 34)){#seq_along(unique_abfs)){
           
         } else if (unlist(current_cell_params[, "Channel"]) == "In9"){
           out <- predict_epsp_responses(trace = current_trace,
-                                        tau = abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+                                        tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
                                         rin = as.numeric(unlist(current_cell_params[, "Rin"])),
                                         v_ch = "In9",
                                         i_ch = "In12")
@@ -1541,168 +1711,6 @@ ionic <- full_join(temp1, temp2) %>%
 ## Save ionic for later use
 ```{r}
 save(ionic, file = here("data", "ionic.rds"))
-```
-
-# Voltage Clamp GJ Protocol
-```{r}
-
-ThresholdVoltage <- 4
-
-# Keep only those with steps greater than threshold
-ThresholdVector <- abs(tevc$R1S1Mean) >= ThresholdVoltage | abs(tevc$R1S3Mean) >= ThresholdVoltage 
-tevc <- tevc[ThresholdVector, ]
-
-# Look for the smallest deviation from baseline to find which cell is postsynaptic
-# if TRUE then S1 is the presynaptic cell
-tevc$S1Pre <- abs(tevc$R1S1Mean) >= abs(tevc$R1S3Mean)
-tevc$PreSyn <- ifelse(tevc$S1Pre, tevc$Signal1, tevc$Signal3)
-
-# Drop any rows where this wasn't a bool
-tevc <- tevc[!is.na(tevc$S1Pre), ]
-
-# conductance = i_post / delta_mV
-# Where S1Pre == T
-# c = R1S4Mean / R1S1Mean 
-# Otherwise 
-# c = R1S2Mean / R1S3Mean
-temp <- tevc %>% 
-  group_by(FileName, S1Pre) %>% 
-  mutate(Ig = ifelse(S1Pre, 
-                     abs(R1S4Mean / R1S1Mean), #abs to flip the current being used to prevent mV change into current coming across gj
-                     abs(R1S2Mean / R1S3Mean) 
-  )
-  ) %>% 
-  ungroup()
-
-# provide Median observation
-temp <- temp %>% 
-  select(FileName, S1Pre, R1S1Mean, R1S2Mean, R1S3Mean, R1S4Mean, Ig) %>% 
-  group_by(FileName, S1Pre) %>% 
-  mutate(MedianIg = median(Ig, na.rm = T)) %>% 
-  ungroup()
-
-# Merge back
-tevc <- full_join(tevc, temp)
-
-save(tevc, file = here("data", "tevc.rds"))
-```
-
-# Current Clamp GJ Protocol
-Bennet 1966's resistances:
-
-Apparant Cell resistances:
-$$r_{11}=\frac{v_1}{i_1}$$
-
-Transfer resistances:
-$$r_{12}=\frac{v_2}{i_1}$$
-
-Membrane resistance
-$$r_1= \frac{r_{11}*r_{22} - r_{12}^2}{r_{22} - r_{12}}$$
-
-Coupling resistance
-$$r_c = \frac{r_{11}*r_{22} - r_{12}^2}{r_{12}}$$
-
-```{r}
-ExperimentNames <- tecc$FileName %>% stringr::str_split(pattern = "_")
-ExperimentNames <- transpose(ExperimentNames)[[1]] %>% unlist()
-
-tecc$Experiment <- ExperimentNames
-```
-
-
-```{r}
-df = tecc
-v1 = "R1S1Mean"#"IN4_mean"
-i1 = "R1S3Mean"#"IN7_mean"
-v2 = "R1S4Mean"#"IN9_mean"
-i2 = "R1S6Mean"#"IN12_mean"
-exp = "Experiment"
-rec = "FileName"
-
-# Grouping prevents this from working.
-df <- ungroup(df)
-
-df <- df %>% mutate(cell = ifelse(abs(R1S3Mean) > abs(R1S6Mean), "a", "b"))
-
-## Set up selection vectors for when i1 (e.g. IN7) is being used to inject current
-inj_i1 <- abs(df[[i1]]) > abs(df[[i2]])
-inj_i2 <- abs(df[[i1]]) < abs(df[[i2]])
-## figure out coupling coef
-df[inj_i1, "cc"] <- df[inj_i1, v2] / df[inj_i1, v1] #when inj IN7
-df[inj_i2, "cc"] <- df[inj_i2, v1] / df[inj_i2, v2] #when inj IN12
-## figure out input resistance ====
-df[inj_i1, "r11"] <- df[inj_i1, v1] / df[inj_i1, i1] #when inj IN7
-df[inj_i2, "r11"] <- df[inj_i2, v2] / df[inj_i2, i2] #when inj IN12
-## figure out transfer resistance ====
-df[inj_i1, "r12"] <- df[inj_i1, v2] / df[inj_i1, i1]
-df[inj_i2, "r12"] <- df[inj_i2, v1] / df[inj_i2, i2]
-
-## figure out membrane resist and coupling resist for both cells ====
-temp <- df %>%
-  dplyr::select(
-    exp, rec, cell, r11, r12
-  ) %>%
-  group_by(Experiment, FileName, cell) %>% 
-  # mutate(cell = ifelse(inj_i1, "cell1", "cell2")) %>%
-  mutate(r11 = median(r11, na.rm = T),
-         r12 = median(r12, na.rm = T)) %>% 
-  distinct() %>% 
-  ungroup() %>% 
-  pivot_wider(names_from = cell,
-              values_from = c("r11", "r12")
-  ) %>%
-  mutate(r1_a = ((r11_a*r11_b) - (r12_a^2)) / (r11_b - r12_a)) %>%
-  mutate(r1_b = ((r11_b*r11_a) - (r12_b^2)) / (r11_a - r12_b)) %>%
-  mutate(rc_a = ((r11_a*r11_b) - (r12_a^2)) / (r12_a)) %>%
-  mutate(rc_b = ((r11_b*r11_a) - (r12_b^2)) / (r12_b)) %>%
-  pivot_longer(
-    -c(exp, rec),
-    names_to = c(".value", "cell"),
-    names_sep = "_",
-    values_drop_na = TRUE
-  )
-
-# collapse df to medians
-df <- df[, c(
-  "Experiment", "cell", 
-  "FileName", 
-  # "Trace", "TraceStart", 
-  "Signal1", "Signal2", "Signal3", "Signal4", "Signal5", "Signal6", 
-  # "Region1", "StartTime", "EndTime", 
-  "R1S1Mean", "R1S2Mean", "R1S3Mean", "R1S4Mean", "R1S5Mean", "R1S6Mean", 
-  "R1S1Baseline", "R1S2Baseline", "R1S3Baseline", "R1S4Baseline", "R1S5Baseline", "R1S6Baseline", 
-  # "FilePath", 
-  "cc"#, 
-  # "r11", "r12"
-)] %>% 
-  group_by(Experiment, cell, FileName) %>% 
-  mutate(R1S1Mean = median(R1S1Mean, na.rm = T),
-         R1S2Mean = median(R1S2Mean, na.rm = T),
-         R1S3Mean = median(R1S3Mean, na.rm = T),
-         R1S4Mean = median(R1S4Mean, na.rm = T),
-         R1S5Mean = median(R1S5Mean, na.rm = T),
-         R1S6Mean = median(R1S6Mean, na.rm = T),
-         
-         R1S1Baseline = median(R1S1Baseline, na.rm = T),
-         R1S2Baseline = median(R1S2Baseline, na.rm = T),
-         R1S3Baseline = median(R1S3Baseline, na.rm = T),
-         R1S4Baseline = median(R1S4Baseline, na.rm = T),
-         R1S5Baseline = median(R1S5Baseline, na.rm = T),
-         R1S6Baseline = median(R1S6Baseline, na.rm = T),
-         
-         cc = median(cc, na.rm = T),
-  ) %>% 
-  distinct() %>% 
-  ungroup()
-
-# Merge
-df <- full_join(df, temp) %>% dplyr::select(-cell)
-
-tecc <- df
-```
-
-```{r}
-save(tecc, file = here("data", "tecc.rds"))
 ```
 
 
