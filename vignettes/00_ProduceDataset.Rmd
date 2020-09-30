@@ -706,6 +706,146 @@ abfs_to_process
 abfs_to_process
 ```
 
+How big of an effect does changing tau have on the predicted voltage?
+```{r}
+
+current_trace <- check_abf_expected(
+  exempt_ABF = force_process_ABF,
+  dir_path = abf_dir_path,
+  file_name = "190808a_0014.abf",
+  file_type = "epsp"
+)
+
+# # A tibble: 1 x 5
+#   Experiment  Cell Channel   Rin   Tau
+#   <chr>      <dbl> <chr>   <dbl> <dbl>
+# 1 190808a        4 In4      14.3 -11.8
+
+
+current_trace <- current_trace$trace
+
+out <- predict_epsp_responses(trace = current_trace,
+                              tau = 11.8,
+                              rin = 14.3,
+                              v_ch = "In4",
+                              i_ch = "In7")
+
+out <- out$predictions
+out <- out[[1]]
+
+prediction <- out$predicted - out$offset
+
+trial_taus <- c(1, 10, 20, 30, 100)#seq(1, 99, length.out = 10)
+predicted_voltages <- map(trial_taus, function(in_tau){
+  
+  out <- predict_epsp_responses(trace = current_trace,
+                              tau = in_tau,
+                              rin = 14.3,
+                              v_ch = "In4",
+                              i_ch = "In7")
+
+  out <- out$predictions
+  out <- out[[1]]
+  
+  prediction <- out$predicted - out$offset
+  return(prediction)
+  
+})
+
+predicted_voltages_df <- do.call(cbind, predicted_voltages)
+predicted_voltages_df <- as.data.frame(predicted_voltages_df)
+
+names(predicted_voltages_df) <- as.character(trial_taus)
+
+predicted_voltages_df$Time <- current_trace[current_trace$Sweep == 1, ]$Time
+
+predicted_voltages_df_plt <- downsample_data(predicted_voltages_df, len = 1000) %>% 
+  gather(key = "key", value = "value", names(predicted_voltages_df)[!(names(predicted_voltages_df)  %in% c("Time"))])
+
+
+predicted_voltages_df_plt %>% 
+  # filter(key %in% c(1, 10)) %>% 
+  ggplot(aes(x= Time, y = value, color = key))+
+  geom_line()
+  # scale_colour_viridis_d()+
+  # theme_gray()
+  # facet_wrap(.~key)
+
+
+
+
+predicted_voltages_df_plt %>% 
+  mutate(key = paste0("t", key)) %>% 
+  spread(key, value) %>% 
+  ggplot(aes(x= Time))+
+  geom_ribbon(aes(ymin=t1, ymax=t100), fill = "firebrick")+
+  geom_line(aes(y = t100), color = "cornflowerblue")+
+  geom_line(aes(y = t1))+
+  labs(title = "tau 1 vs 100")
+
+
+
+predicted_voltages_df_plt %>% 
+  mutate(key = paste0("t", key)) %>% 
+  spread(key, value) %>% 
+  ggplot(aes(x= Time))+
+  geom_ribbon(aes(ymin=t20, ymax=t30), fill = "firebrick")+
+  geom_line(aes(y = t30), color = "cornflowerblue")+
+  geom_line(aes(y = t20))+
+  labs(title = "tau 20 vs 30")
+
+
+
+plt_assignments <- expand.grid(col = trial_taus, row = trial_taus)
+
+plt_contrast_list <- map(seq(1, nrow(plt_assignments)), function(i){
+  predicted_voltages_df_plt %>% 
+  mutate(key = paste0("t", key)) %>% 
+  spread(key, value) %>% 
+  # ggplot(aes_string(x= "t1", "t10"))+
+  ggplot(aes_string(x = paste0("t", as.character(plt_assignments[i, "col"])), 
+                    y = paste0("t", as.character(plt_assignments[i, "row"]))))+
+  # ggplot(aes_string(x= as.character(plt_assignments[i, "col"]), y = as.character(plt_assignments[i, "row"])))+
+    geom_point(alpha = 0.3)+
+      geom_abline(intercept = 0, slope = 1, color = "firebrick", size = 1)+
+    coord_cartesian(x = c(-70, 0), y = c(-70, 0))
+})
+
+
+cowplot::plot_grid(plotlist = plt_contrast_list, nrow = 5, ncol = 5)
+
+
+# plt_contrast_list_hex <- map(seq(1, nrow(plt_assignments)), function(i){
+#   predicted_voltages_df_plt %>% 
+#     mutate(key = paste0("t", key)) %>% 
+#     spread(key, value) %>% 
+#     # ggplot(aes_string(x= "t1", "t10"))+
+#     ggplot(aes_string(x = paste0("t", as.character(plt_assignments[i, "col"])), 
+#                       y = paste0("t", as.character(plt_assignments[i, "row"]))))+
+#     # ggplot(aes_string(x= as.character(plt_assignments[i, "col"]), y = as.character(plt_assignments[i, "row"])))+
+#     # geom_point(alpha = 0.3)+
+#     # geom_hex()+
+#     # geom_density2d()+
+#     
+#     # scale_fill_continuous(type = "viridis")+
+#     # theme(legend.position = "")
+#     stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+#     scale_fill_distiller(palette=4, direction=1) +
+#     scale_x_continuous(expand = c(0, 0)) +
+#     scale_y_continuous(expand = c(0, 0)) +
+#     theme(
+#       legend.position='none'
+#     )+
+#     geom_abline(intercept = 0, slope = 1, color = "firebrick", size = 1)+
+#   coord_cartesian(x = c(-70, 0), y = c(-70, 0))
+# })
+# 
+# 
+# cowplot::plot_grid(plotlist = plt_contrast_list_hex, nrow = 5, ncol = 5)
+```
+
+
+
 Repeat pattern for epsp
 
 ```{r}
