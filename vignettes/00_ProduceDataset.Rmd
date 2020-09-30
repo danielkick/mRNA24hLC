@@ -735,7 +735,7 @@ out <- out[[1]]
 
 prediction <- out$predicted - out$offset
 
-trial_taus <- c(1, 10, 20, 30, 100)#seq(1, 99, length.out = 10)
+trial_taus <- c(1, 10, 20, 30, 99)#seq(1, 99, length.out = 10)
 predicted_voltages <- map(trial_taus, function(in_tau){
   
   out <- predict_epsp_responses(trace = current_trace,
@@ -778,8 +778,8 @@ predicted_voltages_df_plt %>%
   mutate(key = paste0("t", key)) %>% 
   spread(key, value) %>% 
   ggplot(aes(x= Time))+
-  geom_ribbon(aes(ymin=t1, ymax=t100), fill = "firebrick")+
-  geom_line(aes(y = t100), color = "cornflowerblue")+
+  geom_ribbon(aes(ymin=t1, ymax=t99), fill = "firebrick")+
+  geom_line(aes(y = t99), color = "cornflowerblue")+
   geom_line(aes(y = t1))+
   labs(title = "tau 1 vs 100")
 
@@ -813,6 +813,49 @@ plt_contrast_list <- map(seq(1, nrow(plt_assignments)), function(i){
 
 
 cowplot::plot_grid(plotlist = plt_contrast_list, nrow = 5, ncol = 5)
+
+
+
+
+
+temp <- predicted_voltages_df_plt %>%
+  mutate(key = paste0("t", key)) %>% 
+  spread(key, value) %>% 
+  select(-Time)
+
+temp_summary <- expand.grid(names(temp), names(temp))
+temp_summary$mean <- NA
+temp_summary$median <- NA
+temp_summary$sd <- NA
+temp_summary$iqr <- NA
+
+
+for (i in 1:nrow(temp_summary)){
+temp_array <- temp[, temp_summary[i, "Var1"]] - temp[, temp_summary[i, "Var2"]]
+
+temp_summary[i, "mean"] <- mean(temp_array) %>% round(digits = 2)
+temp_summary[i, "median"] <- median(temp_array) %>% round(digits = 2)
+temp_summary[i, "sd"] <- sd(temp_array) %>% round(digits = 2)
+temp_summary[i, "iqr"] <- IQR(temp_array) %>% round(digits = 2)
+  
+}
+
+heatmap_list <- map(c("mean", "median", "sd", "iqr"), function(i){
+  
+temp_summary %>% 
+  gather(key, value, c("mean", "median", "sd", "iqr")) %>% 
+  filter(key == i) %>% 
+  # ggplot(aes(x = Var1, y = Var2, fill = mean, label = mean))+
+  ggplot(aes(x = Var1, y = Var2, fill = value, label = value))+
+  geom_tile()+
+  geom_text()+
+  scale_fill_gradient2()+
+  facet_wrap(.~key)
+})
+
+plot_grid(plotlist = heatmap_list)
+
+
 
 
 # plt_contrast_list_hex <- map(seq(1, nrow(plt_assignments)), function(i){
