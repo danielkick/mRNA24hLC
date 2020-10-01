@@ -98,7 +98,7 @@ metadata <- read_excel(use.file.path, sheet = "MetadataEphys")
 ```
 
 ## Check on hand abfs
-```{r}
+```{r eval=FALSE, include=FALSE}
 # Check for missing files relative to the abf directory
 
 # Find all the traces specified in the metadata file (i.e. where type is not NA) and check to see if they exist in the `abf_dir`
@@ -135,7 +135,7 @@ absent_traces_to_find <- absent_traces %>%
 
 
 ## Finding missing ABFs on the shared drive w/o Microsoft's search
-```{r}
+```{r eval=FALSE, include=FALSE}
 # Indexing all the ABFs in my directory on the shared drive is time consumming (~55 minutes over the VPN). It should only be done when an index doesn't exist already of if there's reason to beleave the index is no longer accurate. 
 if (!file.exists(here("inst", "extdata", "shared_drive_abf_index.csv"))){
   start_loc <- "S:/Data_Daniel"
@@ -152,7 +152,7 @@ all_abfs_on_shared_drive <- read.csv(here("inst", "extdata", "shared_drive_abf_i
 ```
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 all_abfs_on_shared_drive <- all_abfs_on_shared_drive %>% 
   as_tibble() %>% 
   mutate(all_abfs = as.character(all_abfs))
@@ -345,7 +345,7 @@ metadata <- metadata[metadata$Experiment != "190917a", ]
 
 ## Automated processing of passive properties
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 metadata <- metadata %>% 
   mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
                             Type %in% c("igj","igj_50", "gj") ~ "gjcc",
@@ -368,7 +368,7 @@ abfs_to_process <- abfs_to_process %>%
 ```
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 # Many experiments with duplicate recordings
 abfs_to_process %>% 
   select(Experiment, ABFType, In4, In9, File) %>% 
@@ -407,7 +407,7 @@ abfs_to_process <- abfs_to_process %>%
 ```  
 
 Process gjvcs
-```{r}
+```{r eval=FALSE, include=FALSE}
 tictoc::tic()
 
 process_these_abfs <- abfs_to_process %>% filter(ABFType == "gjvc")
@@ -485,7 +485,7 @@ abfs_to_process <- full_join(abfs_to_process, process_these_abfs)
 
 
 Process gjccs
-```{r}
+```{r eval=FALSE, include=FALSE}
 tictoc::tic()
 
 process_these_abfs <- abfs_to_process %>% filter(ABFType == "gjcc")
@@ -635,8 +635,8 @@ abfs_to_process <- full_join(
 ```
 
 
-### Backup Point
-```{r}
+## Backup Point
+```{r eval=FALSE, include=FALSE}
 save.image(file='myEnvironment.RData')
 load('myEnvironment.RData')
 ```
@@ -645,7 +645,7 @@ load('myEnvironment.RData')
 #### Data review:
 
 gjcc seems to predict bigger junctional conductance, R1 than gjvc would. 
-```{r}
+```{r eval=FALSE, include=FALSE}
 # abfs_to_process %>% 
 abfs_to_process %>% 
   group_by(Experiment, Cell) %>% 
@@ -883,7 +883,7 @@ save(tecc, file = here("data", "tecc.rds"))
 
 
 ## Contrast manual and automatic estimates
-```{r}
+```{r eval=FALSE, include=FALSE}
 tecc %>% glimpse()
 tevc %>% glimpse()
 abfs_to_process %>% glimpse()
