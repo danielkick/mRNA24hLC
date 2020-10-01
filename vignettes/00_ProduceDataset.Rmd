@@ -44,6 +44,34 @@ abf_dir_path <- "D:/0000_Traces_mRNA24hLC/"
 force_process_ABF <- c("000000_0000.abf")
 ```
 
+# Retrieve manually processed data ----
+
+## Load Data Ephys Data
+```{r}
+metadata <- read_excel(use.file.path,
+                       sheet = "MetadataEphys")  
+
+ia <- read_excel(
+use.file.path,
+  sheet = "IA"
+)
+
+ihtk <- read_excel(
+use.file.path,
+  sheet = "IHTK"
+)
+
+tecc <- read_excel(
+use.file.path,
+  sheet = "TECC"
+)
+
+tevc <- read_excel(
+use.file.path,
+  sheet = "TEVC"
+)
+```
+
 # Working off of non-processed data ----
 
 ## Find all the relevant files
@@ -690,6 +718,7 @@ abfs_to_process %>%
 ```
 
 # Load same data measured manually ----
+
 ## Voltage Clamp GJ Protocol
 ```{r}
 
@@ -852,6 +881,177 @@ tecc <- df
 save(tecc, file = here("data", "tecc.rds"))
 ```
 
+
+## Contrast manual and automatic estimates
+```{r}
+tecc %>% glimpse()
+tevc %>% glimpse()
+abfs_to_process %>% glimpse()
+
+
+
+# make all the manual data columns begin with a lowercase, all the automatic with an uppercase
+
+# > tecc %>% glimpse()
+# $ Experiment   <chr> "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "...
+# $ FileName     <chr> "190808a_0020.abf", "190808a_0020.abf", "190808a_0019.abf", "190808a_0019.abf", "190808a_0018.abf", ...
+# $ Signal1      <chr> "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN 4", "IN ...
+# $ Signal2      <chr> "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN 6", "IN ...
+# $ Signal3      <chr> "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN 7", "IN ...
+# $ Signal4      <chr> "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN ...
+# $ Signal5      <chr> "IN 11", "IN 11", "IN 11", "IN 11", "IN 11", "IN 11", "IN 11", "IN 11", "IN 11", "IN 11", "IN 11", "...
+# $ Signal6      <chr> "IN 12", "IN 12", "IN 12", "IN 12", "IN 12", "IN 12", "IN 12", "IN 12", "IN 12", "IN 12", "IN 12", "...
+# $ R1S1Baseline <dbl> -50.21973801, -50.07746506, -50.70069504, -50.70840073, -54.10960388, -54.04040718, -51.35936546, -5...
+# $ R1S2Baseline <dbl> -45.0410767, -44.9060593, -45.5373383, -45.5515518, -54.9610367, -54.9374828, -31.2661905, -31.58906...
+# $ R1S3Baseline <dbl> 0.79665536, 0.79718763, 0.79857910, 0.79843915, 0.08457647, 0.08477077, 1.95643264, 1.95724940, 0.08...
+# $ R1S4Baseline <dbl> -50.61337, -50.47791, -50.54323, -50.53949, -52.52266, -52.53606, -51.03794, -51.22996, -51.77845, -...
+# $ R1S5Baseline <dbl> -46.39565, -46.28634, -46.28721, -46.28609, -54.37813, -54.39156, -52.71245, -52.89937, -53.47390, -...
+# $ R1S6Baseline <dbl> 1.0031309, 1.0033848, 1.0025973, 1.0025307, 0.1806062, 0.1800906, 0.1801702, 0.1800263, 0.1790243, 0...
+# $ cc           <dbl> 0.0296567081, 0.0608222111, 0.0729369746, 0.0280174101, 0.0603776942, 0.0313770386, 0.0481345898, 0....
+# $ r11          <dbl> 5.1074532858, 2.4874474978, 2.4867428031, 5.2032927902, 2.5094418119, 5.0481523660, 2.5110511047, 3....
+# $ r12          <dbl> 0.1501589949, 0.1516519430, 0.1813754966, 0.1457827881, 0.1525215158, 0.1567031997, 0.1211175561, 0....
+# $ r1           <dbl> 5.425934435, 2.558924926, 2.570005254, 5.518248152, 2.582870767, 5.373945351, 2.608574635, 3.2070184...
+# $ rc           <dbl> 84.4569729, 83.6225592, 71.1581998, 88.6112719, 82.9049052, 80.6843048, 63.9263164, 81.5385630, 72.6...
+
+small_tecc <- tecc %>% 
+  mutate(PreSyn = case_when(
+    (abs(R1S3Mean) > abs(R1S6Mean)) ~ Signal1, 
+    (abs(R1S3Mean) < abs(R1S6Mean)) ~ Signal4
+    ),
+    vrest = case_when(
+    (abs(R1S3Mean) > abs(R1S6Mean)) ~ R1S1Baseline, 
+    (abs(R1S3Mean) < abs(R1S6Mean)) ~ R1S4Baseline
+    )) %>% 
+  mutate(PreSyn = case_when(
+    PreSyn == "IN 9" ~ "In9",
+    PreSyn == "IN 4" ~ "In4"
+  )) %>% 
+  select(FileName, PreSyn, vrest, #Signal1, Signal4, R1S1Baseline, R1S4Baseline, 
+         cc, r11, r12, r1, rc) %>% 
+  distinct() %>% 
+  rename(Channel = PreSyn,
+         File = FileName)
+
+
+# > tevc %>% glimpse()
+# Rows: 620
+# Columns: 23
+# $ FileName     <chr> "190808a_0004.abf", "190808a_0004.abf", "190808a_0004.abf", "190808a_0004.abf", "190808a_0004.abf", ...
+# $ Trace        <dbl> 1, 2, 3, 4, 6, 7, 8, 9, 1, 2, 3, 4, 6, 7, 8, 9, 1, 2, 3, 4, 6, 7, 8, 9, 1, 2, 3, 4, 6, 7, 8, 9, 1, 2...
+# $ PreSyn       <chr> "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 9", "IN 4", "IN 4", "IN 4", "IN 4", "IN ...
+# $ Ig           <dbl> 0.010587098, 0.010071129, 0.009040605, 0.016577420, 0.009968880, 0.013816496, 0.011510341, 0.0984035...
+# $ MedianIg     <dbl> 0.011048719, 0.011048719, 0.011048719, 0.011048719, 0.011048719, 0.011048719, 0.011048719, 0.0110487...
+
+small_tevc <- tevc %>% 
+  select(FileName, PreSyn, MedianIg) %>% 
+  distinct() %>% 
+  mutate(PreSyn = case_when(
+    PreSyn == "IN 9" ~ "In9",
+    PreSyn == "IN 4" ~ "In4"
+  )) %>% 
+  rename(Channel = PreSyn,
+         ig = MedianIg,
+         File = FileName)
+
+
+# > abfs_to_process %>% glimpse()
+# Rows: 862
+# Columns: 17
+# $ Experiment  <chr> "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "190808a", "1...
+# $ ABFType     <chr> "gjvc", "epsp", "epsp", "fi", "fi", "gjcc", "gjcc", "gjcc", "gjcc", "gjcc", "gjcc", "gjcc", "gjcc", "...
+# $ File        <chr> "190808a_0004.abf", "190808a_0014.abf", "190808a_0015.abf", "190808a_0016.abf", "190808a_0017.abf", "...
+# $ Channel     <chr> "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In4", "In...
+# $ Cell        <dbl> 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,...
+# $ Processed   <lgl> FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FAL...
+# $ Ig          <dbl> -0.009277461, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, -0.01530993...
+# $ R1c         <dbl> 4.6894342, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 2.8742544, NA,...
+# $ Sweep       <dbl> NA, NA, NA, NA, NA, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, NA, NA, NA, NA, NA, 1, 2, 3, 4, 5, 1...
+# $ CC          <dbl> NA, NA, NA, NA, NA, 0.6341783, 0.6355144, 0.6389207, 0.6362536, 0.6367384, 0.6285366, 0.8813660, 0.75...
+# $ R1          <dbl> NA, NA, NA, NA, NA, 34.413437, 34.109248, 31.521800, 34.387647, 34.266384, 35.434105, 9.993671, 21.37...
+# $ R11         <dbl> NA, NA, NA, NA, NA, 14.224890, 14.221718, 14.230254, 14.338361, 14.340987, 15.795359, 9.551190, 12.47...
+# $ R12         <dbl> NA, NA, NA, NA, NA, 9.021116, 9.038106, 9.092004, 9.122833, 9.131457, 9.927962, 8.418095, 9.480177, 9...
+# $ Rc          <dbl> NA, NA, NA, NA, NA, 8.545656, 8.582178, 10.053264, 8.692819, 8.679727, 10.224508, 3.924130, 11.180257...
+# $ Tau_est     <dbl> NA, NA, NA, NA, NA, 0.005418330, 0.003575446, -8.709427978, 0.005136429, -26.883721334, -24.997237570...
+# $ Tau_std.err <dbl> NA, NA, NA, NA, NA, 0.042967140, 0.049029284, 0.015320191, 0.043073983, 0.040206245, 0.029577800, NA,...
+# $ Vrest       <dbl> NA, NA, NA, NA, NA, -54.22974, -54.32129, -49.49951, -54.26026, -54.38233, -51.02539, -31.86035, -37....
+# > 
+
+small_abf_automatic <- abfs_to_process %>%
+  select(-Experiment, -ABFType, -Sweep, -Processed, -Tau_est, -Tau_std.err) %>% 
+  group_by(File) %>% 
+  mutate_at(.vars = c("Ig", "R1c", "CC", "R1", "R11", "R12", "Rc", "Vrest"), 
+            median, na.rm = T) %>% 
+  distinct() 
+
+
+  
+small_all <- full_join(full_join(small_abf_automatic, small_tecc), small_tevc)
+
+
+small_all <- small_all[, c("File", "Channel", "Cell", 
+                           "CC", "cc", "R1", "r1", "R11", "r11", "R12", "r12", "Rc", "rc", "Vrest", "vrest", 
+                           "Ig", "ig", "R1c")]
+
+
+
+```
+
+
+```{r}
+
+# several very extreme estimates
+
+comp_cc <-
+small_all %>% 
+  ggplot(aes(x = CC, y = cc))+
+  geom_ribbon(aes(ymin = 0, ymax = CC), fill = "cornflowerblue", alpha = 0.5)+
+  geom_point()+
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+  # labs(subtitle = "Automated == x, Manual == y")
+
+comp_r1 <-
+small_all %>% 
+  ggplot(aes(x = R1, y = r1))+
+  geom_ribbon(aes(ymin = 0, ymax = R1), fill = "firebrick", alpha = 0.5)+
+  geom_point()+
+  coord_cartesian(xlim = c(0, 75), ylim = c(0, 75))
+
+comp_r11 <-
+small_all %>% 
+  ggplot(aes(x = R11, y = r11))+
+  geom_ribbon(aes(ymin = 0, ymax = R11), fill = "firebrick", alpha = 0.5)+
+  geom_point()+
+  coord_cartesian(xlim = c(0, 20))
+
+comp_r12 <-
+small_all %>% 
+  ggplot(aes(x = R12, y = r12))+
+  geom_ribbon(aes(ymin = 0, ymax = R12), fill = "slateblue", alpha = 0.5)+
+  geom_point()+
+  coord_cartesian(xlim = c(0, 15))
+
+comp_rc <-
+small_all %>% 
+  ggplot(aes(x = Rc, y = rc))+
+  geom_ribbon(aes(ymin = 0, ymax = Rc), fill = "cornflowerblue", alpha = 0.5)+
+  geom_point()+
+  coord_cartesian(ylim = c(0, 125))
+
+comp_vrest <-
+small_all %>% 
+  ggplot(aes(x = Vrest, y = vrest))+
+  geom_ribbon(aes(ymin = -60, ymax = Vrest), fill = "forestgreen", alpha = 0.5)+
+  geom_point()
+
+comp_ig <-
+small_all %>% 
+  ggplot(aes(x = abs(Ig), y = ig))+
+  geom_ribbon(aes(ymin = 0, ymax = abs(Ig)), fill = "cornflowerblue", alpha = 0.5)+
+  geom_point()
+
+
+(comp_cc / comp_r12) | (comp_rc / comp_ig) | (comp_vrest / ggplot()) | (comp_r1 / comp_r11)
+```
 
 
 
@@ -1473,33 +1673,7 @@ Placeholder for fi
 ```
 
 
-# Retrieve manually processed data ----
-
-## Load Data Ephys Data
-```{r}
-metadata <- read_excel(use.file.path,
-                       sheet = "MetadataEphys")  
-
-ia <- read_excel(
-use.file.path,
-  sheet = "IA"
-)
-
-ihtk <- read_excel(
-use.file.path,
-  sheet = "IHTK"
-)
-
-tecc <- read_excel(
-use.file.path,
-  sheet = "TECC"
-)
-
-tevc <- read_excel(
-use.file.path,
-  sheet = "TEVC"
-)
-```
+# Finish wrangling manually processed data ----
 
 # Voltage Clamp K+ Protocols
 ## IA data 
