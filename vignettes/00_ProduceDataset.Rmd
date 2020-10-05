@@ -215,7 +215,7 @@ metadata <- metadata[metadata$Experiment != "190917a", ]
 
 ## Automated processing of passive properties
 
-```{r eval=FALSE, include=FALSE}
+```{r}
 metadata <- metadata %>% 
   mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
                             Type %in% c("igj","igj_50", "gj") ~ "gjcc",
@@ -238,7 +238,7 @@ abfs_to_process <- abfs_to_process %>%
 ```
 
 
-```{r eval=FALSE, include=FALSE}
+```{r}
 # Many experiments with duplicate recordings
 abfs_to_process %>% 
   select(Experiment, ABFType, In4, In9, File) %>% 
@@ -750,13 +750,8 @@ small_all %>%
 (comp_cc / comp_r12) | (comp_rc / comp_ig) | (comp_vrest / ggplot()) | (comp_r1 / comp_r11)
 ```
 
-
-
-
-
-How big of an effect does changing tau have on the predicted voltage?
-```{r}
-
+## How big of an effect does changing tau have on the predicted voltage?
+```{r eval=FALSE}
 current_trace <- check_abf_expected(
   exempt_ABF = force_process_ABF,
   dir_path = abf_dir_path,
@@ -768,7 +763,6 @@ current_trace <- check_abf_expected(
 #   Experiment  Cell Channel   Rin   Tau
 #   <chr>      <dbl> <chr>   <dbl> <dbl>
 # 1 190808a        4 In4      14.3 -11.8
-
 
 current_trace <- current_trace$trace
 
@@ -937,80 +931,61 @@ heatmap_list[[5]]
 ```
 
 
-
-Repeat pattern for epsp
+##Repeat pattern for epsp
 
 ```{r}
 tictoc::tic()
-
+# Find all the cells for which we have the needed resistance
 process_these_abfs <- abfs_to_process %>% filter(ABFType == "epsp")
 
-# Based on the above analysis -- that tau within an expected band has a mean effect of ~.1mV or less on the 
-HARDCODED_TAU <- 25
-  
-  
-# unique_abfs <- unique(process_these_abfs$File)
-# 
-# # inelegant, but functional. 
-# unique_abfs <- unique_abfs[!(unique_abfs %in% c(
-# 
-# ))]
+## collect needed input (rin) for epsp ====
+temp <- tecc %>%
+  mutate(PreSyn = case_when(
+    (abs(R1S3Mean) > abs(R1S6Mean)) ~ Signal1, 
+    (abs(R1S3Mean) < abs(R1S6Mean)) ~ Signal4
+  )) %>% 
+  mutate(PreSyn = case_when(
+    PreSyn == "IN 9" ~ "In9",
+    PreSyn == "IN 4" ~ "In4"
+  )) %>% 
+  select(FileName, PreSyn, r11, r1) %>% 
+  distinct() %>% 
+  rename(Channel = PreSyn,
+         File = FileName) 
 
+temp_metadata <- metadata %>% 
+  mutate(num_zeros = str_length(Recording)) %>% 
+  mutate(num_zeros = ifelse(num_zeros == 1, "000", 
+                            ifelse(num_zeros == 2, "00", 
+                                   ifelse(num_zeros == 3, "0", NA)))) %>% 
+  mutate(File = paste0(Experiment, "_", num_zeros, as.character(Recording), ".abf" )) %>% 
+  select(-num_zeros)
 
+temp <- left_join(temp, temp_metadata) %>% 
+  mutate(Cell = case_when(Channel == "In4" ~ In4, 
+                          Channel == "In9" ~ In9)) %>% 
+  select(Experiment, Channel, Cell, r11, r1) %>%
+  group_by(Experiment, Channel, Cell) %>% 
+  mutate(r11 = median(r11, na.rm = T), r1 = median(r1, na.rm = T)) %>% 
+  distinct() %>% 
+  ungroup()
 
-#FIXME all of the abfs should have complete information. 190830 has cell == NA. 
-all_cell_params <- abfs_to_process[abs(abfs_to_process$Tau_est) < 60 & abs(abfs_to_process$Tau_est) > 15 , ] %>% 
-  filter(!is.na(Tau_est)) %>% 
-  group_by(Experiment, Cell) %>% 
-  summarise(
-    Experiment = Experiment,
-    Cell = Cell,
-    Channel = Channel,
-    Rin = median(R11, na.rm = T),
-    Tau = median(Tau_est, na.rm = T)) 
+## produce reference dfs ====
+all_cell_params <- full_join(temp, process_these_abfs) %>% mutate(Rin = r11)
 
 all_cell_params <- all_cell_params %>% 
   ungroup() %>%
   filter(!is.na(Experiment) & !is.na(Cell)) %>% 
   distinct()
-  
 
+# Based on the above analysis -- that tau within an expected band has a mean effect of ~.1mV or less on the 
+HARDCODED_TAU <- 25
+  
 # unique_abfs <- "190808a_0014.abf"
 unique_abfs <- process_these_abfs[process_these_abfs$Experiment %in% all_cell_params$Experiment, ]$File
-
-
-
-
-# current_cell_params
-# 
-#   
-#   
-# current_cell_params <- filter(abfs_to_process, Experiment == "190808a", Cell == 4) %>% #FIXME
-#   summarise(
-#     Experiment = Experiment,
-#     Cell = Cell,
-#     Channel = Channel,
-#     Rin = median(R11, na.rm = T),
-#     Tau = median(Tau_est, na.rm = T)) %>% 
-#   distinct()
-
-# # A tibble: 1 x 5
-#   Experiment  Cell Channel   Rin   Tau
-#   <chr>      <dbl> <chr>   <dbl> <dbl>
-# 1 190808a        4 In4      14.3 -11.8
-
-
-# is that didn't work 5, 6, 7
-
-# [1] 7
-# Error in names(input.df) <- c("Time", "Inj") : 
-#   attempt to set an attribute on NULL
-# In addition: Warning message:
-#  Error in names(input.df) <- c("Time", "Inj") : 
-#   attempt to set an attribute on NULL 
-
-#FIXME only In4 seems to be processed?
-for (i in seq(8, 34)){#seq_along(unique_abfs)){
+  
+## Simulate each cell ====
+for (i in seq(1, 138)){#seq_along(unique_abfs)){
   print(i)
   
   current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
@@ -1023,12 +998,15 @@ for (i in seq(8, 34)){#seq_along(unique_abfs)){
   )
   
   if (current_trace$process){
+  current_trace <- current_trace$trace
+    
   # handle cells sequentially
   unique_cells <- unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], ]$Cell)
   
   for (j in seq_along(unique_cells)){
     current_cell <- unique_cells[j]
-    current_cell_params <- all_cell_params[all_cell_params$Experiment == unlist(str_split(current_file, pattern = "_"))[1]&
+    current_cell_params <- all_cell_params[all_cell_params$File == current_file &
+      all_cell_params$Experiment == unlist(str_split(current_file, pattern = "_"))[1] &
                                              all_cell_params$Cell == unique_cells[j], ] %>% 
       distinct()
     
@@ -1039,7 +1017,7 @@ for (i in seq(8, 34)){#seq_along(unique_abfs)){
     
     if (nrow(current_cell_params)==1){ # if there are no acceptable parameters, current_cell_params will be nrow == 0 
       
-        current_trace <- current_trace$trace
+        
         
         if (unlist(current_cell_params[, "Channel"]) == "In4"){
           out <- predict_epsp_responses(trace = current_trace,
@@ -1079,7 +1057,7 @@ for (i in seq(8, 34)){#seq_along(unique_abfs)){
           
           saveRDS(out$predictions, 
                   here("data", "predicted_voltage", paste(
-                    str_remove(current_trace, ".abf"), "epsp", "In9", "predict_v.rds", sep = "-")))
+                    str_remove(current_file, ".abf"), "epsp", "In9", "predict_v.rds", sep = "-")))
           
           save_plot(here("data", "data_audits", "epsp", paste(
             str_remove(current_trace, ".abf"), "epsp", "In9", "segment.pdf", sep = "-")),
@@ -1091,99 +1069,247 @@ for (i in seq(8, 34)){#seq_along(unique_abfs)){
 }
 
 tictoc::toc()
+```
 
-# for (i in seq_along(unique_abfs)){
-#   print(i)
-#   # process_these_abfs[process_these_abfs$File == unique_abfs[i], ]
+```{r}
+
+
+# # unique_abfs <- unique(process_these_abfs$File)
+# # 
+# # # inelegant, but functional. 
+# # unique_abfs <- unique_abfs[!(unique_abfs %in% c(
+# # 
+# # ))]
 # 
+# 
+# 
+# #FIXME all of the abfs should have complete information. 190830 has cell == NA. 
+# all_cell_params <- abfs_to_process[abs(abfs_to_process$Tau_est) < 60 & abs(abfs_to_process$Tau_est) > 15 , ] %>% 
+#   filter(!is.na(Tau_est)) %>% 
+#   group_by(Experiment, Cell) %>% 
+#   summarise(
+#     Experiment = Experiment,
+#     Cell = Cell,
+#     Channel = Channel,
+#     Rin = median(R11, na.rm = T),
+#     Tau = median(Tau_est, na.rm = T)) 
+# 
+# all_cell_params <- all_cell_params %>% 
+#   ungroup() %>%
+#   filter(!is.na(Experiment) & !is.na(Cell)) %>% 
+#   distinct()
+#   
+# 
+# # unique_abfs <- "190808a_0014.abf"
+# unique_abfs <- process_these_abfs[process_these_abfs$Experiment %in% all_cell_params$Experiment, ]$File
+# 
+# 
+# 
+# 
+# # current_cell_params
+# # 
+# #   
+# #   
+# # current_cell_params <- filter(abfs_to_process, Experiment == "190808a", Cell == 4) %>% #FIXME
+# #   summarise(
+# #     Experiment = Experiment,
+# #     Cell = Cell,
+# #     Channel = Channel,
+# #     Rin = median(R11, na.rm = T),
+# #     Tau = median(Tau_est, na.rm = T)) %>% 
+# #   distinct()
+# 
+# # # A tibble: 1 x 5
+# #   Experiment  Cell Channel   Rin   Tau
+# #   <chr>      <dbl> <chr>   <dbl> <dbl>
+# # 1 190808a        4 In4      14.3 -11.8
+# 
+# 
+# # is that didn't work 5, 6, 7
+# 
+# # [1] 7
+# # Error in names(input.df) <- c("Time", "Inj") : 
+# #   attempt to set an attribute on NULL
+# # In addition: Warning message:
+# #  Error in names(input.df) <- c("Time", "Inj") : 
+# #   attempt to set an attribute on NULL 
+# 
+# #FIXME only In4 seems to be processed?
+# for (i in seq(8, 34)){#seq_along(unique_abfs)){
+#   print(i)
+#   
 #   current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
 #   ## Should we process the current ABF? ====
 #   current_trace <- check_abf_expected(
-#     exempt_ABF = force_process_ABF, 
+#     exempt_ABF = force_process_ABF,
 #     dir_path = abf_dir_path,
 #     file_name = current_file,
 #     file_type = as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "ABFType"])[1])
 #   )
 #   
-#   
 #   if (current_trace$process){
-#     current_trace <- current_trace$trace
+#   # handle cells sequentially
+#   unique_cells <- unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], ]$Cell)
+#   
+#   for (j in seq_along(unique_cells)){
+#     current_cell <- unique_cells[j]
+#     current_cell_params <- all_cell_params[all_cell_params$Experiment == unlist(str_split(current_file, pattern = "_"))[1]&
+#                                              all_cell_params$Cell == unique_cells[j], ] %>% 
+#       distinct()
 #     
+#     if(nrow(current_cell_params) > 1){
+#       warning("current_cell_params contains more than one row! Retaining only the first row.")
+#       current_cell_params <- current_cell_params[1, ]
+#     }
 #     
-#     out <- process_gjcc_trace(trace = current_trace)
-#     
-#     out_df <- out$df 
-#     out_df <- out_df %>% 
-#       gather("key", "value", names(out_df)[names(out_df) != "Sweep"]) %>% 
-#       mutate(key = str_replace_all(key, "In4_", replacement = "In4-"),
-#              key = str_replace_all(key, "In9_", replacement = "In9-")) %>% 
-#       separate(col = key, sep = "-", into = c("Ch", "DV")) %>% 
-#       spread(key = "DV", value = "value") %>% 
-#       mutate(File = current_file,
-#              Sweep = as.numeric(Sweep)) %>% 
-#       rename(Channel = Ch)
-#     
-#     
-#     process_these_abfs <- full_join(process_these_abfs, out_df)
-# 
-#     
-#     
-#     
-#     # Save for review:
-#     # Estimates of Tau look poor.
-#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
-#               out$diagnostic_plots$trace, base_height = 7, base_width = 10)
-#     
-#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "segment.pdf", sep = "-")),
-#               out$diagnostic_plots$segment, base_height = 7, base_width = 10)
-#     
-#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in4.pdf", sep = "-")),
-#               out$diagnostic_plots$fit_In4, base_height = 7, base_width = 10)
-#     
-#     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in9.pdf", sep = "-")),
-#               out$diagnostic_plots$fit_In9, base_height = 7, base_width = 10)
-#     
-#     
-#          
-# 
-#     
-#   } 
+#     if (nrow(current_cell_params)==1){ # if there are no acceptable parameters, current_cell_params will be nrow == 0 
+#       
+#         current_trace <- current_trace$trace
+#         
+#         if (unlist(current_cell_params[, "Channel"]) == "In4"){
+#           out <- predict_epsp_responses(trace = current_trace,
+#                                         tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+#                                         rin = as.numeric(unlist(current_cell_params[, "Rin"])),
+#                                         v_ch = "In4",
+#                                         i_ch = "In7")
+#           
+#           # Save for review:
+#           saveRDS(current_trace[, c("In4", "In7", "Sweep", "Time")], 
+#                   here("data", "predicted_voltage", paste(
+#                     str_remove(current_file, ".abf"), "epsp", "In4", "actual_v.rds", sep = "-")))
+#           
+#           saveRDS(out$predictions, 
+#                   here("data", "predicted_voltage", paste(
+#                     str_remove(current_file, ".abf"), "epsp", "In4", "predict_v.rds", sep = "-")))
+#           
+#           
+#           
+#           
+#           save_plot(here("data", "data_audits", "epsp", paste(
+#             str_remove(current_file, ".abf"), "epsp", "In4", "segment.pdf", sep = "-")),
+#             out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+#           
+#           
+#         } else if (unlist(current_cell_params[, "Channel"]) == "In9"){
+#           out <- predict_epsp_responses(trace = current_trace,
+#                                         tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+#                                         rin = as.numeric(unlist(current_cell_params[, "Rin"])),
+#                                         v_ch = "In9",
+#                                         i_ch = "In12")
+#           
+#           # Save for review:
+#           saveRDS(current_trace[, c("In9", "In12", "Sweep", "Time")], 
+#                   here("data", "predicted_voltage", paste(
+#                     str_remove(current_file, ".abf"), "epsp", "In9", "actual_v.rds", sep = "-")))
+#           
+#           saveRDS(out$predictions, 
+#                   here("data", "predicted_voltage", paste(
+#                     str_remove(current_trace, ".abf"), "epsp", "In9", "predict_v.rds", sep = "-")))
+#           
+#           save_plot(here("data", "data_audits", "epsp", paste(
+#             str_remove(current_trace, ".abf"), "epsp", "In9", "segment.pdf", sep = "-")),
+#             out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+#         }
+#       }
+#     }
+#   }
 # }
 # 
-# process_these_abfs <- distinct(process_these_abfs) %>% filter(!is.na(R11))
 # tictoc::toc()
 # 
-# 
-# 
-# # abfs_to_process <- full_join(abfs_to_process, 
+# # for (i in seq_along(unique_abfs)){
+# #   print(i)
+# #   # process_these_abfs[process_these_abfs$File == unique_abfs[i], ]
+# # 
+# #   current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
+# #   ## Should we process the current ABF? ====
+# #   current_trace <- check_abf_expected(
+# #     exempt_ABF = force_process_ABF, 
+# #     dir_path = abf_dir_path,
+# #     file_name = current_file,
+# #     file_type = as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "ABFType"])[1])
+# #   )
+# #   
+# #   
+# #   if (current_trace$process){
+# #     current_trace <- current_trace$trace
+# #     
+# #     
+# #     out <- process_gjcc_trace(trace = current_trace)
+# #     
+# #     out_df <- out$df 
+# #     out_df <- out_df %>% 
+# #       gather("key", "value", names(out_df)[names(out_df) != "Sweep"]) %>% 
+# #       mutate(key = str_replace_all(key, "In4_", replacement = "In4-"),
+# #              key = str_replace_all(key, "In9_", replacement = "In9-")) %>% 
+# #       separate(col = key, sep = "-", into = c("Ch", "DV")) %>% 
+# #       spread(key = "DV", value = "value") %>% 
+# #       mutate(File = current_file,
+# #              Sweep = as.numeric(Sweep)) %>% 
+# #       rename(Channel = Ch)
+# #     
+# #     
+# #     process_these_abfs <- full_join(process_these_abfs, out_df)
+# # 
+# #     
+# #     
+# #     
+# #     # Save for review:
+# #     # Estimates of Tau look poor.
+# #     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "trace.pdf", sep = "-")),
+# #               out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+# #     
+# #     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "segment.pdf", sep = "-")),
+# #               out$diagnostic_plots$segment, base_height = 7, base_width = 10)
+# #     
+# #     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in4.pdf", sep = "-")),
+# #               out$diagnostic_plots$fit_In4, base_height = 7, base_width = 10)
+# #     
+# #     save_plot(here("data", "data_audits", "gjcc", paste(str_remove(current_file, ".abf"), "gjcc", "fit_in9.pdf", sep = "-")),
+# #               out$diagnostic_plots$fit_In9, base_height = 7, base_width = 10)
+# #     
+# #     
+# #          
+# # 
+# #     
+# #   } 
+# # }
+# # 
+# # process_these_abfs <- distinct(process_these_abfs) %>% filter(!is.na(R11))
+# # tictoc::toc()
+# # 
+# # 
+# # 
+# # # abfs_to_process <- full_join(abfs_to_process, 
+# # #           process_these_abfs) 
+# # 
+# # full_join(abfs_to_process, 
 # #           process_these_abfs) 
-# 
-# full_join(abfs_to_process, 
-#           process_these_abfs) 
-# 
-# process_these_abfs[is.na(process_these_abfs$Experiment), ]
-# 
-# 
-# t1 <- abfs_to_process %>% filter(File == "190808a_0019.abf")
-# t2 <- process_these_abfs %>% filter(File == "190808a_0019.abf")
-# 
-# 
-# full_join(t1, 
-#           select(t2, 
-#                  File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
-#           ) %>% tail()
-# 
-# 
-# 
-# abfs_to_process <- full_join(
-#   abfs_to_process, 
-#   select(process_these_abfs, 
-#          File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
-#           )
-# # merge back
-# # abfs_to_process <- full_join(abfs_to_process, mutate(, Sweep = as.character(Sweep)))
+# # 
+# # process_these_abfs[is.na(process_these_abfs$Experiment), ]
+# # 
+# # 
+# # t1 <- abfs_to_process %>% filter(File == "190808a_0019.abf")
+# # t2 <- process_these_abfs %>% filter(File == "190808a_0019.abf")
+# # 
+# # 
+# # full_join(t1, 
+# #           select(t2, 
+# #                  File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
+# #           ) %>% tail()
+# # 
+# # 
+# # 
+# # abfs_to_process <- full_join(
+# #   abfs_to_process, 
+# #   select(process_these_abfs, 
+# #          File, Channel, Sweep, CC, R1, R11, R12, Rc, Tau_est, Tau_std.err, Vrest)
+# #           )
+# # # merge back
+# # # abfs_to_process <- full_join(abfs_to_process, mutate(, Sweep = as.character(Sweep)))
 
 ```
+
 
 
 workspace -- getting metrics from epsp
