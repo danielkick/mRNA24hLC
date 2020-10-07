@@ -13,6 +13,114 @@ library(tidyverse)
 theme_set(ggplot2::theme_minimal())
 ```
 
+## load data and create a uid
+```{r}
+## Load in data ====
+load(here("data", "ionic.rds"))
+load(here("data", "tevc.rds"))
+load(here("data", "tecc.rds"))
+load(here("data", "mrna.rds"))
+epsp <- read.csv(here("data", "epsp.csv")) %>% as_tibble()
+metadata <- read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"),
+                       sheet = "MetadataEphys")  
+
+## Add Experment/Cell to metadata ====
+metadata <- metadata %>% 
+  mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
+                            Type %in% c("igj","igj_50", "gj") ~ "gjcc",
+                            # Type %in% c("epsp", "epsp_50") ~ "epsp",
+                            Type %in% c("fi_50", "fi") ~ "fi")) %>% 
+  # make expected file names
+  mutate(num_zeros = str_length(Recording)) %>% 
+  mutate(num_zeros = ifelse(num_zeros == 1, "000", 
+                            ifelse(num_zeros == 2, "00", 
+                                   ifelse(num_zeros == 3, "0", NA)))) %>% 
+  mutate(FileName = paste0(Experiment, "_", num_zeros, as.character(Recording), ".abf" )) %>% 
+  select(-num_zeros)
+
+### use a subset of metadata cols to add experment/cell data to other dfs ####
+small_metadata <- metadata %>% 
+  select(Experiment, FileName, In4, In9) %>% 
+  gather("Channel", "Cell", c("In4", "In9"))
+
+small_metadata2 <- metadata %>% 
+  select(Experiment, Type, FileName, In4, In9) %>% 
+  gather("Channel", "Cell", c("In4", "In9"))
+
+## Add Experment/Cell to tecc ====
+tecc <- tecc %>% 
+  mutate(PreSyn = case_when(
+    (abs(R1S3Mean) > abs(R1S6Mean)) ~ Signal1, 
+    (abs(R1S3Mean) < abs(R1S6Mean)) ~ Signal4
+    ),
+    vrest = case_when(
+    (abs(R1S3Mean) > abs(R1S6Mean)) ~ R1S1Baseline, 
+    (abs(R1S3Mean) < abs(R1S6Mean)) ~ R1S4Baseline
+    )) %>% 
+  mutate(PreSyn = case_when(
+    PreSyn == "IN 9" ~ "In9",
+    PreSyn == "IN 4" ~ "In4"
+  )) %>% 
+  select(FileName, PreSyn, vrest, #Signal1, Signal4, R1S1Baseline, R1S4Baseline, 
+         cc, r11, r12, r1, rc) %>% 
+  distinct() %>% 
+  rename(Channel = PreSyn)
+
+tecc <- left_join(tecc, small_metadata)
+
+
+## Add Experment/Cell to tevc ====
+tevc <- tevc %>% 
+  select(FileName, PreSyn, MedianIg) %>% 
+  distinct() %>% 
+  mutate(PreSyn = case_when(
+    PreSyn == "IN 9" ~ "In9",
+    PreSyn == "IN 4" ~ "In4"
+  )) %>% 
+  rename(Channel = PreSyn,
+         ig = MedianIg)
+
+tevc <- left_join(tevc, small_metadata)
+
+
+## Add Experment/Cell to epsp ====
+epsp <- left_join(epsp, small_metadata2)
+
+# TODO How do we best handel duplicate obs? median? 
+# note that there are plenty of replicates here
+epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predicted") %>% tally()
+# epsp %>% filter(Experiment == "190808a" & Cell == 3 & Sweep == 1)
+
+##
+
+# TODO figure out how Brian labeled cells. 
+# mrna[mrna$Source != "Brian", "Cell"]
+# mrna[mrna$Source == "Brian", "Cell"] %>% distinct() %>% View
+# 
+# mrna$Source %>% unique()
+```
+
+```{r}
+small_abf_automatic <- abfs_to_process %>%
+  select(-Experiment, -ABFType, -Sweep, -Processed, -Tau_est, -Tau_std.err) %>% 
+  group_by(File) %>% 
+  mutate_at(.vars = c("Ig", "R1c", "CC", "R1", "R11", "R12", "Rc", "Vrest"), 
+            median, na.rm = T) %>% 
+  distinct() 
+
+  
+small_all <- full_join(full_join(small_abf_automatic, small_tecc), small_tevc)
+
+small_all <- small_all[, c("File", "Channel", "Cell", 
+                           "CC", "cc", "R1", "r1", "R11", "r11", "R12", "r12", "Rc", "rc", "Vrest", "vrest", 
+                           "Ig", "ig", "R1c")]
+```
+
+
+
+
+                       
+                       
 ```{r reference}
 # ref ----
 # c(
@@ -87,36 +195,11 @@ theme_set(ggplot2::theme_minimal())
 # )
 ```
 
-```{r user defined functions}
+```{r user defined functions, eval=FALSE, include=FALSE}
 
 library(ggpmisc) # for labeling through stat_poly_eq
 
-scatter_w_wo_flag <- function(temp = mutate(filter(M, Time == "Baseline"), flag = ifelse(Ia.0 < 75 & shal < 300, T, F)),
-                              X = "shal", 
-                              Y = "Ia.0"){
-  # Duplicate so we have dataset 1, 2 (introduces duplicates)
-  temp <- rbind(temp[temp$flag == T, ], mutate(temp, flag = F))
-  
-  formula1 <- y ~ x
-  
-  plt <- ggplot(temp, aes_string(X, Y, color = "flag"))+
-    geom_smooth(data = temp, method = lm, se = F, fullrange = T)+
-    geom_point(data = temp)+
-    geom_point(data = temp, color = "black", shape = 1)+
-    geom_point(data = temp[temp$flag, ])+
-    ggpmisc::stat_poly_eq(aes(label =  paste(stat(eq.label), "*\" with \"*", 
-                                             stat(rr.label), "*\", \"*", 
-                                             stat(f.value.label), "*\", and \"*",
-                                             stat(p.value.label), "*\".\"",
-                                             sep = "")),
-                          formula = formula1, parse = TRUE, size = 4)+
-    
-    scale_color_manual(values = c("darkgray", "black"))+
-    theme_bw()+
-    theme(legend.position = "")
-  
-  return(plt)
-}
+
 
 scatter_w_wo_outliers <- function(temp = filter(M, Time == "Baseline"),
                                   X = "bkkca", 
@@ -780,13 +863,13 @@ temp %>%
 # # network_plot(MCorrr, min_cor = .7)
 # 
 # 
-# library(ggcorrplot)
+library(ggcorrplot)
 # 
 MCorr <- cor(MNumericOnly, use = "pairwise.complete.obs")
 
 pMat <- cor_pmat(MNumericOnly)
 # 
-# library(RColorBrewer)
+library(RColorBrewer)
 # ggcorrplot(MCorr, 
 #            colors = RColorBrewer::brewer.pal(7, "PuOr")[c(1, 4 ,7)]#,
 #            # p.mat = pMat
@@ -1497,76 +1580,76 @@ ionic %>%
 
 
 ```{r}
-# install.packages("corrr")
-library(corrr)
-
-x <- df %>% 
-  filter(Pharm == "tea" & Condition == "Delayed") %>% 
-  select( -c(UID, Pharm, Condition)) %>% 
-correlate() # Create correlation data frame (cor_df)
-
-x %>% 
-  rearrange() %>%  # rearrange by correlations
-  shave() # Shave off the upper triangle for a clean result
-
-rplot(x)
-
-# You have to zoom or the chord don't show up. ¯\_(ツ)_/¯
-network_plot(x, min_cor = .7)
+# # install.packages("corrr")
+# library(corrr)
+# 
+# x <- df %>% 
+#   dplyr::filter(Pharm == "tea" & Condition == "Delayed") %>% 
+#   dplyr::select( -c(UID, Pharm, Condition)) %>% 
+# correlate() # Create correlation data frame (cor_df)
+# 
+# x %>% 
+#   rearrange() %>%  # rearrange by correlations
+#   shave() # Shave off the upper triangle for a clean result
+# 
+# rplot(x)
+# 
+# # You have to zoom or the chord don't show up. ¯\_(ツ)_/¯
+# network_plot(x, min_cor = .7)
 ```
 
 
 ```{r}
-x %>% 
-  gather(mrna, cor, 2:ncol(.)) %>% 
-  ggplot(aes(rowname, mrna, fill = cor))+
-  geom_tile()+
-  scale_fill_gradient2(low = "Red", mid = "White", high = "Blue")
-
-library("corrplot")
-
-x <- as.data.frame(x)
-
-rownames(x) <- x$rowname
-
-corrplot::corrplot(
-  as.matrix(select(x, -rowname)), method = "color", order = "hclust", 
-  addrect = 3,
-  na.label = " "
-  )
-
-# corrplot.mixed(as.matrix(select(x, -rowname)), upper = "color")
-
-cowplot::plot_grid(plotlist = list(pp, pp))
-
-# install.packages("ggcorrplot")
-library(ggcorrplot)
-
-
-
-df <- df %>% mutate(Set = paste(Pharm, Condition))
-
-
-Sets <- unique(df$Set)
-
-baseline <- df %>% filter(Set == "none Baseline") %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
-  baseline <- as.data.frame(baseline)
-  rownames(baseline) <- baseline$rowname
-  baseline <- baseline %>% select(-rowname)
-
-
-cowplot::plot_grid(plotlist = 
-map(Sets, function(i){
-  temp <- df %>% filter(Set == i) %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
-  temp <- as.data.frame(temp)
-  rownames(temp) <- temp$rowname
-  temp <- temp %>% select(-rowname)
-  
-  # temp <- temp-baseline
-  
-  ggcorrplot(temp)+labs(title = i)
-})
-)
+# x %>% 
+#   gather(mrna, cor, 2:ncol(.)) %>% 
+#   ggplot(aes(rowname, mrna, fill = cor))+
+#   geom_tile()+
+#   scale_fill_gradient2(low = "Red", mid = "White", high = "Blue")
+# 
+# library("corrplot")
+# 
+# x <- as.data.frame(x)
+# 
+# rownames(x) <- x$rowname
+# 
+# corrplot::corrplot(
+#   as.matrix(select(x, -rowname)), method = "color", order = "hclust", 
+#   addrect = 3,
+#   na.label = " "
+#   )
+# 
+# # corrplot.mixed(as.matrix(select(x, -rowname)), upper = "color")
+# 
+# cowplot::plot_grid(plotlist = list(pp, pp))
+# 
+# # install.packages("ggcorrplot")
+# library(ggcorrplot)
+# 
+# 
+# 
+# df <- df %>% mutate(Set = paste(Pharm, Condition))
+# 
+# 
+# Sets <- unique(df$Set)
+# 
+# baseline <- df %>% filter(Set == "none Baseline") %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+#   baseline <- as.data.frame(baseline)
+#   rownames(baseline) <- baseline$rowname
+#   baseline <- baseline %>% select(-rowname)
+# 
+# 
+# cowplot::plot_grid(plotlist = 
+# map(Sets, function(i){
+#   temp <- df %>% filter(Set == i) %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
+#   temp <- as.data.frame(temp)
+#   rownames(temp) <- temp$rowname
+#   temp <- temp %>% select(-rowname)
+#   
+#   # temp <- temp-baseline
+#   
+#   ggcorrplot(temp)+labs(title = i)
+# })
+# )
 
 
 
@@ -1577,103 +1660,103 @@ map(Sets, function(i){
 
 ##Attempts at visualizing correlations
 ```{r}
-treatments <- unique(M$TREATMENT)
-mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
-
-
-cor.list <- map(treatments, function(i){
-  temp <- M[M$TREATMENT == i, ]  
-  cor(temp[, mrnas], temp[, mrnas], use = "pairwise.complete.obs", method = "spearman")
-})
-names(cor.list) <- treatments
-
-library("corrplot")
-walk(treatments, function(i){
-  print(i)
-  corrplot(cor.list[[i]], method = "color")
-})
-
-
-corrplot(cor.list$`24h-CONTROL`, method = "color")
-
-#corrplot((cor.list$`4AP24h` - cor.list$Control), method = "color")
-
-walk(treatments[-3], function(i){
-  print(i)
-gplots::heatmap.2((cor.list[[i]] - cor.list$`TEA-Acute`),
-  cellnote = round((cor.list[[i]] - cor.list$`TEA-Acute`), digits = 2),  # same data set for cell labels
-  #main = "Correlation", # heat map title
-  notecol="black",      # change font color of cell labels to black
-  density.info="none",  # turns off density plot inside color legend
-  trace="none",         # turns off trace lines inside the heat map
-  #margins =c(12,9),     # widens margins around plot
-  #col=my_palette,       # use on color palette defined earlier
-  #breaks=col_breaks,    # enable color transition at specified limits
-  dendrogram="none",     # only draw a row dendrogram
-  Colv="NA")            # turn off column clustering
-})
-
-library("PerformanceAnalytics")
-chart.Correlation(temp[, mrnas], histogram=TRUE, pch=19)
+# treatments <- unique(M$TREATMENT)
+# mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
+# 
+# 
+# cor.list <- map(treatments, function(i){
+#   temp <- M[M$TREATMENT == i, ]  
+#   cor(temp[, mrnas], temp[, mrnas], use = "pairwise.complete.obs", method = "spearman")
+# })
+# names(cor.list) <- treatments
+# 
+# library("corrplot")
+# walk(treatments, function(i){
+#   print(i)
+#   corrplot(cor.list[[i]], method = "color")
+# })
+# 
+# 
+# corrplot(cor.list$`24h-CONTROL`, method = "color")
+# 
+# #corrplot((cor.list$`4AP24h` - cor.list$Control), method = "color")
+# 
+# walk(treatments[-3], function(i){
+#   print(i)
+# gplots::heatmap.2((cor.list[[i]] - cor.list$`TEA-Acute`),
+#   cellnote = round((cor.list[[i]] - cor.list$`TEA-Acute`), digits = 2),  # same data set for cell labels
+#   #main = "Correlation", # heat map title
+#   notecol="black",      # change font color of cell labels to black
+#   density.info="none",  # turns off density plot inside color legend
+#   trace="none",         # turns off trace lines inside the heat map
+#   #margins =c(12,9),     # widens margins around plot
+#   #col=my_palette,       # use on color palette defined earlier
+#   #breaks=col_breaks,    # enable color transition at specified limits
+#   dendrogram="none",     # only draw a row dendrogram
+#   Colv="NA")            # turn off column clustering
+# })
+# 
+# library("PerformanceAnalytics")
+# chart.Correlation(temp[, mrnas], histogram=TRUE, pch=19)
 ```
 
 
 ### vis with line plot?
 ```{r}
-N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
-N$cor <- ""
-
-walk(1:length(cor.list), function(i){
-  temp <- as.data.frame(cor.list[[i]])
-  temp$cor <- rownames(temp)
-  temp$TREATMENT <- treatments[i]
-  N <<- full_join(N, temp) 
-})
-N <- N[-1, ]
-#N <- gather(N, )
+# N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
+# N$cor <- ""
+# 
+# walk(1:length(cor.list), function(i){
+#   temp <- as.data.frame(cor.list[[i]])
+#   temp$cor <- rownames(temp)
+#   temp$TREATMENT <- treatments[i]
+#   N <<- full_join(N, temp) 
+# })
+# N <- N[-1, ]
+# #N <- gather(N, )
 ```
 
 ```{r}
-ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
-  geom_point()+
-  geom_line()
+# ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
+#   geom_point()+
+#   geom_line()
 ```
 
 
 ```{r}
-# make network plots
-library(corrplot)
-library(psych)
-library(qgraph)
-temp <- cor.list[[1]]
-
-mk_plt <- function(use.matrix, use.name){
-  qgraph(use.matrix,
-  # minimum= 0,
-  vsize = 5,
-  # border.color="#006600",
-  title = use.name,
-  label.font = 4,
-  # edge.color="black",
-  border.width = 4,
-  esize = 7,
-  curveAll = TRUE,
-  curveDefault = 0.5,
-  curveShape = -2,
-  # color= "#006600",
-  node.width = 1.5,
-  # border.color= "black",
-  # borders=TRUE,
-  # border.color= "black",
-  # layout= "circle",
-  fade = FALSE,
-  labels = colnames(use.matrix) # , labels=TRUE
-)
-}
-
-walk(1:length(cor.list), function(i){
-  mk_plt(cor.list[[i]], treatements[i])
-})
+# # make network plots
+# library(corrplot)
+# library(psych)
+# library(qgraph)
+# temp <- cor.list[[1]]
+# 
+# mk_plt <- function(use.matrix, use.name){
+#   qgraph(use.matrix,
+#   # minimum= 0,
+#   vsize = 5,
+#   # border.color="#006600",
+#   title = use.name,
+#   label.font = 4,
+#   # edge.color="black",
+#   border.width = 4,
+#   esize = 7,
+#   curveAll = TRUE,
+#   curveDefault = 0.5,
+#   curveShape = -2,
+#   # color= "#006600",
+#   node.width = 1.5,
+#   # border.color= "black",
+#   # borders=TRUE,
+#   # border.color= "black",
+#   # layout= "circle",
+#   fade = FALSE,
+#   labels = colnames(use.matrix) # , labels=TRUE
+# )
+# }
+# 
+# walk(1:length(cor.list), function(i){
+#   mk_plt(cor.list[[i]], treatements[i])
+# })
 ```
 
 
@@ -1699,143 +1782,143 @@ walk(1:length(cor.list), function(i){
 
 
 ```{r}
-M <- readxl::read_excel(here("inst", "extdata", "LCTEAhr0hr1hr24.xlsx"))
-
-M.long <- M %>% 
-  gather(mRNA, Count, 5:75)
-
-M.long %>% 
-  ggplot(aes(mRNA, Count))+
-  geom_jitter()+
-  scale_y_log10()
-
-
-M.long <-
-M.long %>%
-  mutate(type =
-             ifelse(mRNA %in% c(
-               ## Ion Channels ====
-               #Kv
-               "Shab", "Shaker", "Shal", "Shaw1", "Shaw2",
-               "KCNQ1", "KCNQ2",
-               "KCNH1", "KCNH2", "KCNH3",
-               #K
-               "BKKCa", "SKKCa",
-               "KCNT1", "IRK", "KCNK1", "KCNK2",
-               #Ca
-               "CaV1", "CaV2", "CaV3",
-               #Na
-               "CbNaV",
-               "NALCN",
-               #Hyp/CyclNuc Activated/Gated
-               "IH",
-               #TRPs
-               "TRP-A1", "TRP-A-like", "TRP-M1", "TRP-M3", "TRP-M-like",
-               #Biogenic amine activated
-               "HisCL"
-             ),
-             "IonChannel",
-             ifelse(mRNA %in% c(
-               ## Receptors Biogenic Amines ====
-               #octopamine
-               #dopamine
-               "DAR1A", "DAR2",  "Dopa-1Br",
-               #serotonin
-               "HTR1A", "HTR2", "HTR7", "5HTr-1Br",
-               #histamine
-               "His-1r", "His-2r", "His-3r",
-               #gaba
-               "GABAB-R1",
-               "LCCH3r",
-               "RDLr",
-               "mGABA2", "mGABA3",
-               ## Receptors Glutamate/Acetylcholine ====
-               #metabotropic glutamate receptors
-               "mGluR1", "mGluR2", "mGluR4", "mGluR5", "mGluR7",
-               #kainate-like receptors
-               "Kainate-1A", "Kainate-1B", "Kainate-2A", "Kainate-2B", "Kainate-2C",
-               #NMDA-like receptors
-               "NMDA-1A", "NMDA-1B", "NMDA-2A", "NMDA-2B", "NMDA-2-like",
-               #glutamate-gated chloride channel
-               "GluCl",
-               #acetylcholine receptors
-               "mACHrA", "mACHrB",
-               # Crustacean cardioactive peptide receptor ===
-               "CCAPr"
-             ),
-             "Receptor",
-
-             ifelse(mRNA %in% c(
-               ## Innexins ====
-               "INX1", "INX2", "INX3", "INX4", "INX5"
-             ),
-             "Innexin",
-
-             ifelse(mRNA %in% c(
-               #Acetylcholinesterase
-               "ACHE",
-               # Actylcholine catalyst
-               "ChAT",
-               #vesicular ach transporter
-               "vAChT",
-               #vesicular glut transporter
-               "vGluT"
-             ),
-             "Misc",
-             NA
-             )))))
-
-ggplot(filter(M, type != "Innexin"), aes(mRNA, Count, color = type))+
-  geom_jitter()
-
-ggplot(filter(M, type == "Innexin" & mRNA != "INX5"), aes(mRNA, Count, color = type))+
-  geom_jitter()
-
-ggplot(filter(M, type == "Innexin" & mRNA == "INX5"), aes(mRNA, Count))+
-  geom_jitter()
+# M <- readxl::read_excel(here("inst", "extdata", "LCTEAhr0hr1hr24.xlsx"))
+# 
+# M.long <- M %>% 
+#   gather(mRNA, Count, 5:75)
+# 
+# M.long %>% 
+#   ggplot(aes(mRNA, Count))+
+#   geom_jitter()+
+#   scale_y_log10()
+# 
+# 
+# M.long <-
+# M.long %>%
+#   mutate(type =
+#              ifelse(mRNA %in% c(
+#                ## Ion Channels ====
+#                #Kv
+#                "Shab", "Shaker", "Shal", "Shaw1", "Shaw2",
+#                "KCNQ1", "KCNQ2",
+#                "KCNH1", "KCNH2", "KCNH3",
+#                #K
+#                "BKKCa", "SKKCa",
+#                "KCNT1", "IRK", "KCNK1", "KCNK2",
+#                #Ca
+#                "CaV1", "CaV2", "CaV3",
+#                #Na
+#                "CbNaV",
+#                "NALCN",
+#                #Hyp/CyclNuc Activated/Gated
+#                "IH",
+#                #TRPs
+#                "TRP-A1", "TRP-A-like", "TRP-M1", "TRP-M3", "TRP-M-like",
+#                #Biogenic amine activated
+#                "HisCL"
+#              ),
+#              "IonChannel",
+#              ifelse(mRNA %in% c(
+#                ## Receptors Biogenic Amines ====
+#                #octopamine
+#                #dopamine
+#                "DAR1A", "DAR2",  "Dopa-1Br",
+#                #serotonin
+#                "HTR1A", "HTR2", "HTR7", "5HTr-1Br",
+#                #histamine
+#                "His-1r", "His-2r", "His-3r",
+#                #gaba
+#                "GABAB-R1",
+#                "LCCH3r",
+#                "RDLr",
+#                "mGABA2", "mGABA3",
+#                ## Receptors Glutamate/Acetylcholine ====
+#                #metabotropic glutamate receptors
+#                "mGluR1", "mGluR2", "mGluR4", "mGluR5", "mGluR7",
+#                #kainate-like receptors
+#                "Kainate-1A", "Kainate-1B", "Kainate-2A", "Kainate-2B", "Kainate-2C",
+#                #NMDA-like receptors
+#                "NMDA-1A", "NMDA-1B", "NMDA-2A", "NMDA-2B", "NMDA-2-like",
+#                #glutamate-gated chloride channel
+#                "GluCl",
+#                #acetylcholine receptors
+#                "mACHrA", "mACHrB",
+#                # Crustacean cardioactive peptide receptor ===
+#                "CCAPr"
+#              ),
+#              "Receptor",
+# 
+#              ifelse(mRNA %in% c(
+#                ## Innexins ====
+#                "INX1", "INX2", "INX3", "INX4", "INX5"
+#              ),
+#              "Innexin",
+# 
+#              ifelse(mRNA %in% c(
+#                #Acetylcholinesterase
+#                "ACHE",
+#                # Actylcholine catalyst
+#                "ChAT",
+#                #vesicular ach transporter
+#                "vAChT",
+#                #vesicular glut transporter
+#                "vGluT"
+#              ),
+#              "Misc",
+#              NA
+#              )))))
+# 
+# ggplot(filter(M, type != "Innexin"), aes(mRNA, Count, color = type))+
+#   geom_jitter()
+# 
+# ggplot(filter(M, type == "Innexin" & mRNA != "INX5"), aes(mRNA, Count, color = type))+
+#   geom_jitter()
+# 
+# ggplot(filter(M, type == "Innexin" & mRNA == "INX5"), aes(mRNA, Count))+
+#   geom_jitter()
 ```
 
 ```{r}
 
-temp <- M %>% 
-  filter(TEA == 0) %>% 
-  select(names(M[!names(M) %in% c("Sample", "TEA", "Experiment", "Cell")])) 
-
-numeric.cols <- sapply(temp, class) == "numeric"
-temp <- temp[numeric.cols]
-
-# z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
-# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
-# fviz_pca_var(z, col.var="contrib",
+# temp <- M %>% 
+#   filter(TEA == 0) %>% 
+#   select(names(M[!names(M) %in% c("Sample", "TEA", "Experiment", "Cell")])) 
+# 
+# numeric.cols <- sapply(temp, class) == "numeric"
+# temp <- temp[numeric.cols]
+# 
+# # z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
+# # fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
+# # fviz_pca_var(z, col.var="contrib",
+# #              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+# #              repel = TRUE # Avoid text overlapping
+# #              )
+# 
+# 
+# library(factoextra)
+# library(missMDA) # for imputePCA 
+# library("FactoMineR") #PCA
+# 
+# df = temp[, -"IH"]
+# missMDA::imputePCA(df, ncp = 2) # using two components
+# 
+# res.pca <- PCA(df,  graph = FALSE)
+# # Extract eigenvalues/variances
+# get_eig(res.pca)
+# # Visualize eigenvalues/variances
+# fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, 50))
+# # Extract the results for variables
+# var <- get_pca_var(res.pca)
+# var
+# 
+# # Graph of variables: default plot
+# fviz_pca_var(res.pca, col.var = "black")
+# 
+# # Control variable colors using their contributions
+# fviz_pca_var(res.pca, col.var="contrib",
 #              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
 #              repel = TRUE # Avoid text overlapping
 #              )
-
-
-library(factoextra)
-library(missMDA) # for imputePCA 
-library("FactoMineR") #PCA
-
-df = temp[, -"IH"]
-missMDA::imputePCA(df, ncp = 2) # using two components
-
-res.pca <- PCA(df,  graph = FALSE)
-# Extract eigenvalues/variances
-get_eig(res.pca)
-# Visualize eigenvalues/variances
-fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, 50))
-# Extract the results for variables
-var <- get_pca_var(res.pca)
-var
-
-# Graph of variables: default plot
-fviz_pca_var(res.pca, col.var = "black")
-
-# Control variable colors using their contributions
-fviz_pca_var(res.pca, col.var="contrib",
-             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-             repel = TRUE # Avoid text overlapping
-             )
 
 ```
 
