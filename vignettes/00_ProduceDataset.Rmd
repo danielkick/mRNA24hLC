@@ -985,7 +985,8 @@ HARDCODED_TAU <- 25
 unique_abfs <- process_these_abfs[process_these_abfs$Experiment %in% all_cell_params$Experiment, ]$File
   
 ## Simulate each cell ====
-for (i in seq(1, 138)){#seq_along(unique_abfs)){
+for (i in seq_along(unique_abfs)){
+  tictoc::tic()
   print(i)
   
   current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
@@ -1002,6 +1003,7 @@ for (i in seq(1, 138)){#seq_along(unique_abfs)){
     
   # handle cells sequentially
   unique_cells <- unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], ]$Cell)
+  unique_cells <- unique_cells[!is.na(unique_cells)]
   
   for (j in seq_along(unique_cells)){
     current_cell <- unique_cells[j]
@@ -1060,15 +1062,17 @@ for (i in seq(1, 138)){#seq_along(unique_abfs)){
                     str_remove(current_file, ".abf"), "epsp", "In9", "predict_v.rds", sep = "-")))
           
           save_plot(here("data", "data_audits", "epsp", paste(
-            str_remove(current_trace, ".abf"), "epsp", "In9", "segment.pdf", sep = "-")),
+            str_remove(current_file, ".abf"), "epsp", "In9", "segment.pdf", sep = "-")),
             out$diagnostic_plots$trace, base_height = 7, base_width = 10)
         }
       }
     }
   }
+  tictoc::toc()
 }
 
 tictoc::toc()
+
 ```
 
 ```{r}
@@ -1314,7 +1318,11 @@ tictoc::toc()
 
 workspace -- getting metrics from epsp
 ```{r eval=FALSE}
-#TODO after discussion on 09/28 extract whatever metrics we've decided are most represntative for epsp
+# Goal: extract Absolute measures and differential measures for 
+# 1. Burst Amplitude (max mV)
+# 2. AUC 
+# 3. Stimulus correlation (between)
+
 
 # read in trace
 brian2_trace_files <- list.files(here("data", "predicted_voltage"))
@@ -1324,156 +1332,152 @@ brian2_trace_sets <- brian2_trace_files %>%
   str_remove(pattern = "-predict_v.rds") %>% 
   unique()
 
-i=1 #FIXME for i in seq all sets
-brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
-
-
-temp <- map(brian2_read_in, function(read_file){
-  temp_predict <- readRDS(here("data", "predicted_voltage", read_file))
+epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
+  print(i)
+  brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
   
-  if(str_detect(read_file, pattern = "predict_v")){
-  #consolidate into one df
-  for (j in seq(1, length(temp_predict))){
-    temp_predict[[j]]$Sweep <- j
+  
+  # retrieve data and merge into a single df
+  temp <- map(brian2_read_in, function(read_file){
+    temp_predict <- readRDS(here("data", "predicted_voltage", read_file))
+    
+    if(str_detect(read_file, pattern = "predict_v")){
+      #consolidate into one df
+      for (j in seq(1, length(temp_predict))){
+        temp_predict[[j]]$Sweep <- j
+      }
+      temp_predict <- do.call(rbind, temp_predict)
+    }
+    return(temp_predict)
+  })
+  
+  names(temp) <- brian2_read_in
+  
+  temp_a <- temp[str_detect(names(temp), pattern = "actual_v")][[1]]
+  temp_p <- temp[str_detect(names(temp), pattern = "predict_v")][[1]] %>% as.data.frame() %>% as_tibble()
+  temp_a$nrow <- seq(1, nrow(temp_a))
+  temp_p$nrow <- seq(1, nrow(temp_p))
+  temp_a$Sweep <- as.character(temp_a$Sweep)
+  temp_p$Sweep <- as.character(temp_p$Sweep)
+  
+  temp <- full_join(temp_a, select(temp_p, -Time)) %>% select(-nrow)
+  
+  # Show difference between expected/actual
+  # i = 1
+  # [1] "190808a_0014-epsp-In4-actual_v.rds"  "190808a_0014-epsp-In4-predict_v.rds" shows why we need to be able to audit the outcome.
+  # Here the end of sweep 4 deviates from baseline so the delta is off
+  # TODO instead of subtracting a value at the end, we should look at the times with i_inj less than x and then use a percentile from that to estimate the baseline.
+  
+  # To get around this in the short term we'll calulate the factors independently for expected/obs
+  # downsample_data(temp, len = 10000) %>% 
+  # # temp %>% 
+  #   mutate(predicted = predicted - offset) %>% 
+  #   mutate(difference = In4-predicted) %>% 
+  #   ggplot(aes(x = Time))+
+  #   geom_ribbon(aes(ymin=In4, ymax=predicted), fill = "cornflowerblue")+
+  #   geom_line(aes(y=In4), color = "black")+
+  #   geom_line(aes(y=predicted), color = "cornflowerblue", alpha = 0.3)+
+  #   # geom_line(aes(y=difference-offset), color = "purple")+
+  #   facet_grid(Sweep~.)
+  
+  # This is an inelegant workaround for data that is based on in9/12. This prevents duplication of the large set below
+  
+  rewrite_names <- F
+  if ("In9" %in% names(temp)){
+    names(temp) <- c("In4", "In7", "Sweep", "Time", "predicted", "offset")
+    rewrite_names <- T
   }
-  temp_predict <- do.call(rbind, temp_predict)
+  
+  # begin to work with data proper
+  # Add optional ways to slice the data based on what we expect to occur
+  # At the moment we leave this unused
+  temp_processed <- temp %>% 
+    mutate(
+      Period = case_when(
+        Time > 0.40  & Time <  4.87  ~ "A",
+        Time > 4.87  & Time < 10.74  ~ "B",
+        Time > 10.74 & Time < 16.74  ~ "C",
+        Time > 16.74 & Time < 19.685 ~ "D"
+      ),
+      Period_eq = case_when(
+        Time > 0.40  & Time <  0.40 + 2.945 ~ "A",
+        Time > 4.87  & Time <  4.87 + 2.945 ~ "B",
+        Time > 10.74 & Time < 10.74 + 2.945 ~ "C",
+        Time > 16.74 & Time < 16.74 + 2.945 ~ "D"
+      ),
+      Burst = case_when(
+        Time > 0.40  & Time <  2    ~ "A",
+        Time > 4.87  & Time <  6.17 ~ "B",
+        Time > 10.74 & Time < 12.54 ~ "C",
+        Time > 16.74 & Time < 18.5  ~ "D"
+      ),
+      Burst_eq = case_when(
+        Time > 0.40  & Time <  2    + 1.30 ~ "A",
+        Time > 4.87  & Time <  6.17 + 1.30 ~ "B",
+        Time > 10.74 & Time < 12.54 + 1.30 ~ "C",
+        Time > 16.74 & Time < 18.5  + 1.30 ~ "D"
+      )
+    ) %>% 
+    # correlation with expected
+    group_by(Sweep) %>% 
+    mutate(Cor = cor(In4, predicted)) %>% 
+    ungroup() %>% 
+    gather(Key, mV, c("In4", "predicted")) %>% 
+    ## Metrics for whole sweep
+    group_by(Key, Sweep) %>% 
+    # Min voltage
+    mutate(Min.V = min(mV, na.rm = T)) %>%
+    # Defining Baseline as average of the lowest 20% of points
+    mutate(Use.in.Base = quantile(mV, probs = .2, na.rm = T)) %>%
+    mutate(Use.in.Base = ifelse(mV <= Use.in.Base, mV, NA)) %>%
+    mutate(Use.in.Base = mean(Use.in.Base, na.rm = T)) %>%
+    # Max voltage
+    mutate(Max.Amplitude = max(mV, na.rm = T)) %>%
+    # AUC
+    # Using Min.V
+    mutate(AUC = sum(mV - Min.V, na.rm = T)/19.68685) %>%
+    ungroup() 
+  
+  
+  if (rewrite_names){
+    temp_processed <- temp_processed %>% 
+      mutate(Key = ifelse(Key == "In4", "In9", Key))
   }
-  return(temp_predict)
+  
+  
+  temp_processed <- temp_processed[, c("Sweep", "Cor", "Key", "Min.V", #"Use.in.Base", 
+                                       "Max.Amplitude", "AUC")] %>% 
+    distinct() #%>% 
+    # pivot_wider(names_from = "Key", values_from = c("Min.V", #"Use.in.Base", 
+    #                                                 "Max.Amplitude", "AUC")) 
+  
+  
+  # add annotations to aid merging
+  file_name <- brian2_read_in[[1]] %>% str_split(pattern = "-")
+  
+  temp_processed$Experiment <- as.character(str_split(as.character(file_name[[1]][1]), pattern = "_")[[1]][1])
+  temp_processed$FileName <- paste0(as.character(file_name[[1]][1]), ".abf")
+  temp_processed$Channel <- as.character(file_name[[1]][3])
+  
+  return(temp_processed)
 })
 
-names(temp) <- brian2_read_in
 
-temp_a <- temp[str_detect(names(temp), pattern = "actual_v")][[1]]
-temp_p <- temp[str_detect(names(temp), pattern = "predict_v")][[1]] %>% as.data.frame() %>% as_tibble()
-temp_a$nrow <- seq(1, nrow(temp_a))
-temp_p$nrow <- seq(1, nrow(temp_p))
-temp_a$Sweep <- as.character(temp_a$Sweep)
-temp_p$Sweep <- as.character(temp_p$Sweep)
+epsp_summary <- do.call(rbind, epsp_summary_list)
+epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "Cor", "Key", "Min.V", "Max.Amplitude", "AUC")]
 
-temp <- full_join(temp_a, select(temp_p, -Time)) %>% select(-nrow)
-
-
-
-
-downsample_data(temp, len = 10000) %>% 
-# temp %>% 
-  mutate(predicted = predicted - offset) %>% 
-  mutate(difference = In4-predicted) %>% 
-  ggplot(aes(x = Time))+
-  geom_ribbon(aes(ymin=In4, ymax=predicted), fill = "cornflowerblue")+
-  geom_line(aes(y=In4), color = "black")+
-  geom_line(aes(y=predicted), color = "cornflowerblue", alpha = 0.3)+
-  # geom_line(aes(y=difference-offset), color = "purple")+
-  facet_grid(Sweep~.)
-
-
-temp_part1 <- temp %>% 
-  mutate(predicted = predicted - offset) %>% 
-  mutate(difference = In4-predicted) %>% 
-  gather(Key, mV, c("In4", "predicted", "difference")) %>% 
-  group_by(Key, Sweep) %>% 
-# Min Voltage
-  mutate(Min.V = min(mV, na.rm = T)) %>%
-  # Baseline voltage
-  # Defining as average of the lowest 20% of points
-  mutate(Use.in.Base = quantile(mV, probs = .2, na.rm = T)) %>%
-  mutate(Use.in.Base = ifelse(mV <= Use.in.Base,
-    mV,
-    NA
-  )) %>%
-  mutate(Use.in.Base = mean(Use.in.Base, na.rm = T)) %>%
-  # Max voltage
-  mutate(Max.V = max(mV, na.rm = T)) %>%
-  # Median Voltage
-  mutate(Med.V = median(mV, na.rm = T)) %>%
-  # Mean Voltage
-  mutate(Mean.V = mean(mV, na.rm = T)) %>%
-    # # Duration
-    # mutate(Max.Time = max(Time, na.rm = T)) %>% 
-  # AUC
-  # Using Min.V
-  mutate(AUC = (mV - Min.V))
-
-
-# AUC
-# Median mV
-# Mean mV
-# Stimulus correlation
-# Max mV
-
-calculated_metrics <- c("Min.V", "Use.in.Base", "Max.V", "Med.V", "Mean.V", "AUC")
-
-temp_part1 <- temp_part1 %>% 
-  ungroup() %>% 
-  select(-In7, -Time, -offset, -mV) %>% 
-  group_by(Key) %>% 
-  mutate_at(
-    calculated_metrics, 
-    median, na.rm =T) %>% 
-  distinct() %>% 
-  ungroup() 
-
-temp_part1 %>% 
-  pivot_longer(cols = calculated_metrics, names_to = "key", values_to = "value") %>% 
-  ggplot(aes(key, value, color = Key))+
-  geom_point()
-
-
-
-distinct(temp_part2)
 ```
 
-(epsp) How could we slice up the trace? 
+Write out
 ```{r}
-# ## Here's the stimulus used in the protocol ====
-# # sweep duration should be 19.687 seconds
-# epsp_stim <- readABF_as_matrix(here("inst", "extdata", "epsp_stim_files", "08 current injection.abf"),
-#                   channels = "Axo1I2")
-# epsp_stim <- as_tibble(epsp_stim) %>%
-#   mutate(Time = Time - min(Time, na.rm = T)) %>%
-#   rename(Stim = Axo1I2)
-# 
-# 
-# shading_annotations <- data.frame(
-#   starts = c(0.40,
-#              4.87,
-#              10.74,
-#              16.74),
-#   next_start = c(4.87,
-#                  10.74,
-#                  16.74,
-#                  19.685),
-#   equal_len = c(0.40,
-#                 4.87,
-#                 10.74,
-#                 16.74) + 2.945,
-#   on_end = c(2,
-#              6.17,
-#              12.54, 
-#              18.5),
-#   equal_on = c(0.40,
-#                4.87,
-#                10.74,
-#                16.74) + 1.30
-# )
-# 
-# ggplot()+
-#   geom_vline(xintercept = c(shading_annotations$starts, shading_annotations$equal_len, shading_annotations$next_start, shading_annotations$equal_on), color = "gray")+
-#     geom_path(data = epsp_stim, aes(Time, Stim+1.5))+
-#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = next_start, ymin = 0, ymax = 0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
-#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_len, ymin = -0.5, ymax = 0), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
-#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = on_end, ymin = -1, ymax = -0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
-#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_on, ymin = -1.5, ymax = -1), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
-#   theme_classic()+
-#   geom_vline(xintercept = 12.54)+
-#   ylim(-1.5, 9.5)+
-#   labs(title = "Ways to Segement EPSP Stim")
+save(epsp_summary, file = here("data", "epsp.rds"))
 ```
+
 
 
 Placeholder for fi
 ```{r}
-#TODO
+# currently not used
 ```
 
 ## Save automatically processed data
