@@ -1316,8 +1316,8 @@ tictoc::toc()
 
 
 
-workspace -- getting metrics from epsp
-```{r eval=FALSE}
+Calculate summary metrics from epsp
+```{r }
 # Goal: extract Absolute measures and differential measures for 
 # 1. Burst Amplitude (max mV)
 # 2. AUC 
@@ -1470,7 +1470,11 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 
 Write out
 ```{r}
-save(epsp_summary, file = here("data", "epsp.rds"))
+epsp_summary <- as.data.frame(epsp_summary)
+
+write.csv(epsp_summary, here("data", "epsp.csv"), row.names = F)
+
+# save(epsp_summary, file = here("data", "epsp.rds"))
 ```
 
 
