@@ -312,6 +312,9 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 
 ```{r}
 
+
+
+
 temp <- M_all %>% 
   select(Condition, Experiment, Cell,  Ihtk.0) %>% 
   group_by(Condition, Experiment, Cell) %>% 
@@ -342,6 +345,92 @@ ggplot(data = temp, aes(x = Condition, y = Ihtk.0))+
   
   
   
+c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols)
+
+temp_col = "Ihtk.0"
+
+#TODO figure out what to do with the epsp cols
+temp_list <- map(
+  c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols), function(temp_col){
+      print(temp_col)
+      
+      temp <- M_all[, c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
+      temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
+      temp <- temp[!is.na(temp[[temp_col]]), ]
+      
+      if(nrow(temp) < 10){
+        
+        return(list(
+          dv = temp_col,
+          p = NA,
+          fm = NA))
+        
+      } else {
+        fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp)
+        
+        return(list(
+          dv = temp_col,
+          p = car::Anova(fm)[1,4],
+          fm = fm))
+      }
+    })
+
+
+temp_list <- temp_list %>% transpose()
+
+fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
+                                p = unlist(temp_list[[2]]))
+
+
+
+# add groupings
+
+
+fm_overview_table <- fm_overview_table %>% mutate(Family = case_when(
+  dv %in% c("vrest") ~ "Resting Voltage",
+  dv %in% c("r11", "r1") ~ "Membrane Resistance",
+  dv %in% ionic_cols ~ "Outward Currents",
+  dv %in% epsp_cols ~ "Excitability",
+  dv %in% c("r12", "rc", "ig", "cc") ~ "Coupling Measures"
+))
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Family = factor(fm_overview_table$Family, levels = c("Membrane Resistance", "Resting Voltage", "Coupling Measures", "Outward Currents", "Excitability"))) %>% 
+  arrange(Family) %>% 
+  mutate(Family = as.character(Family))
+
+# temp <- rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName)
+fm_overview_table <- full_join(fm_overview_table, 
+                               rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName, Family2 = Family))
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Family = ifelse(is.na(Family) & !is.na(Family2), Family2, Family)) %>% 
+  select(-Family2) %>% 
+  filter(!is.na(p))
+
+
+fm_overview_table$fdr <- p.adjust(fm_overview_table$p, method = "fdr")
+fm_overview_table <- fm_overview_table %>% 
+  mutate(p = round(p, digits = 4),
+         fdr = round(fdr, digits = 4)) %>% 
+  mutate(stars = case_when(fdr > 0.10               ~ "",
+                           fdr < 0.10 & fdr > 0.05  ~ ".",
+                           fdr < 0.05 & fdr > 0.01  ~ "*",
+                           fdr < 0.01 & fdr > 0.001 ~ "**",
+                           fdr < 0.001              ~ "***"
+  ))
+
+
+# library(officer)
+library(flextable)
+M_ft <-flextable(fm_overview_table,
+                 col_keys = c("Family", "dv", "p", "fdr", "stars"))
+
+M_ft <- theme_vanilla(M_ft)
+M_ft <- merge_v(M_ft, j = c("Family") )
+# M_ft <- color(M_ft, ~ fdr < 0.05, ~ stars, color = "red")
+M_ft <- bold(M_ft, ~ fdr < 0.05, ~ dv, bold = TRUE)
+M_ft <- autofit(M_ft)
 
 # lm(Ihtk.0 ~ Condition, data = temp)
 # 
