@@ -242,30 +242,6 @@ tibble::tribble(
 ```
 
 
-```{r}
-temp <- metadata %>% select(Experiment#, Page, Recording, FileName, In4, In9
-                            ) %>% distinct
-
-write.csv(temp, file = "C:/Users/Daniel/Desktop/test.csv", row.names = F)
-# <!-- ``` -->
-
-
-
-```{r}
-small_abf_automatic <- abfs_to_process %>%
-  select(-Experiment, -ABFType, -Sweep, -Processed, -Tau_est, -Tau_std.err) %>% 
-  group_by(File) %>% 
-  mutate_at(.vars = c("Ig", "R1c", "CC", "R1", "R11", "R12", "Rc", "Vrest"), 
-            median, na.rm = T) %>% 
-  distinct() 
-
-  
-small_all <- full_join(full_join(small_abf_automatic, small_tecc), small_tevc)
-
-small_all <- small_all[, c("File", "Channel", "Cell", 
-                           "CC", "cc", "R1", "r1", "R11", "r11", "R12", "r12", "Rc", "rc", "Vrest", "vrest", 
-                           "Ig", "ig", "R1c")]
-```
 
 
 
