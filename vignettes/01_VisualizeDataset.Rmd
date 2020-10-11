@@ -295,7 +295,7 @@ reordered_names <- c(names(M_all)[!(names(M_all) %in% c(tecc_cols, tevc_cols, ep
                                                       c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols))
 
 
-M_all <- M_all[, reordered_names] %>% distinct()
+M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% distinct()
 
 # #TODO this needs some prep work. We'll want to capture the variance in these measures.
 # # Not clear how to do that. 
@@ -306,6 +306,93 @@ M_all <- M_all[, reordered_names] %>% distinct()
 ```
 
 # Primary Questions
+
+## What is different across the three groups? 
+### Univariate
+
+```{r}
+
+temp <- M_all %>% 
+  select(Condition, Experiment, Cell,  Ihtk.0) %>% 
+  group_by(Condition, Experiment, Cell) %>% 
+  mutate(Ihtk.0 = median(Ihtk.0, na.rm = T)) %>% 
+  distinct() %>% 
+  ungroup()
+
+temp_bands <- temp %>% group_by(Condition) %>% summarise(
+  q10 = quantile(Ihtk.0, probs = 0.1, na.rm = T),
+  q25 = quantile(Ihtk.0, probs = 0.25, na.rm = T),
+  q45 = quantile(Ihtk.0, probs = 0.45, na.rm = T),
+  q50 = quantile(Ihtk.0, probs = 0.5, na.rm = T),
+  q55 = quantile(Ihtk.0, probs = 0.55, na.rm = T),
+  q75 = quantile(Ihtk.0, probs = 0.75, na.rm = T),
+  q90 = quantile(Ihtk.0, probs = 0.9, na.rm = T),
+  )
+
+temp <- full_join(temp, temp_bands)
+
+ggplot(data = temp, aes(x = Condition, y = Ihtk.0))+
+  geom_ribbon(aes(x = Condition, ymin = q10, ymax = q90, group = 1), color = "lightgray", fill = "cornflowerblue", alpha = 0.3)+
+  geom_ribbon(aes(x = Condition, ymin = q25, ymax = q75, group = 1), color = "darkgray", fill = "cornflowerblue", alpha = 0.3)+
+  # geom_ribbon(aes(x = Condition, ymin = q45, ymax = q55, group = 1), color = "black", fill = "cornflowerblue", alpha = 0.3)+
+  geom_line(aes(x = Condition, y = q50, group = 1), linetype = "dashed", color = "blue")+
+  geom_point(aes(x = Condition, y = q50), color = "lightgray", size = 4)+
+  geom_point(aes(x = Condition, y = q50), color = "black", size = 4, shape = 1)+
+  geom_point(alpha = 0.5)
+  
+  
+  
+
+# lm(Ihtk.0 ~ Condition, data = temp)
+# 
+# fm <- nlme::lme(Ihtk.0 ~ Condition, random = ~1|Experiment, data = temp[!is.na(temp$Ihtk.0),])
+# 
+# nlme::anova.lme(fm)
+# # cell nested in experiment, experiment rand
+# 
+# temp
+# 
+# # the only occasion to nest (1 | Experiment/Cell) is if there are multiple sweeps
+# fm2 <- lme4::lmer(Ihtk.0 ~ Condition + (1 | Experiment), data = temp[!is.na(temp$Ihtk.0),])
+# 
+# summary(fm2)
+# 
+# broom::tidy(fm2)
+# 
+# broom.mixed::tidy(fm2)
+# 
+# # m0 <- lmer(extro ~ open + agree + social + (1 | school/class), data = dt)
+# # > summary(m0)
+
+
+
+
+# fm0 <- lme(Rin_n050 ~ 1, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# fm1 <- lme(Rin_n050 ~ Condition, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# fm2 <- lme(Rin_n050 ~ DPI, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# fm3 <- lme(Rin_n050 ~ CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# fm4 <- lme(Rin_n050 ~ Condition*DPI, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# fm5 <- lme(Rin_n050 ~ Condition*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# fm6 <- lme(Rin_n050 ~ DPI*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# fm7 <- lme(Rin_n050 ~ Condition*DPI*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
+# 
+# aictab(cand.set = list(fm0, fm1, fm2, fm3, fm4, fm5, fm6, fm7))
+# 
+# 
+# anova.lme(fm5)
+# 
+# lsmeans(fm, pairwise~Condition*CellType, adjust = "tukey")
+# 
+# 
+# 
+# fm <- lme(Rin_n050 ~ Condition*DPI*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "REML")
+# anova.lme(fm)
+# 
+# lsmeans(fm, pairwise~Condition, adjust = "tukey")
+
+
+```
+
 
 ## What relationships exist at baseline?
 
