@@ -10,7 +10,9 @@ library(here)
 library(readxl)
 library(tidyverse)
 
+library(ggpmisc) # for labeling through stat_poly_eq
 theme_set(ggplot2::theme_minimal())
+devtools::load_all()
 ```
 
 ## load data and create a uid
@@ -23,7 +25,7 @@ load(here("data", "mrna.rds"))
 epsp <- read.csv(here("data", "epsp.csv")) %>% as_tibble()
 metadata <- read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"),
                        sheet = "MetadataEphys")  
-
+mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) # tables from Northcutt 2016 and annotations
 ## Add Experment/Cell to metadata ====
 metadata <- metadata %>% 
   mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
@@ -203,16 +205,26 @@ mrna[mrna$Source == "Brian" &
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "TTX", "Cell"] <- unlist(transpose(temp[[2]]))
+## deduplicate mrna
+mrna <- mrna %>% 
+  gather(key = "mrna", 
+         value = "count", 
+         names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]) %>% 
+  filter(mrna != c("htr2b", "kainate2b", "nmda1a", "nmda2b", "mglur7", "trpm1", "machrb", "htr1b")) %>% # drop fully missing mrnas
+  group_by(Source, Experiment, Cell, mrna) %>% 
+  mutate(count = median(count, na.rm = T)) %>%
+  ungroup() %>% 
+  distinct() %>% 
+  spread(key = "mrna", value = "count")
 
 
 
-
-# TODO Dave asked I confirm activity was present prior to measurements for 1h, 24h
 ```
 
-
+Add additional context
 ```{r}
 # Was there activity on the EC? 
+metadata <- full_join(metadata,
 tibble::tribble(
   ~Experiment, ~ExtracellularActive,
     "190808a",                 TRUE,
@@ -238,12 +250,655 @@ tibble::tribble(
     "190930a",                FALSE,
      "191001",                 TRUE
   )
+)
+
+metadata %>% 
+  select(Experiment, Condition, ExtracellularActive) %>% 
+  filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% 
+  distinct() %>% 
+  group_by(Condition, ExtracellularActive) %>% 
+  tally()
+
+```
+
+Create cross type data, sans Brian's cells
+```{r}
+small_metadata <- metadata[, c("Experiment",  "FileName", "Condition")]
+
+M_ionic<- ionic %>% mutate(Cell = as.character(Cell))  
+#Ihtk.0 Ihtk.Slope  Ia.0 Ia.Slope
+M_tecc <- left_join(tecc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
+#vrest     cc   r11    r12    r1    rc 
+M_tevc <- left_join(tevc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
+#ig
+M_epsp <- left_join(epsp, small_metadata) %>% 
+  select(-FileName, -Type) %>% 
+  mutate(Cell = as.character(Cell))  %>% 
+  mutate(Key = case_when(Key %in% c("In4", "In9") ~ "Obs",
+                                  Key %in% c("predicted")  ~ "Sim")) %>% 
+  pivot_wider(names_from = "Key", values_from  = c("Min.V", "Max.Amplitude", "AUC"))
+#Sweep   Cor Key        Min.V Max.Amplitude    AUC 
+M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell))
+
+
+#Set up data cols to help organize full dataset
+ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
+tecc_cols <- c("vrest", "cc", "r11", "r12", "r1", "rc")
+tevc_cols <- c("ig")
+epsp_cols <- c("Cor", "Min.V_Obs", "Min.V_Sim", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim")
+mrna_cols <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]
+
+
+M_all <- full_join(M_ionic, M_tecc) %>% full_join(M_tevc) %>% full_join(M_epsp) %>% full_join(M_mrna)
+
+reordered_names <- c(names(M_all)[!(names(M_all) %in% c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols))], 
+                                                      c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols))
+
+
+M_all <- M_all[, reordered_names] %>% distinct()
+
+# #TODO this needs some prep work. We'll want to capture the variance in these measures.
+# # Not clear how to do that. 
+# epsp %>% ggplot(aes(x = FileName, Max.Amplitude, color = interaction(Experiment, Cell)))+
+#   geom_line()+
+#   geom_point()+
+#   facet_grid(.~Key)
+```
+
+# Primary Questions
+
+## What relationships exist at baseline?
+
+```{r}
+#TODO
+```
+
+
+## How do these relationships change for TEA over time?
+
+### globally, clustering etc
+```{r}
+
+temp <- unite(data = M, "Pharm_Condition", Pharm, Condition) 
+
+# baseline, compensated, delayed
+no_outlier_tea_list <- map(unique(temp$Pharm_Condition)[order(unique(temp$Pharm_Condition))], function(PhCon){
+  temp2 <- temp[temp$Pharm_Condition == PhCon, ]
+  
+  for (NAME in names(M)[!(names(M) %in% c("Pharm_Condition" , "Pharm", "Condition", "Cell", "Experiment", "Source", "Time", "Sample"))]){
+    temp2[[NAME]] <- ifelse(win_x_iqr(temp2[[NAME]]), temp2[[NAME]], NA)
+  }
+  
+  return(temp2)
+})
+
+# walk(seq_along(no_outlier_tea_list), function(i){
+#   for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
+#   
+#   MCorr <- cor(for_corr, use = "pairwise.complete.obs")
+#   
+#   pMat <- cor_pmat(for_corr)
+#   
+#   png(filename=c("plots/BaselineTEA.png", "plots/CompensatedTEA.png", "plots/DelayedTEA.png")[i])
+#   # plot(faithful)
+#   corrplot(MCorr, method = "square", type = "upper", tl.col = "black", 
+#            # order = "hclust", 
+#            col = brewer.pal(n = 9, name = "PuOr"),
+#            p.mat = pMat,
+#            sig.level = 0.05, insig = "blank")  
+#   dev.off()
+# })
+
+
+tea_plt_list <- map(seq_along(no_outlier_tea_list), function(i){
+  for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
+  
+  MCorr <- cor(for_corr, use = "pairwise.complete.obs")
+  
+  pMat <- cor_pmat(for_corr)
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  pMat <- as.data.frame(pMat) 
+  pMat$row_names <- rownames(pMat)
+  pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
+  
+  
+  
+  ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
+    geom_tile()+
+    geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+    scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                         mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                         high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                         midpoint = 0, 
+                         na.value = "#00000000")+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+    labs(x = "", y = "")
+})
+
+cowplot::plot_grid(plotlist = tea_plt_list, labels = letters)
+```
+
+![](../plots/BaselineTEA.png)
+![](../plots/CompensatedTEA.png)
+![](../plots/DelayedTEA.png)
+
+ecdfs
+```{r}
+tea_cor_list <- map(seq_along(no_outlier_tea_list), function(i){
+  for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
+  
+  MCorr <- cor(for_corr, use = "pairwise.complete.obs")
+  
+  pMat <- cor_pmat(for_corr)
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  pMat <- as.data.frame(pMat) 
+  pMat$row_names <- rownames(pMat)
+  pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
+  
+  return(list(Corr = MCorr, pValue = pMat))
+})
+
+
+temp1 <- tea_cor_list[[1]]$Corr
+temp2 <- tea_cor_list[[2]]$Corr
+temp3 <- tea_cor_list[[3]]$Corr
+
+temp1$group <- "Baseline"
+temp2$group <- "Compensated"
+temp3$group <- "Delayed"
+
+# plot_ecdf_ks(
+#   df = rbind(temp1, temp2),
+#   data.col = "Corr",
+#   group.col = "group",
+#   group1 = "Baseline",
+#   group2 = "Compensated",
+#   colors = c("#4d4d4d",
+#              #"#67a9cf",
+#              "#1c9099"))
+
+
+
+
+ecdf_corr_list <- 
+map(list(
+  list(
+    rbind(temp1, temp2),
+    c("Baseline", "Compensated"),
+    c("#4d4d4d", 
+      "#67a9cf"#, 
+      #"#1c9099"
+      )
+  ),
+  list(
+    rbind(temp1, temp3),
+    c("Baseline", "Delayed"),
+    c("#4d4d4d", 
+      #"#67a9cf", 
+      "#1c9099")
+  ),
+  list(
+    rbind(temp2, temp3),
+    c("Compensated", "Delayed"),
+    c(#"#4d4d4d", 
+      "#67a9cf",
+      "#1c9099")
+  )
+), function(list.obj){
+  plot_ecdf_ks(
+  df = list.obj[[1]],
+  data.col = "Corr",
+  group.col = "group",
+  group1 = list.obj[[2]][1],
+  group2 = list.obj[[2]][2],
+  colors = list.obj[[3]])
+})
+
+cowplot::plot_grid(plotlist = ecdf_corr_list)
+```
+
+What does this look like without the currents?
+```{r}
+temp1_nocurrents <- temp1[!((temp1$row_names %in% MeasuredKCurrents) | (temp1$col_names %in% MeasuredKCurrents)), ]
+temp2_nocurrents <- temp2[!((temp2$row_names %in% MeasuredKCurrents) | (temp2$col_names %in% MeasuredKCurrents)), ]
+temp3_nocurrents <- temp3[!((temp3$row_names %in% MeasuredKCurrents) | (temp3$col_names %in% MeasuredKCurrents)), ]
+
+
+ecdf_corr_nocurrents_list <- 
+map(list(
+  list(
+    rbind(temp1_nocurrents, temp2_nocurrents),
+    c("Baseline", "Compensated"),
+    c("#4d4d4d", 
+      "#67a9cf"#, 
+      #"#1c9099"
+      )
+  ),
+  list(
+    rbind(temp1_nocurrents, temp3_nocurrents),
+    c("Baseline", "Delayed"),
+    c("#4d4d4d", 
+      #"#67a9cf", 
+      "#1c9099")
+  ),
+  list(
+    rbind(temp2_nocurrents, temp3_nocurrents),
+    c("Compensated", "Delayed"),
+    c(#"#4d4d4d", 
+      "#67a9cf",
+      "#1c9099")
+  )
+), function(list.obj){
+  plot_ecdf_ks(
+  df = list.obj[[1]],
+  data.col = "Corr",
+  group.col = "group",
+  group1 = list.obj[[2]][1],
+  group2 = list.obj[[2]][2],
+  colors = list.obj[[3]])
+})
+
+cowplot::plot_grid(plotlist = ecdf_corr_nocurrents_list)
+```
+
+
+Combined fig corr/ecdf
+```{r}
+temp_list <- tea_plt_list
+
+temp_list[[4]] <- ecdf_corr_list[[1]]
+temp_list[[5]] <- ecdf_corr_list[[2]]
+temp_list[[6]] <- ecdf_corr_list[[3]]
+
+
+cowplot::plot_grid(plotlist = temp_list)
+#TODO how much of the difference in KS between compensated and baseline is noise? I guess we have to cut out the currents and redo it to figure out...
+```
+
+Contrast ecdfs with and without currents.
+```{r}
+temp_list2 <- ecdf_corr_list
+
+temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
+temp_list2[[5]] <- ecdf_corr_nocurrents_list[[2]]
+temp_list2[[6]] <- ecdf_corr_nocurrents_list[[3]]
+
+cowplot::plot_grid(plotlist = temp_list2)
+```
+
+How do they separate? cluster?
+
+
+```{r}
+
+no_outlier_tea_df <- do.call(rbind, no_outlier_tea_list)
+
+# require at least X of observations to contain data in a column to be allowed.
+require_complete_rate <- 0.4
+
+skim_df <- skimr::skim(no_outlier_tea_df)
+retain_cols <- skim_df[skim_df$complete_rate > require_complete_rate, "skim_variable"] %>% unlist()
+
+no_outlier_tea_df <- no_outlier_tea_df[, retain_cols]
+
+library(imputeMissings)
+no_outlier_tea_df <- imputeMissings::impute(no_outlier_tea_df, method = "median/mode")
+
+rownames(no_outlier_tea_df) <- paste(no_outlier_tea_df$Experiment, no_outlier_tea_df$Cell, no_outlier_tea_df$Time, sep = "-")
+```
+
+dendrogram 
+```{r}
+library(pvclust)
+library(ggdendro)
+set.seed(654684)
+cluster <- pvclust(t(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)]),
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+```
+
+
+dendrogram plot method 1
+```{r}
+library(dendextend)
+cluster %>% 
+  as.dendrogram() %>% 
+  set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
+  plot()
+
+# plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
+```
+
+dendrogram plot method 2
+```{r}
+plt <- ggdendro::ggdendrogram(cluster$hclust)
+
+cluster_dend <- ggdendro::dendro_data(as.dendrogram(cluster$hclust), type = "rectangle")
+cluster_dend_segments <- ggdendro::segment(cluster_dend)
+
+
+label_df <- data.frame(labels = no_outlier_tea_df[, "Time"],
+                       exps = no_outlier_tea_df[, "Experiment"])
+label_df$orderby <- as.numeric(as.character(ggdendro::label(cluster_dend)$label))
+label_df <- arrange(label_df, orderby)
+
+
+# cluster_dend_labs <- data.frame(ggdendro::label(cluster_dend), Time = as.factor(no_outlier_tea_df[match(label(no_outlier_tea_df)$label, rownames(no_outlier_tea_df)), "Time"]))
+
+ggplot()+
+  geom_segment(data = cluster_dend_segments,
+               aes(x = x, y = y, xend = xend, yend = yend),
+               size = 1.25,
+               colour = "black",
+               lineend = "round")+ 
+  geom_text(data = data.frame(ggdendro::label(cluster_dend),
+                              Time = label_df$labels,
+                              exps = label_df$exps), 
+            aes(x = x, y = y, label = exps, colour = Time), 
+            nudge_y = 0, family = "boldserif", size = 5, angle = 90, hjust = 1)+ 
+  xlab("")+ 
+  ylab("Height")+
+  lims(y = c(-0.1, 0.8))+
+  theme(axis.line.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        text = element_text(family = "serif"),
+        legend.position = "bottom")
+```
+
+
+have dendrogram on both sides
+```{r}
+cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+
+mrna_cluster_dend <- as.dendrogram(cluster)
+cell_cluster_dend <- as.dendrogram(cluster_2)
+
+
+mrna_cutree <- cutree(mrna_cluster_dend, k = 5)
+cell_cutree <- cutree(cell_cluster_dend, k = 4)
+
+
+library(RColorBrewer)
+mypalette <- rev(brewer.pal(9, "PuOr")[-1])
+
+
+matrix_for_heatmap <- as.matrix(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)])
+
+# Reference
+# https://rpubs.com/Sammi/132435
+heatmap(
+matrix_for_heatmap,
+Rowv = mrna_cluster_dend,
+Colv = cell_cluster_dend,
+
+RowSideColors = as.character(mrna_cutree),
+ColSideColors = as.character(cell_cutree),
+# scale = "col"
+
+key = T, 
+col = mypalette
+)
+
+
+library(gplots)
+heatmap.2(
+matrix_for_heatmap,
+Rowv = mrna_cluster_dend,
+Colv = cell_cluster_dend,
+
+RowSideColors = as.character(mrna_cutree),
+ColSideColors = as.character(cell_cutree),
+# scale = "col"
+
+trace = "none",
+key = T
+# col = mypalette
+)
+
+
+# source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/my.colorFct.R")
+# heatmap(y, 
+#         Rowv = as.dendrogram(hr), 
+#         Colv = as.dendrogram(hc), 
+#         col=my.colorFct(), 
+#         scale="row")
+```
+
+
+Evaluating clustering quality
+```{r}
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("BiocGenerics")
+library(BiocGenerics)
+library(imputeMissings)
+library(magrittr) # for %>% (this is part of tidyverse)
+library(clues)
+library(NMF)
+
+## Evaluate clustering performance ==========================================
+get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
+                                    generated.clustering) {
+  if (length(reference.clustering) != length(generated.clustering)) {
+    warning("Input vectors are not of the same length!")
+  } else {
+    # reference.clustering = mrna_raw$Cell
+    # generated.clustering = kmeans.m$cluster
+    output <- array(0, dim = 6)
+    reference.clustering <- as.numeric(reference.clustering) %>% as.factor()
+    generated.clustering <- as.numeric(generated.clustering) %>% as.factor()
+    output <- NMF::purity(reference.clustering, generated.clustering)
+    names(output) <- "Purity"
+    # Get a lot of concurrance measures
+    # https://davetang.org/muse/2017/09/21/adjusted-rand-index/
+    output <- c(
+      output,
+      clues::adjustedRand(
+        BiocGenerics::as.vector(reference.clustering),
+        BiocGenerics::as.vector(generated.clustering)
+      )
+    )
+    return(output)
+  }
+}
+```
+
+
+```{r}
+temp.clust <- as.dendrogram(cluster$hclust)
+assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
+
+# use names to get groupings
+time_groups <- as.factor(unlist(transpose(stringr::str_split(names(assignment), pattern = "-"))[[3]]))
+
+library(purrr)
+set.seed(9348957)
+resample.indices <- map(1:10001, function(i){
+  if (i == 1){
+    indices <- get_cluster_comparisons(reference.clustering = time_groups,
+                                       assignment)
+  }else{
+    indices <- get_cluster_comparisons(reference.clustering = time_groups,
+                                       sample(assignment, replace = F))
+  }
+})
+resample.indices <- do.call(rbind, resample.indices)
+resample.indices <- resample.indices %>% as.data.frame()
+
+library(ggplot2)
+resample.indices %>% 
+  ggplot(aes(x = Jaccard))+
+  geom_density()+
+  geom_vline(xintercept = as.numeric(resample.indices[1, "Jaccard"]))+
+  xlim(0,1)+
+  theme_minimal()
+# empirical p-value from 10,000 random samplings
+mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"])
+```
+
+
+
+pca 
+```{r}
+library(factoextra)
+library(FactoMineR) #PCA
+library(car)
+# library(cowplot)
+library(patchwork)
+
+
+mk_pca_multi_plt <- function(input.df = t_pass,
+                             scree.max.y = 100){
+  
+  res.pca <- PCA(input.df,  graph = FALSE)
+  # Extract eigenvalues/variances
+  # get_eig(res.pca)
+  
+  # Visualize eigenvalues/variances
+  p0 <- fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, scree.max.y))
+  
+  p1 <- fviz_contrib(res.pca, choice = "var", axes = 1, top = 20)
+  p2 <- fviz_contrib(res.pca, choice = "var", axes = 2, top = 20)
+  p3 <- fviz_contrib(res.pca, choice = "var", axes = 3, top = 20)
+  
+  # Control variable colors using their contributions
+  p4 <- fviz_pca_var(res.pca, col.var="contrib",
+                     gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+                     repel = TRUE # Avoid text overlapping
+  )
+  
+  # pca.multi <- {p4|p0}/{p1+p2+p3}
+  # return(pca.multi)
+  return(list(scree = p0, 
+              cont1 = p1, 
+              cont2 = p2, 
+              cont3 = p3, 
+              biplt = p4))
+}
+
+pca_summary_descriptions <- map(list(
+  no_outlier_tea_df[no_outlier_tea_df$Time == "Baseline", c(MeasuredKCurrents, MeasuredmRNA)],
+  no_outlier_tea_df[no_outlier_tea_df$Time == "Compensated", c(MeasuredKCurrents, MeasuredmRNA)],
+  no_outlier_tea_df[no_outlier_tea_df$Time == "Delayed", c(MeasuredKCurrents, MeasuredmRNA)]
+  
+), function(df){
+  mk_pca_multi_plt(input.df = df,
+                 scree.max.y = 100)
+})
+
+
+# {p4|p0}/{p1+p2+p3}
+
+{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}
+
+{pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
+
+{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[3]]$biplt}
+
+```
+
+
+```{r}
+library(rgl)
+
+
+vis_pca_3D <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::select(-lc, -net, -pass),
+                       color.by = M[M$pass == T, "lc"],
+                       turn.x.times = 2,
+           use.colors = RColorBrewer::brewer.pal(8, "Set1")){
+  
+  res.pca <- PCA(input.df,  graph = FALSE)
+  
+  indivduals <- get_pca_ind(res.pca)
+  indivduals <- as.data.frame(indivduals$coord)
+  indivduals$cell.num <- as.factor(as.character(color.by))
+  
+  car::scatter3d(x = indivduals$Dim.1,
+                 z = indivduals$Dim.3,
+                 y = indivduals$Dim.2,
+                 groups = indivduals$cell.num,
+                 
+                 
+                 
+                 surface=F, 
+                 # fit = "smooth",
+                 # surface.alpha = 0.5,
+                 grid = F,
+                 # residuals = F,
+                 bg.col = "white", # white black
+                 surface.col = use.colors, 
+                 point.col = use.colors,                 
+                 
+                 xlab = "Dim. 1",
+                 ylab = "Dim. 2",
+                 zlab = "Dim. 3",
+                 revolutions=turn.x.times, 
+                 # revolutions = 1,
+                 
+                 # surface = F,
+                 ellipsoid = TRUE
+  )
+}
+
+
+
+vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
+           color.by = no_outlier_tea_df[, "Time"],
+           turn.x.times = 1,
+           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+)
+
+
+```
+
+Is the overlap in "compensated" due to k currents? (no)
+```{r}
+vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredmRNA)],
+           color.by = no_outlier_tea_df[, "Time"],
+           turn.x.times = 1,
+           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+)
+```
+
+### specifically
+
+```{r}
 
 ```
 
 
 
 
+
+
+# Secondary Questions
+```{r}
+scatter_w_wo_outliers(temp = distinct(select(filter(M_all, Time == "Baseline"), shal, Ia.0)), 
+                  X = "shal", 
+                  Y = "Ia.0")
+
+scatter_w_wo_outliers(temp = distinct(select(filter(M_all, Time == "Compensated"), shal, Ia.0)), 
+                  X = "shal", 
+                  Y = "Ia.0")
+
+scatter_w_wo_outliers(temp = distinct(select(filter(M_all, Time == "Delayed"), shal, Ia.0)), 
+                  X = "shal", 
+                  Y = "Ia.0")
+
+```
 
 
                        
@@ -322,112 +977,6 @@ tibble::tribble(
 # )
 ```
 
-```{r user defined functions, eval=FALSE, include=FALSE}
-
-library(ggpmisc) # for labeling through stat_poly_eq
-
-
-
-scatter_w_wo_outliers <- function(temp = filter(M, Time == "Baseline"),
-                                  X = "bkkca", 
-                                  Y = "Ihtk.0"){
-  # flag outliers based on 1.5xIQR from median
-  X_low  <- median(temp[[X]], na.rm = T) - (1.5 * IQR(temp[[X]], na.rm = T))
-  X_high <- median(temp[[X]], na.rm = T) + (1.5 * IQR(temp[[X]], na.rm = T))
-  Y_low  <- median(temp[[Y]], na.rm = T) - (1.5 * IQR(temp[[Y]], na.rm = T))
-  Y_high <- median(temp[[Y]], na.rm = T) + (1.5 * IQR(temp[[Y]], na.rm = T))
-  X_pass <- (temp[[X]] > X_low) * (temp[[X]] < X_high)
-  Y_pass <- (temp[[Y]] > Y_low) * (temp[[Y]] < Y_high)
-  temp$flag <- ifelse((X_pass * Y_pass) == 1, T, F)
-  # Duplicate so we have dataset 1, 2 (introduces duplicates)
-  temp <- rbind(temp[temp$flag == T, ], mutate(temp, flag = F))
-  formula1 <- y ~ x
-  plt <- ggplot(temp, aes_string(X, Y, color = "flag"))+
-    geom_smooth(data = temp, method = lm, se = F, fullrange = T)+
-    geom_point(data = temp)+
-    geom_point(data = temp, color = "black", shape = 1)+
-    geom_point(data = temp[temp$flag, ])+
-    ggpmisc::stat_poly_eq(aes(label =  paste(stat(eq.label), "*\" with \"*", 
-                                             stat(rr.label), "*\", \"*", 
-                                             stat(f.value.label), "*\", and \"*",
-                                             stat(p.value.label), "*\".\"",
-                                             sep = "")),
-                          formula = formula1, parse = TRUE, size = 4)+
-    scale_color_manual(values = c("darkgray", "black"))+
-    theme_bw()+
-    theme(legend.position = "")
-  return(plt)
-}
-
-win_x_iqr <- function(col_in, multiplier = 1.5){
-  col_in <- as.vector(col_in)
-  
-  X_low  <- median(col_in, na.rm = T) - (multiplier * IQR(col_in, na.rm = T))
-  X_high <- median(col_in, na.rm = T) + (multiplier * IQR(col_in, na.rm = T))
-  X_pass <- (col_in > X_low) * (col_in < X_high)
-  
-  return(as.logical(X_pass))
-}
-
-
-
-plot_ecdf_ks <- function(
-  df = rbind(temp1, temp2),
-  data.col = "Corr",
-  group.col = "group",
-  group1 = "Baseline",
-  group2 = "Compensated",
-  colors = c("#4d4d4d", 
-             #"#67a9cf", 
-             "#1c9099")) {
-  
-  # Adapted from:
-  # https://rpubs.com/mharris/KSplot
-  df <- filter(df, df[[group.col]] %in% c(group1, group2))
-  
-  df[df[[group.col]] == group1, data.col]
-  
-  
-  data1 <- unlist(df[df[[group.col]] == group1, data.col])
-  data2 <- unlist(df[df[[group.col]] == group2, data.col])
-  
-  ecdf1 <- ecdf(data1)
-  ecdf2 <- ecdf(data2)
-  
-  # used to get the most extreme difference between the two samples
-  MostExtremeDiff <- seq(min(data1, data2, na.rm = T), max(data1, data2, na.rm = T), length.out = length(data1))
-  x0 <- MostExtremeDiff[which(abs(ecdf1(MostExtremeDiff) - ecdf2(MostExtremeDiff)) == 
-                                max(abs(ecdf1(MostExtremeDiff) - ecdf2(MostExtremeDiff))))]
-  y0 <- ecdf1(x0)
-  y1 <- ecdf2(x0)
-  
-  graph.df <- data.frame(data1, data2) %>% gather(Condition, Value, 1:2)
-  graph.df[graph.df$Condition == "data1", "Condition"] <- group1
-  graph.df[graph.df$Condition == "data2", "Condition"] <- group2
-  
-  # Run two sided KS test on data
-  test.res <- ks.test(data1, data2)
-  
-  plt <- 
-    ggplot(graph.df)+
-    geom_segment(aes(x = x0[1], y = y0[1], xend = x0[1], yend = y1[1]),
-                 linetype = "dashed", color = "black", size = 1)+
-    geom_point(aes(x = x0[1] , y= y0[1]), color="black", size=2) +
-    geom_point(aes(x = x0[1] , y= y1[1]), color="black", size=2) +
-    stat_ecdf(aes(x = Value, group = Condition, color = Condition))+
-    labs(x = "Sample", 
-         y = "ECDF", 
-         title = paste("K-S Test", as.character(group1), "vs", as.character(group2), 
-                       "\np-value:", as.character(test.res$p.value, digits = 4)))+
-    theme_minimal()+
-    theme(legend.position = "bottom")+
-    scale_color_manual(values = colors)#+
-    # theme(text=element_text(family="Calibri Light", size=14)) 
-  
-  return(plt)
-  
-}
-```
 
 
 
@@ -1021,577 +1570,7 @@ corrplot(MCorr, method = "square", type = "upper", tl.col = "black", order = "hc
 ```
 
 
-## What relationships exist at baseline?
 
-```{r}
-#TODO
-```
-
-
-## How do these relationships change for TEA over time?
-
-### globally, clustering etc
-```{r}
-
-temp <- unite(data = M, "Pharm_Condition", Pharm, Condition) 
-
-# baseline, compensated, delayed
-no_outlier_tea_list <- map(unique(temp$Pharm_Condition)[order(unique(temp$Pharm_Condition))], function(PhCon){
-  temp2 <- temp[temp$Pharm_Condition == PhCon, ]
-  
-  for (NAME in names(M)[!(names(M) %in% c("Pharm_Condition" , "Pharm", "Condition", "Cell", "Experiment", "Source", "Time", "Sample"))]){
-    temp2[[NAME]] <- ifelse(win_x_iqr(temp2[[NAME]]), temp2[[NAME]], NA)
-  }
-  
-  return(temp2)
-})
-
-# walk(seq_along(no_outlier_tea_list), function(i){
-#   for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
-#   
-#   MCorr <- cor(for_corr, use = "pairwise.complete.obs")
-#   
-#   pMat <- cor_pmat(for_corr)
-#   
-#   png(filename=c("plots/BaselineTEA.png", "plots/CompensatedTEA.png", "plots/DelayedTEA.png")[i])
-#   # plot(faithful)
-#   corrplot(MCorr, method = "square", type = "upper", tl.col = "black", 
-#            # order = "hclust", 
-#            col = brewer.pal(n = 9, name = "PuOr"),
-#            p.mat = pMat,
-#            sig.level = 0.05, insig = "blank")  
-#   dev.off()
-# })
-
-
-tea_plt_list <- map(seq_along(no_outlier_tea_list), function(i){
-  for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
-  
-  MCorr <- cor(for_corr, use = "pairwise.complete.obs")
-  
-  pMat <- cor_pmat(for_corr)
-  
-  MCorr <- as.data.frame(MCorr) 
-  MCorr$row_names <- rownames(MCorr)
-  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-  
-  pMat <- as.data.frame(pMat) 
-  pMat$row_names <- rownames(pMat)
-  pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
-  
-  
-  
-  ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
-    geom_tile()+
-    geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-    scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-                         mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-                         high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-                         midpoint = 0, 
-                         na.value = "#00000000")+
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-    labs(x = "", y = "")
-})
-
-cowplot::plot_grid(plotlist = tea_plt_list, labels = letters)
-```
-
-![](../plots/BaselineTEA.png)
-![](../plots/CompensatedTEA.png)
-![](../plots/DelayedTEA.png)
-
-ecdfs
-```{r}
-tea_cor_list <- map(seq_along(no_outlier_tea_list), function(i){
-  for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
-  
-  MCorr <- cor(for_corr, use = "pairwise.complete.obs")
-  
-  pMat <- cor_pmat(for_corr)
-  
-  MCorr <- as.data.frame(MCorr) 
-  MCorr$row_names <- rownames(MCorr)
-  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-  
-  pMat <- as.data.frame(pMat) 
-  pMat$row_names <- rownames(pMat)
-  pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
-  
-  return(list(Corr = MCorr, pValue = pMat))
-})
-
-
-temp1 <- tea_cor_list[[1]]$Corr
-temp2 <- tea_cor_list[[2]]$Corr
-temp3 <- tea_cor_list[[3]]$Corr
-
-temp1$group <- "Baseline"
-temp2$group <- "Compensated"
-temp3$group <- "Delayed"
-
-# plot_ecdf_ks(
-#   df = rbind(temp1, temp2),
-#   data.col = "Corr",
-#   group.col = "group",
-#   group1 = "Baseline",
-#   group2 = "Compensated",
-#   colors = c("#4d4d4d",
-#              #"#67a9cf",
-#              "#1c9099"))
-
-
-
-
-ecdf_corr_list <- 
-map(list(
-  list(
-    rbind(temp1, temp2),
-    c("Baseline", "Compensated"),
-    c("#4d4d4d", 
-      "#67a9cf"#, 
-      #"#1c9099"
-      )
-  ),
-  list(
-    rbind(temp1, temp3),
-    c("Baseline", "Delayed"),
-    c("#4d4d4d", 
-      #"#67a9cf", 
-      "#1c9099")
-  ),
-  list(
-    rbind(temp2, temp3),
-    c("Compensated", "Delayed"),
-    c(#"#4d4d4d", 
-      "#67a9cf",
-      "#1c9099")
-  )
-), function(list.obj){
-  plot_ecdf_ks(
-  df = list.obj[[1]],
-  data.col = "Corr",
-  group.col = "group",
-  group1 = list.obj[[2]][1],
-  group2 = list.obj[[2]][2],
-  colors = list.obj[[3]])
-})
-
-cowplot::plot_grid(plotlist = ecdf_corr_list)
-```
-
-What does this look like without the currents?
-```{r}
-temp1_nocurrents <- temp1[!((temp1$row_names %in% MeasuredKCurrents) | (temp1$col_names %in% MeasuredKCurrents)), ]
-temp2_nocurrents <- temp2[!((temp2$row_names %in% MeasuredKCurrents) | (temp2$col_names %in% MeasuredKCurrents)), ]
-temp3_nocurrents <- temp3[!((temp3$row_names %in% MeasuredKCurrents) | (temp3$col_names %in% MeasuredKCurrents)), ]
-
-
-ecdf_corr_nocurrents_list <- 
-map(list(
-  list(
-    rbind(temp1_nocurrents, temp2_nocurrents),
-    c("Baseline", "Compensated"),
-    c("#4d4d4d", 
-      "#67a9cf"#, 
-      #"#1c9099"
-      )
-  ),
-  list(
-    rbind(temp1_nocurrents, temp3_nocurrents),
-    c("Baseline", "Delayed"),
-    c("#4d4d4d", 
-      #"#67a9cf", 
-      "#1c9099")
-  ),
-  list(
-    rbind(temp2_nocurrents, temp3_nocurrents),
-    c("Compensated", "Delayed"),
-    c(#"#4d4d4d", 
-      "#67a9cf",
-      "#1c9099")
-  )
-), function(list.obj){
-  plot_ecdf_ks(
-  df = list.obj[[1]],
-  data.col = "Corr",
-  group.col = "group",
-  group1 = list.obj[[2]][1],
-  group2 = list.obj[[2]][2],
-  colors = list.obj[[3]])
-})
-
-cowplot::plot_grid(plotlist = ecdf_corr_nocurrents_list)
-```
-
-
-Combined fig corr/ecdf
-```{r}
-temp_list <- tea_plt_list
-
-temp_list[[4]] <- ecdf_corr_list[[1]]
-temp_list[[5]] <- ecdf_corr_list[[2]]
-temp_list[[6]] <- ecdf_corr_list[[3]]
-
-
-cowplot::plot_grid(plotlist = temp_list)
-#TODO how much of the difference in KS between compensated and baseline is noise? I guess we have to cut out the currents and redo it to figure out...
-```
-
-Contrast ecdfs with and without currents.
-```{r}
-temp_list2 <- ecdf_corr_list
-
-temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
-temp_list2[[5]] <- ecdf_corr_nocurrents_list[[2]]
-temp_list2[[6]] <- ecdf_corr_nocurrents_list[[3]]
-
-cowplot::plot_grid(plotlist = temp_list2)
-```
-
-How do they separate? cluster?
-
-
-```{r}
-
-no_outlier_tea_df <- do.call(rbind, no_outlier_tea_list)
-
-# require at least X of observations to contain data in a column to be allowed.
-require_complete_rate <- 0.4
-
-skim_df <- skimr::skim(no_outlier_tea_df)
-retain_cols <- skim_df[skim_df$complete_rate > require_complete_rate, "skim_variable"] %>% unlist()
-
-no_outlier_tea_df <- no_outlier_tea_df[, retain_cols]
-
-library(imputeMissings)
-no_outlier_tea_df <- imputeMissings::impute(no_outlier_tea_df, method = "median/mode")
-
-rownames(no_outlier_tea_df) <- paste(no_outlier_tea_df$Experiment, no_outlier_tea_df$Cell, no_outlier_tea_df$Time, sep = "-")
-```
-
-dendrogram 
-```{r}
-library(pvclust)
-library(ggdendro)
-set.seed(654684)
-cluster <- pvclust(t(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)]),
-                   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
-```
-
-
-dendrogram plot method 1
-```{r}
-library(dendextend)
-cluster %>% 
-  as.dendrogram() %>% 
-  set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
-  plot()
-
-# plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
-```
-
-dendrogram plot method 2
-```{r}
-plt <- ggdendro::ggdendrogram(cluster$hclust)
-
-cluster_dend <- ggdendro::dendro_data(as.dendrogram(cluster$hclust), type = "rectangle")
-cluster_dend_segments <- ggdendro::segment(cluster_dend)
-
-
-label_df <- data.frame(labels = no_outlier_tea_df[, "Time"],
-                       exps = no_outlier_tea_df[, "Experiment"])
-label_df$orderby <- as.numeric(as.character(ggdendro::label(cluster_dend)$label))
-label_df <- arrange(label_df, orderby)
-
-
-# cluster_dend_labs <- data.frame(ggdendro::label(cluster_dend), Time = as.factor(no_outlier_tea_df[match(label(no_outlier_tea_df)$label, rownames(no_outlier_tea_df)), "Time"]))
-
-ggplot()+
-  geom_segment(data = cluster_dend_segments,
-               aes(x = x, y = y, xend = xend, yend = yend),
-               size = 1.25,
-               colour = "black",
-               lineend = "round")+ 
-  geom_text(data = data.frame(ggdendro::label(cluster_dend),
-                              Time = label_df$labels,
-                              exps = label_df$exps), 
-            aes(x = x, y = y, label = exps, colour = Time), 
-            nudge_y = 0, family = "boldserif", size = 5, angle = 90, hjust = 1)+ 
-  xlab("")+ 
-  ylab("Height")+
-  lims(y = c(-0.1, 0.8))+
-  theme(axis.line.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        text = element_text(family = "serif"),
-        legend.position = "bottom")
-```
-
-
-have dendrogram on both sides
-```{r}
-cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
-                   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
-
-mrna_cluster_dend <- as.dendrogram(cluster)
-cell_cluster_dend <- as.dendrogram(cluster_2)
-
-
-mrna_cutree <- cutree(mrna_cluster_dend, k = 5)
-cell_cutree <- cutree(cell_cluster_dend, k = 4)
-
-
-library(RColorBrewer)
-mypalette <- rev(brewer.pal(9, "PuOr")[-1])
-
-
-matrix_for_heatmap <- as.matrix(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)])
-
-# Reference
-# https://rpubs.com/Sammi/132435
-heatmap(
-matrix_for_heatmap,
-Rowv = mrna_cluster_dend,
-Colv = cell_cluster_dend,
-
-RowSideColors = as.character(mrna_cutree),
-ColSideColors = as.character(cell_cutree),
-# scale = "col"
-
-key = T, 
-col = mypalette
-)
-
-
-library(gplots)
-heatmap.2(
-matrix_for_heatmap,
-Rowv = mrna_cluster_dend,
-Colv = cell_cluster_dend,
-
-RowSideColors = as.character(mrna_cutree),
-ColSideColors = as.character(cell_cutree),
-# scale = "col"
-
-trace = "none",
-key = T
-# col = mypalette
-)
-
-
-# source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/my.colorFct.R")
-# heatmap(y, 
-#         Rowv = as.dendrogram(hr), 
-#         Colv = as.dendrogram(hc), 
-#         col=my.colorFct(), 
-#         scale="row")
-```
-
-
-Evaluating clustering quality
-```{r}
-# if (!requireNamespace("BiocManager", quietly = TRUE))
-#     install.packages("BiocManager")
-# BiocManager::install("BiocGenerics")
-library(BiocGenerics)
-library(imputeMissings)
-library(magrittr) # for %>% (this is part of tidyverse)
-library(clues)
-library(NMF)
-
-## Evaluate clustering performance ==========================================
-get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
-                                    generated.clustering) {
-  if (length(reference.clustering) != length(generated.clustering)) {
-    warning("Input vectors are not of the same length!")
-  } else {
-    # reference.clustering = mrna_raw$Cell
-    # generated.clustering = kmeans.m$cluster
-    output <- array(0, dim = 6)
-    reference.clustering <- as.numeric(reference.clustering) %>% as.factor()
-    generated.clustering <- as.numeric(generated.clustering) %>% as.factor()
-    output <- NMF::purity(reference.clustering, generated.clustering)
-    names(output) <- "Purity"
-    # Get a lot of concurrance measures
-    # https://davetang.org/muse/2017/09/21/adjusted-rand-index/
-    output <- c(
-      output,
-      clues::adjustedRand(
-        BiocGenerics::as.vector(reference.clustering),
-        BiocGenerics::as.vector(generated.clustering)
-      )
-    )
-    return(output)
-  }
-}
-```
-
-
-```{r}
-temp.clust <- as.dendrogram(cluster$hclust)
-assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
-
-# use names to get groupings
-time_groups <- as.factor(unlist(transpose(stringr::str_split(names(assignment), pattern = "-"))[[3]]))
-
-library(purrr)
-set.seed(9348957)
-resample.indices <- map(1:10001, function(i){
-  if (i == 1){
-    indices <- get_cluster_comparisons(reference.clustering = time_groups,
-                                       assignment)
-  }else{
-    indices <- get_cluster_comparisons(reference.clustering = time_groups,
-                                       sample(assignment, replace = F))
-  }
-})
-resample.indices <- do.call(rbind, resample.indices)
-resample.indices <- resample.indices %>% as.data.frame()
-
-library(ggplot2)
-resample.indices %>% 
-  ggplot(aes(x = Jaccard))+
-  geom_density()+
-  geom_vline(xintercept = as.numeric(resample.indices[1, "Jaccard"]))+
-  xlim(0,1)+
-  theme_minimal()
-# empirical p-value from 10,000 random samplings
-mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"])
-```
-
-
-
-pca 
-```{r}
-library(factoextra)
-library(FactoMineR) #PCA
-library(car)
-# library(cowplot)
-library(patchwork)
-
-
-mk_pca_multi_plt <- function(input.df = t_pass,
-                             scree.max.y = 100){
-  
-  res.pca <- PCA(input.df,  graph = FALSE)
-  # Extract eigenvalues/variances
-  # get_eig(res.pca)
-  
-  # Visualize eigenvalues/variances
-  p0 <- fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, scree.max.y))
-  
-  p1 <- fviz_contrib(res.pca, choice = "var", axes = 1, top = 20)
-  p2 <- fviz_contrib(res.pca, choice = "var", axes = 2, top = 20)
-  p3 <- fviz_contrib(res.pca, choice = "var", axes = 3, top = 20)
-  
-  # Control variable colors using their contributions
-  p4 <- fviz_pca_var(res.pca, col.var="contrib",
-                     gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-                     repel = TRUE # Avoid text overlapping
-  )
-  
-  # pca.multi <- {p4|p0}/{p1+p2+p3}
-  # return(pca.multi)
-  return(list(scree = p0, 
-              cont1 = p1, 
-              cont2 = p2, 
-              cont3 = p3, 
-              biplt = p4))
-}
-
-pca_summary_descriptions <- map(list(
-  no_outlier_tea_df[no_outlier_tea_df$Time == "Baseline", c(MeasuredKCurrents, MeasuredmRNA)],
-  no_outlier_tea_df[no_outlier_tea_df$Time == "Compensated", c(MeasuredKCurrents, MeasuredmRNA)],
-  no_outlier_tea_df[no_outlier_tea_df$Time == "Delayed", c(MeasuredKCurrents, MeasuredmRNA)]
-  
-), function(df){
-  mk_pca_multi_plt(input.df = df,
-                 scree.max.y = 100)
-})
-
-
-# {p4|p0}/{p1+p2+p3}
-
-{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}
-
-{pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
-
-{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[3]]$biplt}
-
-```
-
-
-```{r}
-library(rgl)
-
-
-vis_pca_3D <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::select(-lc, -net, -pass),
-                       color.by = M[M$pass == T, "lc"],
-                       turn.x.times = 2,
-           use.colors = RColorBrewer::brewer.pal(8, "Set1")){
-  
-  res.pca <- PCA(input.df,  graph = FALSE)
-  
-  indivduals <- get_pca_ind(res.pca)
-  indivduals <- as.data.frame(indivduals$coord)
-  indivduals$cell.num <- as.factor(as.character(color.by))
-  
-  car::scatter3d(x = indivduals$Dim.1,
-                 z = indivduals$Dim.3,
-                 y = indivduals$Dim.2,
-                 groups = indivduals$cell.num,
-                 
-                 
-                 
-                 surface=F, 
-                 # fit = "smooth",
-                 # surface.alpha = 0.5,
-                 grid = F,
-                 # residuals = F,
-                 bg.col = "white", # white black
-                 surface.col = use.colors, 
-                 point.col = use.colors,                 
-                 
-                 xlab = "Dim. 1",
-                 ylab = "Dim. 2",
-                 zlab = "Dim. 3",
-                 revolutions=turn.x.times, 
-                 # revolutions = 1,
-                 
-                 # surface = F,
-                 ellipsoid = TRUE
-  )
-}
-
-
-
-vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
-           color.by = no_outlier_tea_df[, "Time"],
-           turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(3, "Set1")
-)
-
-
-```
-
-Is the overlap in "compensated" due to k currents? (no)
-```{r}
-vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredmRNA)],
-           color.by = no_outlier_tea_df[, "Time"],
-           turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(3, "Set1")
-)
-```
-
-### specifically
-
-```{r}
-
-```
 
 
 
