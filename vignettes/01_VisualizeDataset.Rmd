@@ -27,7 +27,7 @@ metadata <- read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"),
 ## Add Experment/Cell to metadata ====
 metadata <- metadata %>% 
   mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
-                            Type %in% c("igj","igj_50", "gj") ~ "gjcc",
+                            # Type %in% c("igj","igj_50", "gj") ~ "gjcc",
                             # Type %in% c("epsp", "epsp_50") ~ "epsp",
                             Type %in% c("fi_50", "fi") ~ "fi")) %>% 
   # make expected file names
@@ -37,6 +37,13 @@ metadata <- metadata %>%
                                    ifelse(num_zeros == 3, "0", NA)))) %>% 
   mutate(FileName = paste0(Experiment, "_", num_zeros, as.character(Recording), ".abf" )) %>% 
   select(-num_zeros)
+
+#TODO there are only two Type == "gj". Replace these with igj|igj_50
+#   Experiment  Page Recording Type    TEA Condition Include Notes   In4   In9 ABFType FileName       
+#   <chr>      <dbl>     <dbl> <chr> <dbl> <chr>     <lgl>   <lgl> <dbl> <dbl> <chr>   <chr>          
+# 1 190906         0        32 gj       24 Delayed   NA      NA        5    NA NA      190906_0032.abf
+# 2 190906         0        50 gj       24 Delayed   NA      NA        4    NA NA      190906_0050.abf
+
 
 ### use a subset of metadata cols to add experment/cell data to other dfs ####
 small_metadata <- metadata %>% 
@@ -86,11 +93,15 @@ tevc <- left_join(tevc, small_metadata)
 ## Add Experment/Cell to epsp ====
 epsp <- left_join(epsp, small_metadata2)
 
-# TODO How do we best handel duplicate obs? median? 
+# TODO How do we best handle duplicate obs? median? 
 # note that there are plenty of replicates here
 epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predicted") %>% tally()
 # epsp %>% filter(Experiment == "190808a" & Cell == 3 & Sweep == 1)
-
+epsp %>% 
+  group_by(Experiment, Cell, Type, Key) %>% 
+  mutate_at(c("Cor", "Min.V", "Max.Amplitude", "AUC"), median, na.rm = T) %>% 
+  select(-FileName, -Sweep) %>% 
+    distinct()
 ##
 
 # TODO figure out how Brian labeled cells. 
@@ -98,7 +109,147 @@ epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predic
 # mrna[mrna$Source == "Brian", "Cell"] %>% distinct() %>% View
 # 
 # mrna$Source %>% unique()
+
+##
+temp <- mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "AP" &
+       mrna$Time == "Delayed", "Cell"]%>% 
+  unlist() %>% 
+  str_remove(pattern = "#") %>% 
+  str_split(pattern = " ") %>%
+  transpose()
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "AP" &
+       mrna$Time == "Delayed", "Experiment"] <- unlist(transpose(temp[[1]]))
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "AP" &
+       mrna$Time == "Delayed", "Cell"] <- unlist(transpose(temp[[2]])) %>% str_remove(pattern = "LC")
+
+
+##
+temp <- mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "None" &
+       mrna$Time == "Baseline", "Cell"] %>% 
+  unlist() %>% 
+  str_remove(pattern = "Control #")
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "None" &
+       mrna$Time == "Baseline", "Experiment"] <- temp
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "None" &
+       mrna$Time == "Baseline", "Cell"] <- NA
+
+
+##
+temp <- mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "None" &
+       mrna$Time == "Delayed", "Cell"] %>% 
+  unlist() %>% 
+  str_split(pattern = " ") %>%
+  transpose()
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "None" &
+       mrna$Time == "Delayed", "Experiment"] <- unlist(transpose(temp[[1]]))
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "None" &
+       mrna$Time == "Delayed", "Cell"] <- unlist(transpose(temp[[2]])) %>% str_remove(pattern = "LC")
+
+
+##
+temp <- mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TEA" &
+       mrna$Time == "Compensated", "Cell"] %>% 
+  unlist() %>% 
+  str_remove(pattern = "TEA #")
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TEA" &
+       mrna$Time == "Compensated", "Experiment"] <- temp
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TEA" &
+       mrna$Time == "Compensated", "Cell"] <- NA
+
+##
+temp <- mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TEA" &
+       mrna$Time == "Delayed", "Cell"] %>% 
+  unlist() %>% 
+  str_remove(pattern = "TEA24-")
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TEA" &
+       mrna$Time == "Delayed", "Experiment"] <- temp
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TEA" &
+       mrna$Time == "Delayed", "Cell"] <- NA
+
+##
+temp <- mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TTX", "Cell"] %>% 
+  unlist() %>% 
+  str_split(pattern = "-") %>%
+  transpose()
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TTX", "Experiment"] <- unlist(transpose(temp[[1]]))
+
+mrna[mrna$Source == "Brian" &
+       mrna$Pharm == "TTX", "Cell"] <- unlist(transpose(temp[[2]]))
+
+
+
+
+# TODO Dave asked I confirm activity was present prior to measurements for 1h, 24h
 ```
+
+
+```{r}
+# Was there activity on the EC? 
+tibble::tribble(
+  ~Experiment, ~ExtracellularActive,
+    "190808a",                 TRUE,
+     "190830",                 TRUE,
+     "190903",                 TRUE,
+     "190904",                 TRUE,
+     "190905",                 TRUE,
+     "190906",                 TRUE,
+     "190907",                 TRUE,
+     "190915",                 TRUE,
+    "190916a",                 TRUE,
+    "190917a",                   NA, # File not found. Entry not found in notebook either.
+     "190917",                 TRUE,
+     "190918",                 TRUE,
+     "190924",                 TRUE,
+    "190924a",                 TRUE,
+     "191002",                 TRUE,
+     "191004",                 TRUE,
+     "190926",                 TRUE,
+     "190927",                FALSE,
+    "190927a",                 TRUE,
+     "190930",                FALSE,
+    "190930a",                FALSE,
+     "191001",                 TRUE
+  )
+
+```
+
+
+```{r}
+temp <- metadata %>% select(Experiment#, Page, Recording, FileName, In4, In9
+                            ) %>% distinct
+
+write.csv(temp, file = "C:/Users/Daniel/Desktop/test.csv", row.names = F)
+# <!-- ``` -->
+
+
 
 ```{r}
 small_abf_automatic <- abfs_to_process %>%
