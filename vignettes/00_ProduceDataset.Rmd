@@ -1317,7 +1317,9 @@ tictoc::toc()
 
 
 Calculate summary metrics from epsp
-```{r }
+workspace -- getting metrics from epsp
+```{r eval=FALSE}
+
 # Goal: extract Absolute measures and differential measures for 
 # 1. Burst Amplitude (max mV)
 # 2. AUC 
@@ -1336,7 +1338,7 @@ epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
   print(i)
   brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
   
-  
+
   # retrieve data and merge into a single df
   temp <- map(brian2_read_in, function(read_file){
     temp_predict <- readRDS(here("data", "predicted_voltage", read_file))
@@ -1368,6 +1370,7 @@ epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
   # Here the end of sweep 4 deviates from baseline so the delta is off
   # TODO instead of subtracting a value at the end, we should look at the times with i_inj less than x and then use a percentile from that to estimate the baseline.
   
+
   # To get around this in the short term we'll calulate the factors independently for expected/obs
   # downsample_data(temp, len = 10000) %>% 
   # # temp %>% 
@@ -1470,6 +1473,7 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 
 Write out
 ```{r}
+
 epsp_summary <- as.data.frame(epsp_summary)
 
 write.csv(epsp_summary, here("data", "epsp.csv"), row.names = F)
