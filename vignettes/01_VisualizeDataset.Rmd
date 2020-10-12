@@ -311,81 +311,111 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 ### Univariate
 
 ```{r}
-
-
-
-
-temp <- M_all %>% 
-  select(Condition, Experiment, Cell,  Ihtk.0) %>% 
-  group_by(Condition, Experiment, Cell) %>% 
-  mutate(Ihtk.0 = median(Ihtk.0, na.rm = T)) %>% 
-  distinct() %>% 
-  ungroup()
-
-temp_bands <- temp %>% group_by(Condition) %>% summarise(
-  q10 = quantile(Ihtk.0, probs = 0.1, na.rm = T),
-  q25 = quantile(Ihtk.0, probs = 0.25, na.rm = T),
-  q45 = quantile(Ihtk.0, probs = 0.45, na.rm = T),
-  q50 = quantile(Ihtk.0, probs = 0.5, na.rm = T),
-  q55 = quantile(Ihtk.0, probs = 0.55, na.rm = T),
-  q75 = quantile(Ihtk.0, probs = 0.75, na.rm = T),
-  q90 = quantile(Ihtk.0, probs = 0.9, na.rm = T),
-  )
-
-temp <- full_join(temp, temp_bands)
-
-ggplot(data = temp, aes(x = Condition, y = Ihtk.0))+
-  geom_ribbon(aes(x = Condition, ymin = q10, ymax = q90, group = 1), color = "lightgray", fill = "cornflowerblue", alpha = 0.3)+
-  geom_ribbon(aes(x = Condition, ymin = q25, ymax = q75, group = 1), color = "darkgray", fill = "cornflowerblue", alpha = 0.3)+
-  # geom_ribbon(aes(x = Condition, ymin = q45, ymax = q55, group = 1), color = "black", fill = "cornflowerblue", alpha = 0.3)+
-  geom_line(aes(x = Condition, y = q50, group = 1), linetype = "dashed", color = "blue")+
-  geom_point(aes(x = Condition, y = q50), color = "lightgray", size = 4)+
-  geom_point(aes(x = Condition, y = q50), color = "black", size = 4, shape = 1)+
-  geom_point(alpha = 0.5)
+# temp <- M_all %>% 
+#   select(Condition, Experiment, Cell,  Ihtk.0) %>% 
+#   group_by(Condition, Experiment, Cell) %>% 
+#   mutate(Ihtk.0 = median(Ihtk.0, na.rm = T)) %>% 
+#   distinct() %>% 
+#   ungroup()
+# 
+# temp_bands <- temp %>% group_by(Condition) %>% summarise(
+#   q10 = quantile(Ihtk.0, probs = 0.1, na.rm = T),
+#   q25 = quantile(Ihtk.0, probs = 0.25, na.rm = T),
+#   q45 = quantile(Ihtk.0, probs = 0.45, na.rm = T),
+#   q50 = quantile(Ihtk.0, probs = 0.5, na.rm = T),
+#   q55 = quantile(Ihtk.0, probs = 0.55, na.rm = T),
+#   q75 = quantile(Ihtk.0, probs = 0.75, na.rm = T),
+#   q90 = quantile(Ihtk.0, probs = 0.9, na.rm = T),
+#   )
+# 
+# temp <- full_join(temp, temp_bands)
+# 
+# ggplot(data = temp, aes(x = Condition, y = Ihtk.0))+
+#   geom_ribbon(aes(x = Condition, ymin = q10, ymax = q90, group = 1), color = "lightgray", fill = "cornflowerblue", alpha = 0.3)+
+#   geom_ribbon(aes(x = Condition, ymin = q25, ymax = q75, group = 1), color = "darkgray", fill = "cornflowerblue", alpha = 0.3)+
+#   # geom_ribbon(aes(x = Condition, ymin = q45, ymax = q55, group = 1), color = "black", fill = "cornflowerblue", alpha = 0.3)+
+#   geom_line(aes(x = Condition, y = q50, group = 1), linetype = "dashed", color = "blue")+
+#   geom_point(aes(x = Condition, y = q50), color = "lightgray", size = 4)+
+#   geom_point(aes(x = Condition, y = q50), color = "black", size = 4, shape = 1)+
+#   geom_point(alpha = 0.5)
   
   
-  
-c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols)
-
-temp_col = "Ihtk.0"
+# Make table ----
+# c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols)
+# 
+# temp_col = "Ihtk.0"
 
 #TODO figure out what to do with the epsp cols
 temp_list <- map(
   c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols), function(temp_col){
-      print(temp_col)
+    print(temp_col)
+    
+    temp <- M_all[, c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
+    
+    # Identify outliers for each group
+    temp_b <- temp[temp$Condition == "Baseline", ]
+    temp_c <- temp[temp$Condition == "Compensated", ]
+    temp_d <- temp[temp$Condition == "Delayed", ]
+    
+    temp_b <- temp_b[win_x_iqr(temp_b[[temp_col]], multiplier = 1.5), ]
+    temp_c <- temp_c[win_x_iqr(temp_c[[temp_col]], multiplier = 1.5), ]
+    temp_d <- temp_d[win_x_iqr(temp_d[[temp_col]], multiplier = 1.5), ]
+    
+    temp <- rbind(temp_b, temp_c) %>% rbind(temp_d)
+    
+    # temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
+    temp <- temp[!is.na(temp[[temp_col]]), ]
+    
+    if(nrow(temp) < 10){
       
-      temp <- M_all[, c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
-      temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
-      temp <- temp[!is.na(temp[[temp_col]]), ]
+      return(list(
+        dv = temp_col,
+        p = NA,
+        hsd_groups = data.frame(dv = c(NA, NA, NA), 
+                                groups = c(NA, NA, NA), 
+                                Condition = c(NA, NA, NA)
+        ),
+        fm = NA))
       
-      if(nrow(temp) < 10){
-        
-        return(list(
-          dv = temp_col,
-          p = NA,
-          fm = NA))
-        
-      } else {
-        fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp)
-        
-        return(list(
-          dv = temp_col,
-          p = car::Anova(fm)[1,4],
-          fm = fm))
-      }
-    })
+    } else {
+      fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp)
+      
+      fm_hsd <- agricolae::HSD.test(fm, trt = "Condition") 
+      fm_hsd <- fm_hsd$group
+      
+      fm_hsd$Condition <- rownames(fm_hsd)
+      
+      
+      return(list(
+        dv = temp_col,
+        p = car::Anova(fm)[1,4],
+        hsd_groups = fm_hsd,
+        fm = fm))
+    }
+  })
+
 
 
 temp_list <- temp_list %>% transpose()
-
 fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
                                 p = unlist(temp_list[[2]]))
 
 
+# work up post hoc stats
+temp_list_hsd <- map(seq_along(temp_list[[3]]), function(i){
+  if (!is.na(unique(temp_list[[3]][[i]]$groups))){
+    temp_list[[3]][[i]] %>% 
+      gather("dv", "Estimate", names(temp_list[[3]][[i]])[1]) %>% 
+      pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
+      mutate_all(as.character)
+  }
+})  
 
+fm_overview_hsd <- do.call(rbind, temp_list_hsd)
+fm_overview_table <- full_join(fm_overview_table, fm_overview_hsd)
+
+ 
 # add groupings
-
-
 fm_overview_table <- fm_overview_table %>% mutate(Family = case_when(
   dv %in% c("vrest") ~ "Resting Voltage",
   dv %in% c("r11", "r1") ~ "Membrane Resistance",
@@ -409,10 +439,17 @@ fm_overview_table <- fm_overview_table %>%
   filter(!is.na(p))
 
 
+# add additional cols
 fm_overview_table$fdr <- p.adjust(fm_overview_table$p, method = "fdr")
 fm_overview_table <- fm_overview_table %>% 
+  mutate(Estimate_Baseline = as.numeric(Estimate_Baseline),
+         Estimate_Compensated = as.numeric(Estimate_Compensated),
+         Estimate_Delayed = as.numeric(Estimate_Delayed)) %>% 
   mutate(p = round(p, digits = 4),
-         fdr = round(fdr, digits = 4)) %>% 
+         fdr = round(fdr, digits = 4),
+         Estimate_Baseline = round(Estimate_Baseline, digits = 4),
+         Estimate_Compensated = round(Estimate_Compensated, digits = 4),
+         Estimate_Delayed = round(Estimate_Delayed, digits = 4)) %>% 
   mutate(stars = case_when(fdr > 0.10               ~ "",
                            fdr < 0.10 & fdr > 0.05  ~ ".",
                            fdr < 0.05 & fdr > 0.01  ~ "*",
@@ -424,62 +461,48 @@ fm_overview_table <- fm_overview_table %>%
 # library(officer)
 library(flextable)
 M_ft <-flextable(fm_overview_table,
-                 col_keys = c("Family", "dv", "p", "fdr", "stars"))
+                 col_keys = c("Family", "dv", "p", "fdr", "stars", "Estimate_Baseline", "Estimate_Compensated", "Estimate_Delayed"))
 
 M_ft <- theme_vanilla(M_ft)
 M_ft <- merge_v(M_ft, j = c("Family") )
 # M_ft <- color(M_ft, ~ fdr < 0.05, ~ stars, color = "red")
-M_ft <- bold(M_ft, ~ fdr < 0.05, ~ dv, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ dv, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ p, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ fdr, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ stars, bold = TRUE)
+
+# get the groupings without showing the columns. 
+
+color_a = "#ffeda0"
+color_ab= "#feb24c"
+color_b = "#f03b20"
+color_c = "#2b8cbe"
+
+M_ft <- bg(M_ft, ~ groups_Baseline == "a", ~ Estimate_Baseline, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_Baseline == "ab",~ Estimate_Baseline, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_Baseline == "b", ~ Estimate_Baseline, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_Baseline == "c", ~ Estimate_Baseline, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_Compensated == "a", ~ Estimate_Compensated, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_Compensated == "ab",~ Estimate_Compensated, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_Compensated == "b", ~ Estimate_Compensated, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_Compensated == "c", ~ Estimate_Compensated, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_Delayed == "a", ~ Estimate_Delayed, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_Delayed == "ab",~ Estimate_Delayed, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_Delayed == "b", ~ Estimate_Delayed, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_Delayed == "c", ~ Estimate_Delayed, bg = color_c)
+
+
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Baseline, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Compensated, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Delayed, bg = "White")
+
+
+M_ft <- set_header_labels(M_ft, Estimate_Baseline = "Baseline", Estimate_Compensated = "Compensated", Estimate_Delayed = "Delayed" )
+
 M_ft <- autofit(M_ft)
-
-# lm(Ihtk.0 ~ Condition, data = temp)
-# 
-# fm <- nlme::lme(Ihtk.0 ~ Condition, random = ~1|Experiment, data = temp[!is.na(temp$Ihtk.0),])
-# 
-# nlme::anova.lme(fm)
-# # cell nested in experiment, experiment rand
-# 
-# temp
-# 
-# # the only occasion to nest (1 | Experiment/Cell) is if there are multiple sweeps
-# fm2 <- lme4::lmer(Ihtk.0 ~ Condition + (1 | Experiment), data = temp[!is.na(temp$Ihtk.0),])
-# 
-# summary(fm2)
-# 
-# broom::tidy(fm2)
-# 
-# broom.mixed::tidy(fm2)
-# 
-# # m0 <- lmer(extro ~ open + agree + social + (1 | school/class), data = dt)
-# # > summary(m0)
-
-
-
-
-# fm0 <- lme(Rin_n050 ~ 1, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# fm1 <- lme(Rin_n050 ~ Condition, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# fm2 <- lme(Rin_n050 ~ DPI, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# fm3 <- lme(Rin_n050 ~ CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# fm4 <- lme(Rin_n050 ~ Condition*DPI, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# fm5 <- lme(Rin_n050 ~ Condition*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# fm6 <- lme(Rin_n050 ~ DPI*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# fm7 <- lme(Rin_n050 ~ Condition*DPI*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "ML")
-# 
-# aictab(cand.set = list(fm0, fm1, fm2, fm3, fm4, fm5, fm6, fm7))
-# 
-# 
-# anova.lme(fm5)
-# 
-# lsmeans(fm, pairwise~Condition*CellType, adjust = "tukey")
-# 
-# 
-# 
-# fm <- lme(Rin_n050 ~ Condition*DPI*CellType, random = ~1|Mouse, data = M[!is.na(M$Rin_n050), ], method = "REML")
-# anova.lme(fm)
-# 
-# lsmeans(fm, pairwise~Condition, adjust = "tukey")
-
-
+M_ft
 ```
 
 
