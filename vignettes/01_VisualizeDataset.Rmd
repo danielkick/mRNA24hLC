@@ -520,6 +520,625 @@ M_ft <- autofit(M_ft)
 M_ft
 ```
 
+## Another take on excitability:
+### binned Cor
+```{r eval=FALSE}
+
+# Goal: extract Absolute measures and differential measures for 
+# 1. Burst Amplitude (max mV)
+# 2. AUC 
+# 3. Stimulus correlation (between)
+
+
+# read in trace
+brian2_trace_files <- list.files(here("data", "predicted_voltage"))
+
+brian2_trace_sets <- brian2_trace_files %>% 
+  str_remove(pattern = "-actual_v.rds") %>% 
+  str_remove(pattern = "-predict_v.rds") %>% 
+  unique()
+
+epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
+  print(i)
+  brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
+  
+
+  # retrieve data and merge into a single df
+  temp <- map(brian2_read_in, function(read_file){
+    temp_predict <- readRDS(here("data", "predicted_voltage", read_file))
+    
+    if(str_detect(read_file, pattern = "predict_v")){
+      #consolidate into one df
+      for (j in seq(1, length(temp_predict))){
+        temp_predict[[j]]$Sweep <- j
+      }
+      temp_predict <- do.call(rbind, temp_predict)
+    }
+    return(temp_predict)
+  })
+  
+  names(temp) <- brian2_read_in
+  
+  temp_a <- temp[str_detect(names(temp), pattern = "actual_v")][[1]]
+  temp_p <- temp[str_detect(names(temp), pattern = "predict_v")][[1]] %>% as.data.frame() %>% as_tibble()
+  temp_a$nrow <- seq(1, nrow(temp_a))
+  temp_p$nrow <- seq(1, nrow(temp_p))
+  temp_a$Sweep <- as.character(temp_a$Sweep)
+  temp_p$Sweep <- as.character(temp_p$Sweep)
+  
+  temp <- full_join(temp_a, select(temp_p, -Time)) %>% select(-nrow)
+  
+  # Show difference between expected/actual
+  # i = 1
+  # [1] "190808a_0014-epsp-In4-actual_v.rds"  "190808a_0014-epsp-In4-predict_v.rds" shows why we need to be able to audit the outcome.
+  # Here the end of sweep 4 deviates from baseline so the delta is off
+  # TODO instead of subtracting a value at the end, we should look at the times with i_inj less than x and then use a percentile from that to estimate the baseline.
+  
+
+  # To get around this in the short term we'll calulate the factors independently for expected/obs
+  # downsample_data(temp, len = 10000) %>% 
+  # # temp %>% 
+  #   mutate(predicted = predicted - offset) %>% 
+  #   mutate(difference = In4-predicted) %>% 
+  #   ggplot(aes(x = Time))+
+  #   geom_ribbon(aes(ymin=In4, ymax=predicted), fill = "cornflowerblue")+
+  #   geom_line(aes(y=In4), color = "black")+
+  #   geom_line(aes(y=predicted), color = "cornflowerblue", alpha = 0.3)+
+  #   # geom_line(aes(y=difference-offset), color = "purple")+
+  #   facet_grid(Sweep~.)
+  
+  # This is an inelegant workaround for data that is based on in9/12. This prevents duplication of the large set below
+  
+  rewrite_names <- F
+  if ("In9" %in% names(temp)){
+    names(temp) <- c("In4", "In7", "Sweep", "Time", "predicted", "offset")
+    rewrite_names <- T
+  }
+  
+  Use.Bin.Size <- 19687
+  
+  temp_processed <- temp
+  temp_processed$TimeBin <- rep(rep(seq(1, (nrow(temp)/4)/Use.Bin.Size), each = Use.Bin.Size), times = 4)
+
+  # begin to work with data proper
+  # Add optional ways to slice the data based on what we expect to occur
+  # At the moment we leave this unused
+  temp_processed <- temp_processed %>% 
+    mutate(
+      Period = case_when(
+        Time > 0.40  & Time <  4.87  ~ "A",
+        Time > 4.87  & Time < 10.74  ~ "B",
+        Time > 10.74 & Time < 16.74  ~ "C",
+        Time > 16.74 & Time < 19.685 ~ "D"
+      ),
+      Period_eq = case_when(
+        Time > 0.40  & Time <  0.40 + 2.945 ~ "A",
+        Time > 4.87  & Time <  4.87 + 2.945 ~ "B",
+        Time > 10.74 & Time < 10.74 + 2.945 ~ "C",
+        Time > 16.74 & Time < 16.74 + 2.945 ~ "D"
+      ),
+      Burst = case_when(
+        Time > 0.40  & Time <  2    ~ "A",
+        Time > 4.87  & Time <  6.17 ~ "B",
+        Time > 10.74 & Time < 12.54 ~ "C",
+        Time > 16.74 & Time < 18.5  ~ "D"
+      ),
+      Burst_eq = case_when(
+        Time > 0.40  & Time <  2    + 1.30 ~ "A",
+        Time > 4.87  & Time <  6.17 + 1.30 ~ "B",
+        Time > 10.74 & Time < 12.54 + 1.30 ~ "C",
+        Time > 16.74 & Time < 18.5  + 1.30 ~ "D"
+      )
+    ) %>% 
+    # correlation with expected
+    group_by(Sweep, TimeBin) %>% 
+    mutate(Cor = cor(In4, predicted)) %>% 
+    ungroup() %>% 
+    gather(Key, mV, c("In4", "predicted")) %>% 
+    ## Metrics for whole sweep
+    group_by(Key, Sweep) %>% 
+    # Min voltage
+    mutate(Min.V = min(mV, na.rm = T)) %>%
+    # Defining Baseline as average of the lowest 20% of points
+    mutate(Use.in.Base = quantile(mV, probs = .2, na.rm = T)) %>%
+    mutate(Use.in.Base = ifelse(mV <= Use.in.Base, mV, NA)) %>%
+    mutate(Use.in.Base = mean(Use.in.Base, na.rm = T)) %>%
+    # Max voltage
+    mutate(Max.Amplitude = max(mV, na.rm = T)) %>%
+    # AUC
+    # Using Min.V
+    # mutate(AUC = sum(mV - Min.V, na.rm = T)/(max(temp$Time)/Use.Bin.Size)) %>%
+    ungroup() 
+  
+  temp_processed <- temp_processed[seq(1, nrow(temp_processed), by = Use.Bin.Size), ]
+  
+  
+  
+  if (rewrite_names){
+    temp_processed <- temp_processed %>% 
+      mutate(Key = ifelse(Key == "In4", "In9", Key))
+  }
+  
+  
+  temp_processed <- temp_processed[, c("Sweep", "TimeBin", "Time", "Cor", "Key", "Min.V", #"Use.in.Base", 
+                                       "Max.Amplitude", "AUC")] %>% 
+    distinct() #%>% 
+    # pivot_wider(names_from = "Key", values_from = c("Min.V", #"Use.in.Base", 
+    #                                                 "Max.Amplitude", "AUC")) 
+  
+  
+  # add annotations to aid merging
+  file_name <- brian2_read_in[[1]] %>% str_split(pattern = "-")
+  
+  temp_processed$Experiment <- as.character(str_split(as.character(file_name[[1]][1]), pattern = "_")[[1]][1])
+  temp_processed$FileName <- paste0(as.character(file_name[[1]][1]), ".abf")
+  temp_processed$Channel <- as.character(file_name[[1]][3])
+  
+  return(temp_processed)
+})
+
+
+epsp_summary <- do.call(rbind, epsp_summary_list)
+# epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "Cor", "Key", "Min.V", "Max.Amplitude", "AUC")]
+
+epsp_summary %>% filter(FileName == "190808a_0014.abf", Sweep == 1) %>% 
+  ggplot(aes(x = Time, y = Cor))+
+  geom_point()
+
+
+ggplot(aes(x = Time, y = Cor))+
+  scattermore::geom_scattermost(
+    as.data.frame(epsp_summary[epsp_summary$Sweep == 1, ]),
+    # col=viridisLite::viridis(100, alpha=0.05)[1+99*d[,2]],
+    pointsize=1,
+    pixels=c(700,700)) +
+  ggtitle("geom_scattermost")
+
+
+```
+
+### Binned by event
+```{r eval=FALSE}
+
+# Goal: extract Absolute measures and differential measures for 
+# 1. Burst Amplitude (max mV)
+# 2. AUC 
+# 3. Stimulus correlation (between)
+
+
+# read in trace
+brian2_trace_files <- list.files(here("data", "predicted_voltage"))
+
+brian2_trace_sets <- brian2_trace_files %>% 
+  str_remove(pattern = "-actual_v.rds") %>% 
+  str_remove(pattern = "-predict_v.rds") %>% 
+  unique()
+
+epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
+  print(i)
+  brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
+  
+
+  # retrieve data and merge into a single df
+  temp <- map(brian2_read_in, function(read_file){
+    temp_predict <- readRDS(here("data", "predicted_voltage", read_file))
+    
+    if(str_detect(read_file, pattern = "predict_v")){
+      #consolidate into one df
+      for (j in seq(1, length(temp_predict))){
+        temp_predict[[j]]$Sweep <- j
+      }
+      temp_predict <- do.call(rbind, temp_predict)
+    }
+    return(temp_predict)
+  })
+  
+  names(temp) <- brian2_read_in
+  
+  temp_a <- temp[str_detect(names(temp), pattern = "actual_v")][[1]]
+  temp_p <- temp[str_detect(names(temp), pattern = "predict_v")][[1]] %>% as.data.frame() %>% as_tibble()
+  temp_a$nrow <- seq(1, nrow(temp_a))
+  temp_p$nrow <- seq(1, nrow(temp_p))
+  temp_a$Sweep <- as.character(temp_a$Sweep)
+  temp_p$Sweep <- as.character(temp_p$Sweep)
+  
+  temp <- full_join(temp_a, select(temp_p, -Time)) %>% select(-nrow)
+  
+  # Show difference between expected/actual
+  # i = 1
+  # [1] "190808a_0014-epsp-In4-actual_v.rds"  "190808a_0014-epsp-In4-predict_v.rds" shows why we need to be able to audit the outcome.
+  # Here the end of sweep 4 deviates from baseline so the delta is off
+  # TODO instead of subtracting a value at the end, we should look at the times with i_inj less than x and then use a percentile from that to estimate the baseline.
+  
+
+  # To get around this in the short term we'll calulate the factors independently for expected/obs
+  # downsample_data(temp, len = 10000) %>% 
+  # # temp %>% 
+  #   mutate(predicted = predicted - offset) %>% 
+  #   mutate(difference = In4-predicted) %>% 
+  #   ggplot(aes(x = Time))+
+  #   geom_ribbon(aes(ymin=In4, ymax=predicted), fill = "cornflowerblue")+
+  #   geom_line(aes(y=In4), color = "black")+
+  #   geom_line(aes(y=predicted), color = "cornflowerblue", alpha = 0.3)+
+  #   # geom_line(aes(y=difference-offset), color = "purple")+
+  #   facet_grid(Sweep~.)
+  
+  # This is an inelegant workaround for data that is based on in9/12. This prevents duplication of the large set below
+  
+  rewrite_names <- F
+  if ("In9" %in% names(temp)){
+    names(temp) <- c("In4", "In7", "Sweep", "Time", "predicted", "offset")
+    rewrite_names <- T
+  }
+  
+  # begin to work with data proper
+  # Add optional ways to slice the data based on what we expect to occur
+  # At the moment we leave this unused
+  temp_processed <- temp %>% 
+    mutate(
+      Segment = case_when(
+        Time > 0.40  & Time < 2      ~ "A_B",
+        Time > 2     & Time < 4.87   ~ "A_I",
+        Time > 4.87  & Time < 6.17   ~ "B_B",
+        Time > 6.17  & Time < 10.74  ~ "B_I",        
+        Time > 10.74 & Time < 12.54  ~ "C_B",
+        Time > 12.54 & Time < 16.74  ~ "C_I",
+        Time > 16.74 & Time < 18.5   ~ "D_B",
+        Time > 18.5  & Time < 19.685 ~ "D_I"
+      )
+    ) %>% 
+    # correlation with expected
+    group_by(Sweep, Segment) %>% 
+    mutate(Cor = cor(In4, predicted)) %>% 
+    ungroup() %>% 
+    gather(Key, mV, c("In4", "predicted")) %>% 
+    ## Metrics for whole sweep
+    group_by(Key, Sweep) %>% 
+    # Min voltage
+    mutate(Min.V = min(mV, na.rm = T)) %>%
+    # Defining Baseline as average of the lowest 20% of points
+    mutate(Use.in.Base = quantile(mV, probs = .2, na.rm = T)) %>%
+    mutate(Use.in.Base = ifelse(mV <= Use.in.Base, mV, NA)) %>%
+    mutate(Use.in.Base = mean(Use.in.Base, na.rm = T)) %>%
+    # Max voltage
+    mutate(Max.Amplitude = max(mV, na.rm = T)) %>%
+    # AUC
+    # Using Min.V
+    # mutate(AUC = sum(mV - Min.V, na.rm = T)/19.68685) %>%
+    ungroup() 
+  
+  
+  if (rewrite_names){
+    temp_processed <- temp_processed %>% 
+      mutate(Key = ifelse(Key == "In4", "In9", Key))
+  }
+  
+  
+  temp_processed <- temp_processed[, c("Sweep", "Segment", "Cor", "Key", "Min.V", #"Use.in.Base", 
+                                       "Max.Amplitude")] %>% 
+    distinct() #%>% 
+    # pivot_wider(names_from = "Key", values_from = c("Min.V", #"Use.in.Base", 
+    #                                                 "Max.Amplitude", "AUC")) 
+  
+  
+  # add annotations to aid merging
+  file_name <- brian2_read_in[[1]] %>% str_split(pattern = "-")
+  
+  temp_processed$Experiment <- as.character(str_split(as.character(file_name[[1]][1]), pattern = "_")[[1]][1])
+  temp_processed$FileName <- paste0(as.character(file_name[[1]][1]), ".abf")
+  temp_processed$Channel <- as.character(file_name[[1]][3])
+  
+  return(temp_processed)
+})
+
+
+epsp_summary <- do.call(rbind, epsp_summary_list)
+# epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "Cor", "Key", "Min.V", "Max.Amplitude", "AUC")]
+
+
+
+epsp_summary <- left_join(epsp_summary, metadata) %>% 
+  select(-FileName, -Type) %>% 
+  mutate(Cell = case_when(Channel == "In4" ~ In4,
+                          Channel == "In9" ~ In9)) %>% 
+  mutate(Cell = as.character(Cell))  %>% 
+  mutate(Key = case_when(Key %in% c("In4", "In9") ~ "Obs",
+                                  Key %in% c("predicted")  ~ "Sim")) %>% 
+  pivot_wider(names_from = "Key", values_from  = c("Min.V", "Max.Amplitude")) %>% 
+  mutate(Max.Amplitude_Sim = Max.Amplitude_Sim + (Min.V_Obs - Min.V_Sim)) %>% 
+  mutate(Max.Amplitude_Delta = Max.Amplitude_Obs - Max.Amplitude_Sim) %>% 
+  group_by(Condition, Experiment, Cell, Segment, Sweep) %>% 
+  select(-Min.V_Sim) %>% 
+  mutate_at(c("Cor", 
+              "Min.V_Obs", #"Min.V_Sim", "Min.V_Delta", 
+              "Max.Amplitude_Obs", "Max.Amplitude_Sim", "Max.Amplitude_Delta"), median, na.rm = T) %>% 
+  distinct() %>% 
+  ungroup()
+
+
+epsp_summary %>% 
+  ggplot(aes(x = Segment, y = Cor, group = Sweep, color = Sweep))+
+  geom_point(position = position_jitter(width = 0.1), alpha = 0.3)+
+  geom_smooth(se = F)+
+  facet_grid(.~Condition)+
+  ggsci::scale_color_aaas()
+
+epsp_summary %>% 
+  filter(!is.na(Segment)) %>% 
+  ggplot(aes(x = Cor, y = Sweep, fill = factor(stat(quantile))))+#, group = Sweep, color = Sweep))+
+  # ggridges::geom_density_ridges()+
+  ggridges::stat_density_ridges(
+               geom = "density_ridges_gradient", calc_ecdf = TRUE,
+               quantiles = 4, quantile_lines = TRUE
+             ) +
+               scale_fill_viridis_d(name = "Quartiles")+
+  coord_flip()+
+  facet_grid(Condition~Segment)+
+  theme(legend.position = "")
+  
+
+
+## Here's the stimulus used in the protocol ====
+# sweep duration should be 19.687 seconds
+epsp_stim <- readABF_as_matrix(here("inst", "extdata", "epsp_stim_files", "08 current injection.abf"),
+                  channels = "Axo1I2")
+epsp_stim <- as_tibble(epsp_stim) %>%
+  mutate(Time = Time - min(Time, na.rm = T)) %>%
+  rename(Stim = Axo1I2)
+
+
+
+epsp_stim <- mutate(epsp_stim,
+Stim = Stim - min(Stim, na.rm = T),
+         Stim = (Stim / 11.9034)-1) 
+
+
+epsp_summary %>% 
+  filter(!is.na(Segment)) %>% 
+  mutate(x = case_when(
+    Segment == "A_B" ~ 0.40,
+    Segment == "A_I" ~ 2,
+    Segment == "B_B" ~ 4.87,
+    Segment == "B_I" ~ 6.17,
+    Segment == "C_B" ~ 10.74,
+    Segment == "C_I" ~ 12.54,
+    Segment == "D_B" ~ 16.74,
+    Segment == "D_I" ~ 18.5
+  ),
+  xend = case_when(
+    Segment == "A_B" ~ 2,
+    Segment == "A_I" ~ 4.87,
+    Segment == "B_B" ~ 6.17,
+    Segment == "B_I" ~ 10.74,
+    Segment == "C_B" ~ 12.54,
+    Segment == "C_I" ~ 16.74,
+    Segment == "D_B" ~ 18.5,
+    Segment == "D_I" ~ 19.687
+  )) %>% 
+  ggplot()+
+  geom_segment(aes(x = x, y = Cor, xend = xend, yend = Cor, colour = Cor))+
+  facet_grid(Condition~Sweep)+
+  geom_line(data = epsp_stim, aes(Time, Stim))+
+  theme(legend.position = "")+
+  scale_color_viridis_c(direction = -1, option = "B")
+#   option	
+# A character string indicating the colormap option to use. Four options are available: "magma" (or "A"), "inferno" (or "B"), "plasma" (or "C"), "viridis" (or "D", the default option) and "cividis" (or "E").
+  
+
+
+
+
+
+epsp_stim %>% 
+  mutate(Stim = Stim - min(Stim, na.rm = T),
+         Stim = (Stim / 11.9034)-1) %>%
+  ggplot(aes(Time, Stim))+
+  geom_line()
+
+# 
+# 
+# shading_annotations <- data.frame(
+#   starts = c(0.40,
+#              4.87,
+#              10.74,
+#              16.74),
+#   next_start = c(4.87,
+#                  10.74,
+#                  16.74,
+#                  19.685),
+#   equal_len = c(0.40,
+#                 4.87,
+#                 10.74,
+#                 16.74) + 2.945,
+#   on_end = c(2,
+#              6.17,
+#              12.54, 
+#              18.5),
+#   equal_on = c(0.40,
+#                4.87,
+#                10.74,
+#                16.74) + 1.30
+# )
+# 
+# annotation_df <- data.frame(x = c(0.5, 0.5, 2.1, 1.8),
+#                             y = seq(0.25, -1.25, length.out = 4),
+#                             text = c("Period",
+#                                      "Minumum Period",
+#                                      "Burst", 
+#                                      "Min Burst"))
+# 
+# segmentation_demo_plt <- ggplot()+
+#   geom_vline(xintercept = c(shading_annotations$starts, shading_annotations$equal_len, shading_annotations$next_start, shading_annotations$equal_on), color = "gray")+
+#   geom_path(data = epsp_stim, aes(Time, Stim+1.5))+
+#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = next_start, ymin = 0, ymax = 0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
+#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_len, ymin = -0.5, ymax = 0), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[1], color = RColorBrewer::brewer.pal(3, "Set1")[1])+
+#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = on_end, ymin = -1, ymax = -0.5), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
+#   geom_rect(data = shading_annotations, aes(xmin = starts, xmax = equal_on, ymin = -1.5, ymax = -1), alpha = 0.3, fill = RColorBrewer::brewer.pal(3, "Set1")[2], color = RColorBrewer::brewer.pal(3, "Set1")[2])+
+#   theme_classic()+
+#   # geom_vline(xintercept = 12.54)+
+#   geom_text(data = annotation_df[1:2, ], aes(x=x, y=y, label = text), hjust = "inward", color = RColorBrewer::brewer.pal(3, "Set1")[1])+
+#   geom_text(data = annotation_df[3:4, ], aes(x=x, y=y, label = text), hjust = "inward", color = RColorBrewer::brewer.pal(3, "Set1")[2])+
+#   ylim(-1.5, 9.5)+
+#   labs(title = "Ways to Segement EPSP Stim")
+# 
+# 
+# segmentation_demo_plt
+```
+
+### Rolling Cor
+```{r eval=FALSE}
+
+# Goal: extract Absolute measures and differential measures for 
+# 1. Burst Amplitude (max mV)
+# 2. AUC 
+# 3. Stimulus correlation (between)
+
+
+# read in trace
+brian2_trace_files <- list.files(here("data", "predicted_voltage"))
+
+brian2_trace_sets <- brian2_trace_files %>% 
+  str_remove(pattern = "-actual_v.rds") %>% 
+  str_remove(pattern = "-predict_v.rds") %>% 
+  unique()
+
+epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
+  print(i)
+  brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
+  
+
+  # retrieve data and merge into a single df
+  temp <- map(brian2_read_in, function(read_file){
+    temp_predict <- readRDS(here("data", "predicted_voltage", read_file))
+    
+    if(str_detect(read_file, pattern = "predict_v")){
+      #consolidate into one df
+      for (j in seq(1, length(temp_predict))){
+        temp_predict[[j]]$Sweep <- j
+      }
+      temp_predict <- do.call(rbind, temp_predict)
+    }
+    return(temp_predict)
+  })
+  
+  names(temp) <- brian2_read_in
+  
+  temp_a <- temp[str_detect(names(temp), pattern = "actual_v")][[1]]
+  temp_p <- temp[str_detect(names(temp), pattern = "predict_v")][[1]] %>% as.data.frame() %>% as_tibble()
+  temp_a$nrow <- seq(1, nrow(temp_a))
+  temp_p$nrow <- seq(1, nrow(temp_p))
+  temp_a$Sweep <- as.character(temp_a$Sweep)
+  temp_p$Sweep <- as.character(temp_p$Sweep)
+  
+  temp <- full_join(temp_a, select(temp_p, -Time)) %>% select(-nrow)
+  
+  # Show difference between expected/actual
+  # i = 1
+  # [1] "190808a_0014-epsp-In4-actual_v.rds"  "190808a_0014-epsp-In4-predict_v.rds" shows why we need to be able to audit the outcome.
+  # Here the end of sweep 4 deviates from baseline so the delta is off
+  # TODO instead of subtracting a value at the end, we should look at the times with i_inj less than x and then use a percentile from that to estimate the baseline.
+  
+
+  # To get around this in the short term we'll calulate the factors independently for expected/obs
+  # downsample_data(temp, len = 10000) %>% 
+  # # temp %>% 
+  #   mutate(predicted = predicted - offset) %>% 
+  #   mutate(difference = In4-predicted) %>% 
+  #   ggplot(aes(x = Time))+
+  #   geom_ribbon(aes(ymin=In4, ymax=predicted), fill = "cornflowerblue")+
+  #   geom_line(aes(y=In4), color = "black")+
+  #   geom_line(aes(y=predicted), color = "cornflowerblue", alpha = 0.3)+
+  #   # geom_line(aes(y=difference-offset), color = "purple")+
+  #   facet_grid(Sweep~.)
+  
+  # This is an inelegant workaround for data that is based on in9/12. This prevents duplication of the large set below
+  
+  rewrite_names <- F
+  if ("In9" %in% names(temp)){
+    names(temp) <- c("In4", "In7", "Sweep", "Time", "predicted", "offset")
+    rewrite_names <- T
+  }
+  
+  # begin to work with data proper
+  # Add optional ways to slice the data based on what we expect to occur
+  # At the moment we leave this unused
+  temp_processed <- temp %>% 
+    mutate(
+      Period = case_when(
+        Time > 0.40  & Time <  4.87  ~ "A",
+        Time > 4.87  & Time < 10.74  ~ "B",
+        Time > 10.74 & Time < 16.74  ~ "C",
+        Time > 16.74 & Time < 19.685 ~ "D"
+      ),
+      Period_eq = case_when(
+        Time > 0.40  & Time <  0.40 + 2.945 ~ "A",
+        Time > 4.87  & Time <  4.87 + 2.945 ~ "B",
+        Time > 10.74 & Time < 10.74 + 2.945 ~ "C",
+        Time > 16.74 & Time < 16.74 + 2.945 ~ "D"
+      ),
+      Burst = case_when(
+        Time > 0.40  & Time <  2    ~ "A",
+        Time > 4.87  & Time <  6.17 ~ "B",
+        Time > 10.74 & Time < 12.54 ~ "C",
+        Time > 16.74 & Time < 18.5  ~ "D"
+      ),
+      Burst_eq = case_when(
+        Time > 0.40  & Time <  2    + 1.30 ~ "A",
+        Time > 4.87  & Time <  6.17 + 1.30 ~ "B",
+        Time > 10.74 & Time < 12.54 + 1.30 ~ "C",
+        Time > 16.74 & Time < 18.5  + 1.30 ~ "D"
+      )
+    ) %>% 
+    # correlation with expected
+    group_by(Sweep) %>% 
+    mutate(Cor = cor(In4, predicted)) %>% 
+    ungroup() %>% 
+    gather(Key, mV, c("In4", "predicted")) %>% 
+    ## Metrics for whole sweep
+    group_by(Key, Sweep) %>% 
+    # Min voltage
+    mutate(Min.V = min(mV, na.rm = T)) %>%
+    # Defining Baseline as average of the lowest 20% of points
+    mutate(Use.in.Base = quantile(mV, probs = .2, na.rm = T)) %>%
+    mutate(Use.in.Base = ifelse(mV <= Use.in.Base, mV, NA)) %>%
+    mutate(Use.in.Base = mean(Use.in.Base, na.rm = T)) %>%
+    # Max voltage
+    mutate(Max.Amplitude = max(mV, na.rm = T)) %>%
+    # AUC
+    # Using Min.V
+    mutate(AUC = sum(mV - Min.V, na.rm = T)/19.68685) %>%
+    ungroup() 
+  
+  
+  if (rewrite_names){
+    temp_processed <- temp_processed %>% 
+      mutate(Key = ifelse(Key == "In4", "In9", Key))
+  }
+  
+  
+  temp_processed <- temp_processed[, c("Sweep", "Cor", "Key", "Min.V", #"Use.in.Base", 
+                                       "Max.Amplitude", "AUC")] %>% 
+    distinct() #%>% 
+    # pivot_wider(names_from = "Key", values_from = c("Min.V", #"Use.in.Base", 
+    #                                                 "Max.Amplitude", "AUC")) 
+  
+  
+  # add annotations to aid merging
+  file_name <- brian2_read_in[[1]] %>% str_split(pattern = "-")
+  
+  temp_processed$Experiment <- as.character(str_split(as.character(file_name[[1]][1]), pattern = "_")[[1]][1])
+  temp_processed$FileName <- paste0(as.character(file_name[[1]][1]), ".abf")
+  temp_processed$Channel <- as.character(file_name[[1]][3])
+  
+  return(temp_processed)
+})
+
+
+epsp_summary <- do.call(rbind, epsp_summary_list)
+epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "Cor", "Key", "Min.V", "Max.Amplitude", "AUC")]
+
+```
+
 
 ## What relationships exist at baseline?
 
