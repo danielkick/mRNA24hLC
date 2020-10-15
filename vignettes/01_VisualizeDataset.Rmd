@@ -258,7 +258,7 @@ small_metadata <- metadata[, c("Experiment",  "FileName", "Condition")]
 
 M_ionic<- ionic %>% mutate(Cell = as.character(Cell))  
 #Ihtk.0 Ihtk.Slope  Ia.0 Ia.Slope
-M_tecc <- left_join(tecc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
+M_tecc <- left_join(tecc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell))
 # QC drop all non positive resistances, all ccs outside 0-1
 
 M_tecc <- M_tecc %>% mutate(
@@ -266,7 +266,9 @@ M_tecc <- M_tecc %>% mutate(
   r11 = ifelse(r11 >0, r11, NA),
   r12  = ifelse(r12 >0, r12, NA),
   r1  = ifelse(r1 >0, r1, NA),
-  rc  = ifelse(rc >0, rc, NA))
+  rc  = ifelse(rc >0, rc, NA)) %>% 
+  mutate(rc = rc^-1) %>% 
+  rename(rc.ig = rc)
 
 #vrest     cc   r11    r12    r1    rc 
 M_tevc <- left_join(tevc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
@@ -296,7 +298,7 @@ M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(
 
 #Set up data cols to help organize full dataset
 ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
-tecc_cols <- c("vrest", "cc", "r11", "r12", "r1", "rc")
+tecc_cols <- c("vrest", "cc", "r11", "r12", "r1", "rc.ig")
 tevc_cols <- c("ig")
 epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", 
                "Max.Amplitude_Delta", "AUC_Delta")
