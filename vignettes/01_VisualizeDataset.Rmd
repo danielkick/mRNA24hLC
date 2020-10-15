@@ -95,23 +95,14 @@ tevc <- left_join(tevc, small_metadata)
 ## Add Experment/Cell to epsp ====
 epsp <- left_join(epsp, small_metadata2)
 
-# TODO How do we best handle duplicate obs? median? 
+# TODO How do we best caputre variace? find range between max/min across all sweeps when calculating auc? 
 # note that there are plenty of replicates here
 epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predicted") %>% tally()
 # epsp %>% filter(Experiment == "190808a" & Cell == 3 & Sweep == 1)
-epsp %>% 
-  group_by(Experiment, Cell, Type, Key) %>% 
-  mutate_at(c("Cor", "Min.V", "Max.Amplitude", "AUC"), median, na.rm = T) %>% 
-  select(-FileName, -Sweep) %>% 
-    distinct()
+
 ##
 
-# TODO figure out how Brian labeled cells. 
-# mrna[mrna$Source != "Brian", "Cell"]
-# mrna[mrna$Source == "Brian", "Cell"] %>% distinct() %>% View
-# 
-# mrna$Source %>% unique()
-
+# Relabel Brian's cells ----
 ##
 temp <- mrna[mrna$Source == "Brian" &
        mrna$Pharm == "AP" &
@@ -268,6 +259,15 @@ small_metadata <- metadata[, c("Experiment",  "FileName", "Condition")]
 M_ionic<- ionic %>% mutate(Cell = as.character(Cell))  
 #Ihtk.0 Ihtk.Slope  Ia.0 Ia.Slope
 M_tecc <- left_join(tecc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
+# QC drop all non positive resistances, all ccs outside 0-1
+
+M_tecc <- M_tecc %>% mutate(
+  cc  = ifelse(cc > 0 & cc < 1, cc, NA),
+  r11 = ifelse(r11 >0, r11, NA),
+  r12  = ifelse(r12 >0, r12, NA),
+  r1  = ifelse(r1 >0, r1, NA),
+  rc  = ifelse(rc >0, rc, NA))
+
 #vrest     cc   r11    r12    r1    rc 
 M_tevc <- left_join(tevc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
 #ig
@@ -276,7 +276,20 @@ M_epsp <- left_join(epsp, small_metadata) %>%
   mutate(Cell = as.character(Cell))  %>% 
   mutate(Key = case_when(Key %in% c("In4", "In9") ~ "Obs",
                                   Key %in% c("predicted")  ~ "Sim")) %>% 
-  pivot_wider(names_from = "Key", values_from  = c("Min.V", "Max.Amplitude", "AUC"))
+  pivot_wider(names_from = "Key", values_from  = c("Min.V", "Max.Amplitude", "AUC")) %>% 
+  mutate(Max.Amplitude_Sim = Max.Amplitude_Sim + (Min.V_Obs - Min.V_Sim)) %>% 
+  mutate(Max.Amplitude_Delta = Max.Amplitude_Obs - Max.Amplitude_Sim,
+         AUC_Delta = AUC_Obs - AUC_Sim) %>% 
+  group_by(Condition, Experiment, Cell) %>% 
+  select(-Min.V_Sim) %>% 
+  mutate_at(c("Cor", 
+              "Min.V_Obs", #"Min.V_Sim", "Min.V_Delta", 
+              "Max.Amplitude_Obs", "Max.Amplitude_Sim", "Max.Amplitude_Delta", 
+              "AUC_Obs", "AUC_Sim", "AUC_Delta"), median, na.rm = T) %>% 
+  distinct() %>% 
+  ungroup()
+  
+
 #Sweep   Cor Key        Min.V Max.Amplitude    AUC 
 M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell))
 
@@ -285,7 +298,8 @@ M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(
 ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
 tecc_cols <- c("vrest", "cc", "r11", "r12", "r1", "rc")
 tevc_cols <- c("ig")
-epsp_cols <- c("Cor", "Min.V_Obs", "Min.V_Sim", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim")
+epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", 
+               "Max.Amplitude_Delta", "AUC_Delta")
 mrna_cols <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]
 
 
@@ -338,8 +352,7 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 #   geom_point(aes(x = Condition, y = q50), color = "lightgray", size = 4)+
 #   geom_point(aes(x = Condition, y = q50), color = "black", size = 4, shape = 1)+
 #   geom_point(alpha = 0.5)
-  
-  
+
 # Make table ----
 # c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols)
 # 
