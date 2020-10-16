@@ -88,7 +88,8 @@ tecc <- left_join(tecc, small_metadata)
 
 ```{r}
 ## Add Experment/Cell to tevc ====
-tevc <- tevc %>% 
+tevc <-
+  tevc %>% 
   select(FileName, PreSyn, MedianIg) %>% 
   distinct() %>% 
   mutate(PreSyn = case_when(
@@ -99,7 +100,45 @@ tevc <- tevc %>%
          ig = MedianIg)
 #TODO we should really code gap junction conductance based on the two cells it's connecting.
 
-tevc <- left_join(tevc, small_metadata)
+tevc <- left_join(tevc, spread(small_metadata, Channel, Cell)) %>% 
+  mutate(Cell = case_when(Channel == "In9" ~ In9,
+                          Channel == "In4" ~ In4),
+         PrePost = case_when(Channel == "In9" ~ paste0("ig.", as.character(In9), "_", as.character(In4)),
+                             Channel == "In4" ~ paste0("ig.", as.character(In4), "_", as.character(In9)))
+         ) %>% 
+  filter(!is.na(Cell) &
+           !is.na(In4) &
+           !is.na(In9)) %>% 
+  filter(In4 %in% c(3, 4, 5) &
+         In9 %in% c(3, 4, 5)) %>% 
+  select(-In4, -In9) %>% 
+  filter(!is.na(ig)) %>% 
+  spread(PrePost, ig)
+
+# is conductance symmetric?
+tevc_plt <- tevc %>% 
+  select(-FileName, -Channel, -Cell) %>%
+  group_by(Experiment) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  distinct() 
+
+tevc_plt %>% 
+ggplot(aes(x = ig.3_4, y = ig.4_3))+
+  geom_point()
+
+tevc_plt %>% 
+ggplot(aes(x = ig.3_5, y = ig.5_3))+
+  geom_point()
+
+tevc_plt %>% 
+ggplot(aes(x = ig.4_5, y = ig.5_4))+
+  geom_point()
+
+tevc[is.na(tevc$ig.3_4), "ig.3_4"] <- tevc[is.na(tevc$ig.3_4), "ig.4_3"]
+tevc[is.na(tevc$ig.3_5), "ig.3_5"] <- tevc[is.na(tevc$ig.3_5), "ig.5_3"]
+tevc[is.na(tevc$ig.4_5), "ig.4_5"] <- tevc[is.na(tevc$ig.4_5), "ig.5_4"]
+
+tevc <- tevc %>% select(-ig.4_3, -ig.5_3, -ig.5_4)
 ```
 
 
@@ -311,8 +350,8 @@ M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(
 
 #Set up data cols to help organize full dataset
 ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
-tecc_cols <- c("vrest", "cc", "r11", "r12", "r1", "rc.ig")
-tevc_cols <- c("ig")
+tecc_cols <- c("vrest", "cc", "r11", "r1")#, "r12", "rc.ig") # ignore rc, ig is a more direct measure
+tevc_cols <- c("ig.3_4", "ig.3_5", "ig.4_3", "ig.4_5", "ig.5_3", "ig.5_4")
 epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", 
                "Max.Amplitude_Delta", "AUC_Delta")
 mrna_cols <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]
