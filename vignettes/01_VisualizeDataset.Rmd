@@ -26,6 +26,10 @@ epsp <- read.csv(here("data", "epsp.csv")) %>% as_tibble()
 metadata <- read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"),
                        sheet = "MetadataEphys")  
 mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) # tables from Northcutt 2016 and annotations
+
+```
+
+```{r}
 ## Add Experment/Cell to metadata ====
 metadata <- metadata %>% 
   mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
@@ -55,7 +59,10 @@ small_metadata <- metadata %>%
 small_metadata2 <- metadata %>% 
   select(Experiment, Type, FileName, In4, In9) %>% 
   gather("Channel", "Cell", c("In4", "In9"))
+```
 
+
+```{r}
 ## Add Experment/Cell to tecc ====
 tecc <- tecc %>% 
   mutate(PreSyn = case_when(
@@ -76,8 +83,10 @@ tecc <- tecc %>%
   rename(Channel = PreSyn)
 
 tecc <- left_join(tecc, small_metadata)
+```
 
 
+```{r}
 ## Add Experment/Cell to tevc ====
 tevc <- tevc %>% 
   select(FileName, PreSyn, MedianIg) %>% 
@@ -88,10 +97,13 @@ tevc <- tevc %>%
   )) %>% 
   rename(Channel = PreSyn,
          ig = MedianIg)
+#TODO we should really code gap junction conductance based on the two cells it's connecting.
 
 tevc <- left_join(tevc, small_metadata)
+```
 
 
+```{r}
 ## Add Experment/Cell to epsp ====
 epsp <- left_join(epsp, small_metadata2)
 
@@ -101,7 +113,10 @@ epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predic
 # epsp %>% filter(Experiment == "190808a" & Cell == 3 & Sweep == 1)
 
 ##
+```
 
+
+```{r}
 # Relabel Brian's cells ----
 ##
 temp <- mrna[mrna$Source == "Brian" &
@@ -207,10 +222,8 @@ mrna <- mrna %>%
   ungroup() %>% 
   distinct() %>% 
   spread(key = "mrna", value = "count")
-
-
-
 ```
+
 
 Add additional context
 ```{r}
