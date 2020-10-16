@@ -116,23 +116,23 @@ tevc <- left_join(tevc, spread(small_metadata, Channel, Cell)) %>%
   spread(PrePost, ig)
 
 # is conductance symmetric?
-tevc_plt <- tevc %>% 
-  select(-FileName, -Channel, -Cell) %>%
-  group_by(Experiment) %>% 
-  mutate_all(median, na.rm = T) %>% 
-  distinct() 
-
-tevc_plt %>% 
-ggplot(aes(x = ig.3_4, y = ig.4_3))+
-  geom_point()
-
-tevc_plt %>% 
-ggplot(aes(x = ig.3_5, y = ig.5_3))+
-  geom_point()
-
-tevc_plt %>% 
-ggplot(aes(x = ig.4_5, y = ig.5_4))+
-  geom_point()
+# tevc_plt <- tevc %>% 
+#   select(-FileName, -Channel, -Cell) %>%
+#   group_by(Experiment) %>% 
+#   mutate_all(median, na.rm = T) %>% 
+#   distinct() 
+# 
+# tevc_plt %>% 
+# ggplot(aes(x = ig.3_4, y = ig.4_3))+
+#   geom_point()
+# 
+# tevc_plt %>% 
+# ggplot(aes(x = ig.3_5, y = ig.5_3))+
+#   geom_point()
+# 
+# tevc_plt %>% 
+# ggplot(aes(x = ig.4_5, y = ig.5_4))+
+#   geom_point()
 
 tevc[is.na(tevc$ig.3_4), "ig.3_4"] <- tevc[is.na(tevc$ig.3_4), "ig.4_3"]
 tevc[is.na(tevc$ig.3_5), "ig.3_5"] <- tevc[is.na(tevc$ig.3_5), "ig.5_3"]
@@ -351,7 +351,7 @@ M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(
 #Set up data cols to help organize full dataset
 ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
 tecc_cols <- c("vrest", "cc", "r11", "r1")#, "r12", "rc.ig") # ignore rc, ig is a more direct measure
-tevc_cols <- c("ig.3_4", "ig.3_5", "ig.4_3", "ig.4_5", "ig.5_3", "ig.5_4")
+tevc_cols <- c("ig.3_4", "ig.3_5", "ig.4_5")
 epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", 
                "Max.Amplitude_Delta", "AUC_Delta")
 mrna_cols <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]
@@ -363,7 +363,7 @@ reordered_names <- c(names(M_all)[!(names(M_all) %in% c(tecc_cols, tevc_cols, ep
                                                       c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols))
 
 
-M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% distinct()
+M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed") & Cell %in% c(3, 4, 5)) %>% distinct()
 
 # #TODO this needs some prep work. We'll want to capture the variance in these measures.
 # # Not clear how to do that. 
@@ -374,6 +374,54 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 ```
 
 # Primary Questions
+
+What happens at the individual cell level?
+```{r}
+plt_membrane <- M_all %>% 
+  select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
+  distinct() 
+```
+
+
+
+What happens at the network level?
+```{r}
+plt_tevc <- M_all %>% 
+  select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
+  distinct() %>% 
+  gather("ElectricalSynapse", "ig", c("ig.3_4", "ig.3_5", "ig.4_5")) %>% 
+  filter(!is.na(ig)) 
+
+plt_1.1 <- 
+plt_tevc %>% 
+  filter(ElectricalSynapse != "ig.4_5") %>% 
+  ggplot(aes(x = Condition, y = ig))+
+  geom_boxplot()+
+  ggbeeswarm::geom_beeswarm(alpha = 0.3)+
+  # geom_violin()+
+  # geom_point(position = position_jitter(width = 0.05), alpha = 0.3)+
+  facet_wrap(.~ElectricalSynapse)
+  
+plt_1.2 <- plt_tevc %>% 
+  filter(ElectricalSynapse == "ig.4_5") %>% 
+  ggplot(aes(x = Condition, y = ig))+
+  geom_boxplot()+
+  ggbeeswarm::geom_beeswarm(alpha = 0.3)+
+  facet_wrap(.~ElectricalSynapse)+
+  scale_y_continuous(position = "right")
+
+library(patchwork)
+plt_1.1 + plt_1.2 + plot_layout(widths = c(2, 1) )
+
+
+
+
+
+
+
+```
+
+what happens at the level of output (excitability)? 
 
 ## What is different across the three groups? 
 ### Univariate
@@ -413,6 +461,7 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 # temp_col = "Ihtk.0"
 
 #TODO figure out what to do with the epsp cols
+tictoc::tic()
 temp_list <- map(
   c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols), function(temp_col){
     print(temp_col)
@@ -433,11 +482,22 @@ temp_list <- map(
     # temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
     temp <- temp[!is.na(temp[[temp_col]]), ]
     
+    # make sure we don't have pseudoreplicates for network measurements
+    if (temp_col %in% c("ig.3_4", "ig.3_5", "ig.4_5")){
+      temp <- temp %>% 
+        select(-Cell) %>% 
+        group_by(Condition, Experiment) %>% 
+        mutate_all(median, na.rm = T) %>% 
+        distinct()
+    }
+    
+    
     if(nrow(temp) < 10){
       
       return(list(
         dv = temp_col,
         p = NA,
+        ep = NA,
         hsd_groups = data.frame(dv = c(NA, NA, NA), 
                                 groups = c(NA, NA, NA), 
                                 Condition = c(NA, NA, NA)
@@ -445,6 +505,16 @@ temp_list <- map(
         fm = NA))
       
     } else {
+      
+      
+      temp_shuffle <- temp
+      resample_array <- map(1:1000, function(i){
+        temp_shuffle$Condition <- sample(temp_shuffle$Condition, replace = F)
+        fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp_shuffle)      
+        return(car::Anova(fm)[1,3])
+      }) %>% unlist()
+
+      
       fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp)
       
       fm_hsd <- agricolae::HSD.test(fm, trt = "Condition") 
@@ -453,32 +523,39 @@ temp_list <- map(
       fm_hsd$Condition <- rownames(fm_hsd)
       
       
+      
       return(list(
         dv = temp_col,
         p = car::Anova(fm)[1,4],
+        ep = mean(resample_array >= car::Anova(fm)[1,3]),
         hsd_groups = fm_hsd,
         fm = fm))
     }
   })
-
+tictoc::toc()
 
 
 temp_list <- temp_list %>% transpose()
 fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
-                                p = unlist(temp_list[[2]]))
+                                p  = unlist(temp_list[[2]]),
+                                ep = unlist(temp_list[[3]]))
 
 
 # work up post hoc stats
-temp_list_hsd <- map(seq_along(temp_list[[3]]), function(i){
-  if (!is.na(unique(temp_list[[3]][[i]]$groups))){
-    temp_list[[3]][[i]] %>% 
-      gather("dv", "Estimate", names(temp_list[[3]][[i]])[1]) %>% 
+temp_list_hsd <- map(seq_along(temp_list[[4]]), function(i){
+  if (!is.na(unique(temp_list[[4]][[i]]$groups))){
+    temp_list[[4]][[i]] %>% 
+      gather("dv", "Estimate", names(temp_list[[4]][[i]])[1]) %>% 
       pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
       mutate_all(as.character)
   }
 })  
 
 fm_overview_hsd <- do.call(rbind, temp_list_hsd)
+```
+
+Make table
+```{r}
 fm_overview_table <- full_join(fm_overview_table, fm_overview_hsd)
 
  
@@ -488,7 +565,7 @@ fm_overview_table <- fm_overview_table %>% mutate(Family = case_when(
   dv %in% c("r11", "r1") ~ "Membrane Resistance",
   dv %in% ionic_cols ~ "Outward Currents",
   dv %in% epsp_cols ~ "Excitability",
-  dv %in% c("r12", "rc", "ig", "cc") ~ "Coupling Measures"
+  dv %in% c("r12", "rc", "ig", "cc", "ig.3_4", "ig.3_5", "ig.4_5") ~ "Coupling Measures"
 ))
 
 fm_overview_table <- fm_overview_table %>% 
@@ -507,12 +584,14 @@ fm_overview_table <- fm_overview_table %>%
 
 
 # add additional cols
-fm_overview_table$fdr <- p.adjust(fm_overview_table$p, method = "fdr")
+fm_overview_table$fdr <- p.adjust(fm_overview_table$ep, method = "fdr")
+
 fm_overview_table <- fm_overview_table %>% 
   mutate(Estimate_Baseline = as.numeric(Estimate_Baseline),
          Estimate_Compensated = as.numeric(Estimate_Compensated),
          Estimate_Delayed = as.numeric(Estimate_Delayed)) %>% 
   mutate(p = round(p, digits = 4),
+         ep = round(ep, digits = 4),
          fdr = round(fdr, digits = 4),
          Estimate_Baseline = round(Estimate_Baseline, digits = 4),
          Estimate_Compensated = round(Estimate_Compensated, digits = 4),
@@ -528,13 +607,16 @@ fm_overview_table <- fm_overview_table %>%
 # library(officer)
 library(flextable)
 M_ft <-flextable(fm_overview_table,
-                 col_keys = c("Family", "dv", "p", "fdr", "stars", "Estimate_Baseline", "Estimate_Compensated", "Estimate_Delayed"))
+                 col_keys = c("Family", "dv", "p", "ep",
+                              "fdr", 
+                              "stars", "Estimate_Baseline", "Estimate_Compensated", "Estimate_Delayed"))
 
 M_ft <- theme_vanilla(M_ft)
 M_ft <- merge_v(M_ft, j = c("Family") )
 # M_ft <- color(M_ft, ~ fdr < 0.05, ~ stars, color = "red")
 M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ dv, bold = TRUE)
-M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ p, bold = TRUE)
+M_ft <- bold(M_ft, ~ p   <= 0.05, ~ p, bold = TRUE)
+M_ft <- bold(M_ft, ~ ep  <= 0.05, ~ ep, bold = TRUE)
 M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ fdr, bold = TRUE)
 M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ stars, bold = TRUE)
 
@@ -570,7 +652,19 @@ M_ft <- set_header_labels(M_ft, Estimate_Baseline = "Baseline", Estimate_Compens
 
 M_ft <- autofit(M_ft)
 M_ft
+
+pptx_file <- "./officer_output/example.pptx"
+save_as_pptx("my table" = M_ft, path = pptx_file)
+
+
+
+
+# fm_overview_table %>% 
+#   ggplot(aes(x = ep))+
+#   geom_histogram(binwidth = 0.025)+
+#   geom_vline(xintercept = 0.05)
 ```
+
 
 ## Another take on excitability:
 ### binned Cor
