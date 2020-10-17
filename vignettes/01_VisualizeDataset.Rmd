@@ -403,7 +403,67 @@ What happens at the individual cell level?
 ```{r}
 plt_membrane <- M_all %>% 
   select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
+  group_by(Condition, Experiment, Cell) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
   distinct() 
+
+
+plot_univariate_decorated_0 <- function(temp = plt_membrane,
+                                        yvar = "Ihtk.0"){
+  names(temp)[names(temp) == yvar] <- "yvar"
+  
+  temp_bands <- temp %>% 
+    group_by(Condition) %>% 
+    summarise(
+      q10 = quantile(yvar, probs = 0.1, na.rm = T),
+      q25 = quantile(yvar, probs = 0.25, na.rm = T),
+      # q45 = quantile(yvar, probs = 0.45, na.rm = T),
+      q50 = quantile(yvar, probs = 0.5, na.rm = T),
+      # q55 = quantile(yvar, probs = 0.55, na.rm = T),
+      q75 = quantile(yvar, probs = 0.75, na.rm = T),
+      q90 = quantile(yvar, probs = 0.9, na.rm = T),
+    ) %>% 
+    mutate(outlier_up = q50 + 1.5*(q75 - q25),
+           outlier_down = q50 - 1.5*(q75 - q25))
+  
+  temp <- full_join(temp, temp_bands)
+  
+  temp_plt <- ggplot(data = temp, aes(x = Condition, y = yvar))+
+    # geom_ribbon(aes(x = Condition, ymin = q10, ymax = q90, group = 1), color = "lightgray", fill = "cornflowerblue", alpha = 0.3)+
+    geom_ribbon(aes(x = Condition, ymin = q25, ymax = q75, group = 1), color = "darkgray", fill = "cornflowerblue", alpha = 0.3)+
+    # geom_ribbon(aes(x = Condition, ymin = q45, ymax = q55, group = 1), color = "black", fill = "cornflowerblue", alpha = 0.3)+
+    geom_line(aes(x = Condition, y = q50, group = 1), linetype = "dashed", color = "blue")+
+    
+    geom_line(aes(x = Condition, y = outlier_up, group = 1), linetype = "dashed", color = "black")+
+    geom_line(aes(x = Condition, y = outlier_down, group = 1), linetype = "dashed", color = "black")+
+    
+    geom_point(aes(x = Condition, y = q50), color = "lightgray", size = 4)+
+    geom_point(aes(x = Condition, y = q50), color = "black", size = 4, shape = 1)+
+    geom_point(alpha = 0.5)+
+    labs(y=yvar)
+  
+  return(temp_plt)
+}
+
+
+membrane_dvs_plt <- c("r11", "r1", "Ihtk.0", "Ia.0")
+membrane_plts <- map(membrane_dvs_plt, function(i){plot_univariate_decorated_0(temp = ungroup(plt_membrane), yvar = i)})
+
+membrane_plts[[1]]
+
+membrane_plts[[2]]
+
+membrane_plts[[3]]
+
+membrane_plts[[4]]
+
+walk(seq_along(membrane_dvs_plt), function(i){
+  ggsave(paste0(membrane_dvs_plt[i],".tiff"), 
+         plot = membrane_plts[[i]], 
+         path = here("officer_output"), 
+         width = 11.5/2, height = 4.76)  
+})
 ```
 
 
