@@ -78,14 +78,29 @@ tecc <- tecc %>%
     PreSyn == "IN 4" ~ "In4"
   )) %>% 
   select(FileName, PreSyn, vrest, #Signal1, Signal4, R1S1Baseline, R1S4Baseline, 
-         cc, r11, r12, r1, rc) %>% 
+         cc, r11, r1#, r12, rc # gap junction measures we'll get from voltage clamp
+         ) %>% 
   distinct() %>% 
   rename(Channel = PreSyn)
 
-tecc <- left_join(tecc, small_metadata)
+
+tecc <- left_join(tecc, spread(small_metadata, Channel, Cell)) %>% 
+  mutate(Cell = case_when(Channel == "In9" ~ In9,
+                          Channel == "In4" ~ In4),
+         PrePost = case_when(Channel == "In9" ~ paste0("cc.", as.character(In9), "_", as.character(In4)),
+                             Channel == "In4" ~ paste0("cc.", as.character(In4), "_", as.character(In9)))
+         ) %>% 
+  filter(!is.na(Cell) &
+           !is.na(In4) &
+           !is.na(In9)) %>% 
+  filter(In4 %in% c(3, 4, 5) &
+         In9 %in% c(3, 4, 5)) %>% 
+  select(-In4, -In9) %>% 
+  filter(!is.na(cc)) %>% 
+  spread(PrePost, cc)
 ```
 
-
+handle tevc data
 ```{r}
 ## Add Experment/Cell to tevc ====
 tevc <-
@@ -98,7 +113,7 @@ tevc <-
   )) %>% 
   rename(Channel = PreSyn,
          ig = MedianIg)
-#TODO we should really code gap junction conductance based on the two cells it's connecting.
+
 
 tevc <- left_join(tevc, spread(small_metadata, Channel, Cell)) %>% 
   mutate(Cell = case_when(Channel == "In9" ~ In9,
@@ -141,7 +156,7 @@ tevc[is.na(tevc$ig.4_5), "ig.4_5"] <- tevc[is.na(tevc$ig.4_5), "ig.5_4"]
 tevc <- tevc %>% select(-ig.4_3, -ig.5_3, -ig.5_4)
 ```
 
-
+add metadata to epsp
 ```{r}
 ## Add Experment/Cell to epsp ====
 epsp <- left_join(epsp, small_metadata2)
@@ -154,7 +169,7 @@ epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predic
 ##
 ```
 
-
+Relabel Brian's cells
 ```{r}
 # Relabel Brian's cells ----
 ##
@@ -314,13 +329,22 @@ M_tecc <- left_join(tecc, small_metadata) %>% select(-FileName) %>% mutate(Cell 
 # QC drop all non positive resistances, all ccs outside 0-1
 
 M_tecc <- M_tecc %>% mutate(
-  cc  = ifelse(cc > 0 & cc < 1, cc, NA),
+  # cc  = ifelse(cc > 0 & cc < 1, cc, NA),
   r11 = ifelse(r11 >0, r11, NA),
-  r12  = ifelse(r12 >0, r12, NA),
   r1  = ifelse(r1 >0, r1, NA),
-  rc  = ifelse(rc >0, rc, NA)) %>% 
-  mutate(rc = rc^-1) %>% 
-  rename(rc.ig = rc)
+  # r12  = ifelse(r12 >0, r12, NA),
+  # rc  = ifelse(rc >0, rc, NA)
+  
+  cc.3_4  = ifelse(cc.3_4 > 0 & cc.3_4 < 1, cc.3_4, NA),
+  cc.3_5  = ifelse(cc.3_5 > 0 & cc.3_5 < 1, cc.3_5, NA),
+  cc.4_3  = ifelse(cc.4_3 > 0 & cc.4_3 < 1, cc.4_3, NA),
+  
+  cc.4_5  = ifelse(cc.4_5 > 0 & cc.4_5 < 1, cc.4_5, NA),
+  cc.5_3  = ifelse(cc.5_3 > 0 & cc.5_3 < 1, cc.5_3, NA),
+  cc.5_4  = ifelse(cc.5_4 > 0 & cc.5_4 < 1, cc.5_4, NA)
+) #%>% 
+  # mutate(rc = rc^-1) %>% 
+  # rename(rc.ig = rc)
 
 #vrest     cc   r11    r12    r1    rc 
 M_tevc <- left_join(tevc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
@@ -350,7 +374,7 @@ M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(
 
 #Set up data cols to help organize full dataset
 ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
-tecc_cols <- c("vrest", "cc", "r11", "r1")#, "r12", "rc.ig") # ignore rc, ig is a more direct measure
+tecc_cols <- c("vrest", "r11", "r1", "cc.3_4", "cc.3_5", "cc.4_3", "cc.4_5", "cc.5_3", "cc.5_4")#, "r12", "rc.ig") # ignore rc, ig is a more direct measure
 tevc_cols <- c("ig.3_4", "ig.3_5", "ig.4_5")
 epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", 
                "Max.Amplitude_Delta", "AUC_Delta")
@@ -405,6 +429,7 @@ plt_tevc %>%
 plt_1.2 <- plt_tevc %>% 
   filter(ElectricalSynapse == "ig.4_5") %>% 
   ggplot(aes(x = Condition, y = ig))+
+    geom_segment(aes(x = "Baseline", xend = "Baseline", y =0, yend = 0.05), color = "gray", size = 2)+
   geom_boxplot()+
   ggbeeswarm::geom_beeswarm(alpha = 0.3)+
   facet_wrap(.~ElectricalSynapse)+
@@ -413,13 +438,71 @@ plt_1.2 <- plt_tevc %>%
 library(patchwork)
 plt_1.1 + plt_1.2 + plot_layout(widths = c(2, 1) )
 
+#### ####
+
+plt_tecc <- M_all %>% 
+  select(Condition, Experiment, cc.3_4, cc.3_5, cc.4_3, cc.4_5, cc.5_3, cc.5_4) %>% 
+  group_by(Condition, Experiment) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct() 
+
+plt_2.0 <- 
+plt_tecc %>% 
+  gather("Cells", "CC", c("cc.3_4", "cc.3_5", "cc.4_3", "cc.4_5", "cc.5_3", "cc.5_4")) %>% 
+  mutate(Cells = factor(Cells, levels = c("cc.3_4", "cc.4_3", "cc.3_5", "cc.5_3", "cc.4_5", "cc.5_4"))) %>% 
+  filter(!is.na(CC)) %>% 
+  ggplot(aes(Condition, CC))+
+  geom_boxplot()+
+  ggbeeswarm::geom_beeswarm(alpha = 0.3)+
+  facet_grid(.~Cells)
+
+plt_2.0
+
+#### ####
+
+triangle_lower_df <- data.frame(
+  id    = c("b", "b", "b"),
+  value = c("2", "2", "2"),
+  x     = c(0, 1, 1),
+  y     = c(0, 1, 0)
+)
+
+triangle_upper_df <- data.frame(
+  id    = c("a", "a", "a"),
+  value = c("1", "1", "1"),
+  x     = c(0, 1, 0),
+  y     = c(0, 1, 1)
+)
 
 
+plt_2.1 <- plt_tecc %>% 
+  ggplot(aes(cc.3_4, cc.4_3))+
+  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
+  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed")+
+  geom_point()+
+  facet_grid(.~Condition)
 
+plt_2.2 <- plt_tecc %>% 
+  ggplot(aes(cc.3_5, cc.5_3))+
+  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
+  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
+  geom_point()+
+  facet_grid(.~Condition)
 
+plt_2.3 <- plt_tecc %>% 
+  ggplot(aes(cc.4_5, cc.5_4))+
+  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
+  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
+  geom_point()+
+  facet_grid(.~Condition)
 
-
+plt_2.1 / plt_2.2 / plt_2.3
 ```
+
+
+
 
 what happens at the level of output (excitability)? 
 
