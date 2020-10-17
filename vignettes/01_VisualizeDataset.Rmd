@@ -485,6 +485,49 @@ walk(seq_along(mrna_cols), function(i){
          path = here("officer_output"), 
          width = 11.5/2, height = 4.76)  
 })
+
+
+# devtools::install_github("teunbrand/ggh4x")
+library(ggh4x)
+
+plt_mrna_long <- plt_mrna %>%
+  gather(mrna, count, mrna_cols) %>% 
+  filter(!is.na(count))
+  # filter(mrna %in% c("bkkca", "shal")) %>% 
+  
+return_nested_mrna_plt <- function(temp = plt_mrna_long){
+  ggplot(temp, aes(mrna, count))+
+    geom_boxplot(aes(fill = Condition))+
+    geom_point(position = position_jitter(width = 0.05), #size =3,  
+               alpha = 0.7)+  
+    theme(axis.text.x=element_blank(),
+          legend.position = "")+ # writes over mrna labels so they only show up in the facet
+    labs(x = "")+
+    facet_nested(~ mrna + Condition, scales = "free_x", switch = "x")
+}
+
+
+# return_nested_mrna_plt(temp = filter(plt_mrna_long, 
+#                                      mrna %in% unlist(mRNAInfo[mRNAInfo$Class == "Channel", "RGeneName"])
+#                                      ))
+
+
+return_nested_mrna_plt(temp = filter(plt_mrna_long, 
+                                     mrna %in% unlist(mRNAInfo[mRNAInfo$Family == "Voltage-dependent K+ Channel", "RGeneName"])
+                                     ))
+
+return_nested_mrna_plt(temp = filter(plt_mrna_long, 
+                                     mrna %in% unlist(mRNAInfo[mRNAInfo$Family == "Other K+ Channel", "RGeneName"])
+                                     ))
+
+return_nested_mrna_plt(temp = filter(plt_mrna_long, 
+                                     mrna %in% unlist(mRNAInfo[mRNAInfo$Family == "Ca2+ Channel", "RGeneName"])
+                                     ))
+
+# innexins
+# TODO flix axis to right, bind
+return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx1", "inx2", "inx3", "inx4")))
+return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))
 ```
 
 
