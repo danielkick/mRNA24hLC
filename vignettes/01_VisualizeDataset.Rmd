@@ -400,6 +400,8 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 # Primary Questions
 
 What happens at the individual cell level?
+
+membrane
 ```{r}
 plt_membrane <- M_all %>% 
   select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
@@ -466,6 +468,24 @@ walk(seq_along(membrane_dvs_plt), function(i){
 })
 ```
 
+mrna
+```{r}
+plt_mrna <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>% 
+  # select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
+  group_by(Condition, Experiment, Cell) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct() 
+
+mrna_plts <- map(mrna_cols, function(i){plot_univariate_decorated_0(temp = ungroup(plt_mrna), yvar = i)})
+
+walk(seq_along(mrna_cols), function(i){
+  ggsave(paste0(mrna_cols[i],".tiff"), 
+         plot = mrna_plts[[i]], 
+         path = here("officer_output"), 
+         width = 11.5/2, height = 4.76)  
+})
+```
 
 
 What happens at the network level?
