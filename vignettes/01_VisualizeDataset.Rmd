@@ -1851,43 +1851,56 @@ cowplot::plot_grid(plotlist = ecdf_corr_list)
 
 ## Multivariate relationships
 ### globally, clustering etc
+set up data
 ```{r}
+# Copied from above ----
+M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_all[M_all$Condition == condition, ]
+  
+  dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
+  
+  for (dv_col  in dvs){
+    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
+  }
+  
+  return(temp)
+})
 
-```
+M_winxiqr <- do.call(rbind, M_winxiqr_list)
+M_winxiqr <- M_winxiqr %>% 
+  select(-Sweep) %>% 
+  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct()
 
+# Median imputation ----
+M_winxiqr <- M_winxiqr %>% 
+  select(-Channel, -Source, -Pharm, -Time, -Sample)
 
-How do they separate? cluster?
-
-
-```{r}
-
-no_outlier_tea_df <- do.call(rbind, no_outlier_tea_list)
-
-# require at least X of observations to contain data in a column to be allowed.
-require_complete_rate <- 0.4
-
-skim_df <- skimr::skim(no_outlier_tea_df)
-retain_cols <- skim_df[skim_df$complete_rate > require_complete_rate, "skim_variable"] %>% unlist()
-
-no_outlier_tea_df <- no_outlier_tea_df[, retain_cols]
-
+M_winxiqr <- M_winxiqr %>% 
+  group_by(Condition, Experiment, Cell) %>%
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct()
+  
 library(imputeMissings)
-no_outlier_tea_df <- imputeMissings::impute(no_outlier_tea_df, method = "median/mode")
+M_winxiqr <- imputeMissings::impute(M_winxiqr, method = "median/mode")
 
-rownames(no_outlier_tea_df) <- paste(no_outlier_tea_df$Experiment, no_outlier_tea_df$Cell, no_outlier_tea_df$Time, sep = "-")
+rownames(M_winxiqr) <- paste(M_winxiqr$Condition, M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
 ```
 
+#### Cluster
 dendrogram 
 ```{r}
 library(pvclust)
 library(ggdendro)
 set.seed(654684)
-cluster <- pvclust(t(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)]),
+cluster <- pvclust(t(select(M_winxiqr, - Condition, -Experiment, -Cell)),
                    method.hclust = "ward.D2",
                    method.dist = "correlation",
                    use.cor = "pairwise.complete.obs")
 ```
-
 
 dendrogram plot method 1
 ```{r}
@@ -1908,8 +1921,8 @@ cluster_dend <- ggdendro::dendro_data(as.dendrogram(cluster$hclust), type = "rec
 cluster_dend_segments <- ggdendro::segment(cluster_dend)
 
 
-label_df <- data.frame(labels = no_outlier_tea_df[, "Time"],
-                       exps = no_outlier_tea_df[, "Experiment"])
+label_df <- data.frame(labels = M_winxiqr[, "Condition"],
+                       exps = M_winxiqr[, "Experiment"])
 label_df$orderby <- as.numeric(as.character(ggdendro::label(cluster_dend)$label))
 label_df <- arrange(label_df, orderby)
 
@@ -1929,7 +1942,7 @@ ggplot()+
             nudge_y = 0, family = "boldserif", size = 5, angle = 90, hjust = 1)+ 
   xlab("")+ 
   ylab("Height")+
-  lims(y = c(-0.1, 0.8))+
+  # lims(y = c(-0.1, 0.8))+
   theme(axis.line.x = element_blank(),
         axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
@@ -1937,68 +1950,66 @@ ggplot()+
         legend.position = "bottom")
 ```
 
-
 have dendrogram on both sides
 ```{r}
-cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
-                   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
-
-mrna_cluster_dend <- as.dendrogram(cluster)
-cell_cluster_dend <- as.dendrogram(cluster_2)
-
-
-mrna_cutree <- cutree(mrna_cluster_dend, k = 5)
-cell_cutree <- cutree(cell_cluster_dend, k = 4)
-
-
-library(RColorBrewer)
-mypalette <- rev(brewer.pal(9, "PuOr")[-1])
-
-
-matrix_for_heatmap <- as.matrix(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)])
-
-# Reference
-# https://rpubs.com/Sammi/132435
-heatmap(
-matrix_for_heatmap,
-Rowv = mrna_cluster_dend,
-Colv = cell_cluster_dend,
-
-RowSideColors = as.character(mrna_cutree),
-ColSideColors = as.character(cell_cutree),
-# scale = "col"
-
-key = T, 
-col = mypalette
-)
-
-
-library(gplots)
-heatmap.2(
-matrix_for_heatmap,
-Rowv = mrna_cluster_dend,
-Colv = cell_cluster_dend,
-
-RowSideColors = as.character(mrna_cutree),
-ColSideColors = as.character(cell_cutree),
-# scale = "col"
-
-trace = "none",
-key = T
+# cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
+#                    method.hclust = "ward.D2",
+#                    method.dist = "correlation",
+#                    use.cor = "pairwise.complete.obs")
+# 
+# mrna_cluster_dend <- as.dendrogram(cluster)
+# cell_cluster_dend <- as.dendrogram(cluster_2)
+# 
+# 
+# mrna_cutree <- cutree(mrna_cluster_dend, k = 5)
+# cell_cutree <- cutree(cell_cluster_dend, k = 4)
+# 
+# 
+# library(RColorBrewer)
+# mypalette <- rev(brewer.pal(9, "PuOr")[-1])
+# 
+# 
+# matrix_for_heatmap <- as.matrix(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)])
+# 
+# # Reference
+# # https://rpubs.com/Sammi/132435
+# heatmap(
+# matrix_for_heatmap,
+# Rowv = mrna_cluster_dend,
+# Colv = cell_cluster_dend,
+# 
+# RowSideColors = as.character(mrna_cutree),
+# ColSideColors = as.character(cell_cutree),
+# # scale = "col"
+# 
+# key = T, 
 # col = mypalette
-)
-
-
-# source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/my.colorFct.R")
-# heatmap(y, 
-#         Rowv = as.dendrogram(hr), 
-#         Colv = as.dendrogram(hc), 
-#         col=my.colorFct(), 
-#         scale="row")
+# )
+# 
+# 
+# library(gplots)
+# heatmap.2(
+# matrix_for_heatmap,
+# Rowv = mrna_cluster_dend,
+# Colv = cell_cluster_dend,
+# 
+# RowSideColors = as.character(mrna_cutree),
+# ColSideColors = as.character(cell_cutree),
+# # scale = "col"
+# 
+# trace = "none",
+# key = T
+# # col = mypalette
+# )
+# 
+# 
+# # source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/my.colorFct.R")
+# # heatmap(y, 
+# #         Rowv = as.dendrogram(hr), 
+# #         Colv = as.dendrogram(hc), 
+# #         col=my.colorFct(), 
+# #         scale="row")
 ```
-
 
 Evaluating clustering quality
 ```{r}
@@ -2036,9 +2047,12 @@ get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
     return(output)
   }
 }
+
+
+
 ```
 
-
+resampling based evaluation of jaccard
 ```{r}
 temp.clust <- as.dendrogram(cluster$hclust)
 assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
@@ -2071,9 +2085,8 @@ resample.indices %>%
 mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"])
 ```
 
+#### PCA
 
-
-pca 
 ```{r}
 library(factoextra)
 library(FactoMineR) #PCA
@@ -2111,12 +2124,21 @@ mk_pca_multi_plt <- function(input.df = t_pass,
               biplt = p4))
 }
 
-pca_summary_descriptions <- map(list(
-  no_outlier_tea_df[no_outlier_tea_df$Time == "Baseline", c(MeasuredKCurrents, MeasuredmRNA)],
-  no_outlier_tea_df[no_outlier_tea_df$Time == "Compensated", c(MeasuredKCurrents, MeasuredmRNA)],
-  no_outlier_tea_df[no_outlier_tea_df$Time == "Delayed", c(MeasuredKCurrents, MeasuredmRNA)]
-  
-), function(df){
+list_for_pca <- list(
+  M_winxiqr[M_winxiqr$Condition == "Baseline", 
+            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
+  M_winxiqr[M_winxiqr$Condition == "Compensated", 
+            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
+  M_winxiqr[M_winxiqr$Condition == "Delayed", 
+            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]]
+)
+
+pca_summary_descriptions <- map(list_for_pca, function(df){
+  mk_pca_multi_plt(input.df = df,
+                   scree.max.y = 100)
+})
+
+pca_summary_descriptions <- map(list_for_pca, function(df){
   mk_pca_multi_plt(input.df = df,
                  scree.max.y = 100)
 })
@@ -2132,10 +2154,9 @@ pca_summary_descriptions <- map(list(
 
 ```
 
-
+3d
 ```{r}
 library(rgl)
-
 
 vis_pca_3D <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::select(-lc, -net, -pass),
                        color.by = M[M$pass == T, "lc"],
@@ -2177,23 +2198,33 @@ vis_pca_3D <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::select(
 
 
 
-vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
-           color.by = no_outlier_tea_df[, "Time"],
+vis_pca_3D(input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
+           color.by = M_winxiqr[, "Condition"],
            turn.x.times = 1,
            use.colors = RColorBrewer::brewer.pal(3, "Set1")
 )
-
-
 ```
 
-Is the overlap in "compensated" due to k currents? (no)
+And with only mrna
 ```{r}
-vis_pca_3D(input.df = no_outlier_tea_df[, c(MeasuredmRNA)],
-           color.by = no_outlier_tea_df[, "Time"],
+
+vis_pca_3D(input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment",
+                                                                             "vrest", "r11", "r1", 
+                                                                             "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+                                                                             "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+                                                                             "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
+                                                                             "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"))]],
+           color.by = M_winxiqr[, "Condition"],
            turn.x.times = 1,
            use.colors = RColorBrewer::brewer.pal(3, "Set1")
 )
+
+
+
 ```
+
+
+
 
 ### specifically
 
