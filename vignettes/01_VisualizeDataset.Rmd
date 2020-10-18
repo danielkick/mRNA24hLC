@@ -1535,13 +1535,166 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 ### What relationships exist at baseline?
 
 ```{r}
+# QC data by completion rate, having variance, and median mrna abundance
+M_all_skim <- M_all %>% skimr::skim()
+M_all_skim <- M_all_skim[M_all_skim$complete_rate >= 0.19 & 
+             M_all_skim$numeric.sd > 0, ]
+
+M_all_skim <- M_all_skim[!(M_all_skim$skim_variable %in% mrna_cols) |
+            ((M_all_skim$skim_variable %in% mrna_cols) & M_all_skim$numeric.p50 >= 50 ), ]
+
+M_all <- M_all[, names(M_all) %in% c(
+  "Condition", "Cell", "Experiment", "Channel", 
+  "Sweep", "Source", "Pharm", "Time", "Sample", 
+  M_all_skim$skim_variable[!is.na(M_all_skim$skim_variable)])
+  ]
+
+
 #TODO
+M_all$Condition %>% unique()
+
+M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_all[M_all$Condition == condition, ]
+  
+  dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
+  
+  for (dv_col  in dvs){
+    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
+  }
+  
+  return(temp)
+})
+
+M_winxiqr <- do.call(rbind, M_winxiqr_list)
+M_winxiqr <- M_winxiqr %>% 
+  select(-Sweep) %>% 
+  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct()
+
+
+
+
+
+# cowplot::plot_grid(plotlist = tea_plt_list, labels = letters)
+
+
+
+
+  
+
+dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
+
+condition = "Baseline"
+condition = "Compensated"
+condition = "Delayed"
+
+# figure out the maximum set of dvs that we can use to have a consistent set across the three conditions
+# TODO
+# or median interpolate
+# non_passing_variables <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+#   temp <- M_winxiqr[M_winxiqr$Condition == condition, dvs]
+#   temp_cor <- cor(temp, use = "pairwise.complete.obs") %>% as.data.frame()
+#   temp_cor$row <- rownames(temp_cor)
+#   temp_cor <- temp_cor %>% gather("col", "cor", names(temp_cor)[names(temp_cor) != "row"]) %>% filter(is.na(cor))
+#   return(unique(temp_cor[, c("row", "col")]))
+# })
+# 
+# 
+# non_passing_variables <- full_join(non_passing_variables[[1]], non_passing_variables[[2]]) %>% full_join(non_passing_variables[[3]]) %>% distinct() %>% dim()
+
+
+
+temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+                  dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+                                   "cc.4_5", "cc.5_3", "cc.5_4", 
+                                   "ig.3_4", "ig.3_5", "ig.4_5"))]]
+
+
+
+  select(-kcnq1,
+         -d1br, -hisr3, -ih, -machrb, -hisr2, -htr1b, -htr2b, -kainate2b, -kainate2c, -kcnk1, 
+         -rdlr, -mglur4, #rm bc it's coming up as na vs max amp delta. 
+         -machra, -mglur7, -nmda1a, -nmda2b, -trpm1, -x18s) #FIXME mv to all
+
+MCorr <- cor(temp, use = "pairwise.complete.obs")
+
+# pMat <- ggcorrplot::cor_pmat(temp)
+
+MCorr <- as.data.frame(MCorr) 
+MCorr$row_names <- rownames(MCorr)
+MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+
+# pMat <- as.data.frame(pMat) 
+# pMat$row_names <- rownames(pMat)
+# pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
+
+ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
+  geom_tile()+
+  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                       midpoint = 0, 
+                       na.value = "#00000000")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+  labs(x = "", y = "")
+
+
+
+
+
+
+
+
+
+
+cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+                                     "cc.4_5", "cc.5_3", "cc.5_4", 
+                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
+  
+  MCorr <- cor(temp, use = "pairwise.complete.obs")
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  MCorr$Condition = condition
+  return(MCorr)
+})
+
+cor_list_df <- do.call(rbind, cor_list)
+
+
+library(gganimate)
+cor_list_df %>% 
+ggplot(aes(col_names, row_names, fill = Corr))+
+  geom_tile()+
+  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                       midpoint = 0, 
+                       na.value = "#00000000")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+  labs(x = "", y = "", title = 'Condition: {closest_state}')+
+  # Here comes the gganimate specific bits
+
+  # transition_time(Condition)
+  # ease_aes('linear')
+  transition_states(
+    Condition,
+    transition_length = 0.5,
+    state_length = 1
+  ) +
+  enter_fade()
+
 ```
 
-### How do these relationships change for TEA over time?
 
-## Multivariate relationships
-### globally, clustering etc
 ```{r}
 
 temp <- unite(data = M, "Pharm_Condition", Pharm, Condition) 
@@ -1758,6 +1911,16 @@ temp_list2[[6]] <- ecdf_corr_nocurrents_list[[3]]
 
 cowplot::plot_grid(plotlist = temp_list2)
 ```
+
+
+### How do these relationships change for TEA over time?
+```{r}
+#TODO
+```
+
+
+## Multivariate relationships
+### globally, clustering etc
 
 How do they separate? cluster?
 
