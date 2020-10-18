@@ -398,7 +398,7 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 ```
 
 # Primary Questions
-
+## mk plots
 What happens at the individual cell level?
 
 membrane
@@ -469,6 +469,7 @@ walk(seq_along(membrane_dvs_plt), function(i){
 ```
 
 mrna
+univariate change over time -- bend quartile
 ```{r}
 plt_mrna <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>% 
   # select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
@@ -485,8 +486,10 @@ walk(seq_along(mrna_cols), function(i){
          path = here("officer_output"), 
          width = 11.5/2, height = 4.76)  
 })
+```
 
-
+univariate change over time -- boxplots
+```{r}
 # devtools::install_github("teunbrand/ggh4x")
 library(ggh4x)
 
@@ -528,6 +531,46 @@ return_nested_mrna_plt(temp = filter(plt_mrna_long,
 # TODO flix axis to right, bind
 return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx1", "inx2", "inx3", "inx4")))
 return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))
+return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))+scale_y_log10()
+```
+
+mrna -- spagetti plot
+```{r}
+plt_mrna_spagetti <- right_join(
+  rename(
+    select(mRNAInfo, Family, RGeneName), 
+    mrna = RGeneName), 
+  plt_mrna_long) %>% 
+  select(-Cell, -Experiment) %>% 
+  group_by(Condition, mrna) %>% 
+  mutate(count = median(count, na.rm = T)) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  mutate(Baseline = ifelse(Condition == "Baseline", count, NA))%>% 
+  group_by(mrna) %>% 
+  mutate(Baseline = median(Baseline, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(Delta = Baseline - count)
+
+
+plt_mrna_spagetti %>% 
+  filter(mrna %in% c("inx1", "inx2", "inx3", "inx4", "inx5")) %>% 
+  ggplot(aes(x = Condition, y = count, group = mrna))+
+  geom_line()
+  
+plt_mrna_spagetti %>% 
+  filter(!(mrna %in% c("inx1", "inx2", "inx3", "inx4", "inx5"))) %>% 
+  ggplot(aes(x = Condition, y = count, group = mrna, color = Family))+
+  geom_line()+
+  facet_wrap(.~Family)
+  
+# deltas
+plt_mrna_spagetti %>% 
+  filter(!(mrna %in% c("inx1", "inx2", "inx3", "inx4", "inx5"))) %>% 
+  ggplot(aes(x = Condition, y = Delta, group = mrna, color = Family))+
+  geom_line()+
+  facet_wrap(.~Family)+
+  theme(legend.position = "")
 ```
 
 
@@ -624,14 +667,10 @@ plt_2.3 <- plt_tecc %>%
 plt_2.1 / plt_2.2 / plt_2.3
 ```
 
-
-
-
 what happens at the level of output (excitability)? 
 
-## What is different across the three groups? 
-### Univariate
-
+## mk table
+run anovas
 ```{r}
 # temp <- M_all %>% 
 #   select(Condition, Experiment, Cell,  Ihtk.0) %>% 
@@ -1491,16 +1530,17 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 
 ```
 
+## Bivariate relationships
 
-## What relationships exist at baseline?
+### What relationships exist at baseline?
 
 ```{r}
 #TODO
 ```
 
+### How do these relationships change for TEA over time?
 
-## How do these relationships change for TEA over time?
-
+## Multivariate relationships
 ### globally, clustering etc
 ```{r}
 
