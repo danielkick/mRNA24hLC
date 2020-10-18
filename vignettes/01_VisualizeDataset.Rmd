@@ -1551,8 +1551,7 @@ M_all <- M_all[, names(M_all) %in% c(
   ]
 
 
-#TODO
-M_all$Condition %>% unique()
+
 
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
   temp <- M_all[M_all$Condition == condition, ]
@@ -1583,9 +1582,9 @@ M_winxiqr <- M_winxiqr %>%
 
 dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
 
-condition = "Baseline"
-condition = "Compensated"
-condition = "Delayed"
+# condition = "Baseline"
+# condition = "Compensated"
+# condition = "Delayed"
 
 # figure out the maximum set of dvs that we can use to have a consistent set across the three conditions
 # TODO
@@ -1603,39 +1602,39 @@ condition = "Delayed"
 
 
 
-temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-                  dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-                                   "cc.4_5", "cc.5_3", "cc.5_4", 
-                                   "ig.3_4", "ig.3_5", "ig.4_5"))]]
-
-  # select(-kcnq1,
-  #        -d1br, -hisr3, -ih, -machrb, -hisr2, -htr1b, -htr2b, -kainate2b, -kainate2c, -kcnk1, 
-  #        -rdlr, -mglur4, #rm bc it's coming up as na vs max amp delta. 
-  #        -machra, -mglur7, -nmda1a, -nmda2b, -trpm1, -x18s) #FIXME mv to all
-
-MCorr <- cor(temp, use = "pairwise.complete.obs")
-
-#TODO find some way to get only the significant correlations. library Corrr? 
-# pMat <- ggcorrplot::cor_pmat(temp) 
-
-MCorr <- as.data.frame(MCorr) 
-MCorr$row_names <- rownames(MCorr)
-MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-
-# pMat <- as.data.frame(pMat) 
-# pMat$row_names <- rownames(pMat)
-# pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
-
-ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
-  geom_tile()+
-  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-                       midpoint = 0, 
-                       na.value = "#00000000")+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-  labs(x = "", y = "")
+# temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+#                   dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+#                                    "cc.4_5", "cc.5_3", "cc.5_4", 
+#                                    "ig.3_4", "ig.3_5", "ig.4_5"))]]
+# 
+#   # select(-kcnq1,
+#   #        -d1br, -hisr3, -ih, -machrb, -hisr2, -htr1b, -htr2b, -kainate2b, -kainate2c, -kcnk1, 
+#   #        -rdlr, -mglur4, #rm bc it's coming up as na vs max amp delta. 
+#   #        -machra, -mglur7, -nmda1a, -nmda2b, -trpm1, -x18s) #FIXME mv to all
+# 
+# MCorr <- cor(temp, use = "pairwise.complete.obs")
+# 
+# #TODO find some way to get only the significant correlations. library Corrr? 
+# # pMat <- ggcorrplot::cor_pmat(temp) 
+# 
+# MCorr <- as.data.frame(MCorr) 
+# MCorr$row_names <- rownames(MCorr)
+# MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+# 
+# # pMat <- as.data.frame(pMat) 
+# # pMat$row_names <- rownames(pMat)
+# # pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
+# 
+# ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
+#   geom_tile()+
+#   # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+#   scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+#                        mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+#                        high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+#                        midpoint = 0, 
+#                        na.value = "#00000000")+
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+#   labs(x = "", y = "")
 
 
 
@@ -1694,52 +1693,12 @@ ggplot(aes(col_names, row_names, fill = Corr))+
 
 ![](../plots/BaselineTEA.png)
 
-ecdfs
+#### ECDFs
 ```{r}
-tea_cor_list <- map(seq_along(no_outlier_tea_list), function(i){
-  for_corr <- no_outlier_tea_list[[i]][, c(MeasuredKCurrents, MeasuredmRNA)]
-  
-  MCorr <- cor(for_corr, use = "pairwise.complete.obs")
-  
-  pMat <- cor_pmat(for_corr)
-  
-  MCorr <- as.data.frame(MCorr) 
-  MCorr$row_names <- rownames(MCorr)
-  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-  
-  pMat <- as.data.frame(pMat) 
-  pMat$row_names <- rownames(pMat)
-  pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
-  
-  return(list(Corr = MCorr, pValue = pMat))
-})
-
-
-temp1 <- tea_cor_list[[1]]$Corr
-temp2 <- tea_cor_list[[2]]$Corr
-temp3 <- tea_cor_list[[3]]$Corr
-
-temp1$group <- "Baseline"
-temp2$group <- "Compensated"
-temp3$group <- "Delayed"
-
-# plot_ecdf_ks(
-#   df = rbind(temp1, temp2),
-#   data.col = "Corr",
-#   group.col = "group",
-#   group1 = "Baseline",
-#   group2 = "Compensated",
-#   colors = c("#4d4d4d",
-#              #"#67a9cf",
-#              "#1c9099"))
-
-
-
-
 ecdf_corr_list <- 
 map(list(
   list(
-    rbind(temp1, temp2),
+    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Compensated"), ],
     c("Baseline", "Compensated"),
     c("#4d4d4d", 
       "#67a9cf"#, 
@@ -1747,14 +1706,14 @@ map(list(
       )
   ),
   list(
-    rbind(temp1, temp3),
+    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Delayed"), ],
     c("Baseline", "Delayed"),
     c("#4d4d4d", 
       #"#67a9cf", 
       "#1c9099")
   ),
   list(
-    rbind(temp2, temp3),
+    cor_list_df[cor_list_df$Condition %in% c("Compensated", "Delayed"), ],
     c("Compensated", "Delayed"),
     c(#"#4d4d4d", 
       "#67a9cf",
@@ -1764,7 +1723,7 @@ map(list(
   plot_ecdf_ks(
   df = list.obj[[1]],
   data.col = "Corr",
-  group.col = "group",
+  group.col = "Condition",
   group1 = list.obj[[2]][1],
   group2 = list.obj[[2]][2],
   colors = list.obj[[3]])
@@ -1773,17 +1732,89 @@ map(list(
 cowplot::plot_grid(plotlist = ecdf_corr_list)
 ```
 
-What does this look like without the currents?
+####Repeat with only mrna
 ```{r}
-temp1_nocurrents <- temp1[!((temp1$row_names %in% MeasuredKCurrents) | (temp1$col_names %in% MeasuredKCurrents)), ]
-temp2_nocurrents <- temp2[!((temp2$row_names %in% MeasuredKCurrents) | (temp2$col_names %in% MeasuredKCurrents)), ]
-temp3_nocurrents <- temp3[!((temp3$row_names %in% MeasuredKCurrents) | (temp3$col_names %in% MeasuredKCurrents)), ]
+M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_all[M_all$Condition == condition, ]
+  
+  dvs <- names(M_all)[(names(M_all) %in% mrna_cols)] # <---- THIS IS THE CHANGE 
+  
+  for (dv_col  in dvs){
+    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
+  }
+  
+  return(temp)
+})
+
+M_winxiqr <- do.call(rbind, M_winxiqr_list)
+M_winxiqr <- M_winxiqr %>% 
+  select(-Sweep) %>% 
+  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct()
 
 
-ecdf_corr_nocurrents_list <- 
+
+
+dvs <- names(M_all)[(names(M_all) %in% mrna_cols)] # <---- THIS IS THE CHANGE 
+
+temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+                  dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+                                   "cc.4_5", "cc.5_3", "cc.5_4", 
+                                   "ig.3_4", "ig.3_5", "ig.4_5"))]]
+
+cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+                                     "cc.4_5", "cc.5_3", "cc.5_4", 
+                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
+  
+  MCorr <- cor(temp, use = "pairwise.complete.obs")
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  MCorr$Condition = condition
+  return(MCorr)
+})
+
+cor_list_df <- do.call(rbind, cor_list)
+
+
+library(gganimate)
+cor_list_df %>% 
+ggplot(aes(col_names, row_names, fill = Corr))+
+  geom_tile()+
+  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                       midpoint = 0, 
+                       na.value = "#00000000")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+  labs(x = "", y = "", title = 'Condition: {closest_state}')+
+  # Here comes the gganimate specific bits
+
+  # transition_time(Condition)
+  # ease_aes('linear')
+  transition_states(
+    Condition,
+    transition_length = 0.5,
+    state_length = 1
+  ) +
+  enter_fade()
+
+
+# anim_save("filenamehere.gif", p)
+```
+
+```{r}
+ecdf_corr_list <- 
 map(list(
   list(
-    rbind(temp1_nocurrents, temp2_nocurrents),
+    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Compensated"), ],
     c("Baseline", "Compensated"),
     c("#4d4d4d", 
       "#67a9cf"#, 
@@ -1791,14 +1822,14 @@ map(list(
       )
   ),
   list(
-    rbind(temp1_nocurrents, temp3_nocurrents),
+    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Delayed"), ],
     c("Baseline", "Delayed"),
     c("#4d4d4d", 
       #"#67a9cf", 
       "#1c9099")
   ),
   list(
-    rbind(temp2_nocurrents, temp3_nocurrents),
+    cor_list_df[cor_list_df$Condition %in% c("Compensated", "Delayed"), ],
     c("Compensated", "Delayed"),
     c(#"#4d4d4d", 
       "#67a9cf",
@@ -1808,49 +1839,22 @@ map(list(
   plot_ecdf_ks(
   df = list.obj[[1]],
   data.col = "Corr",
-  group.col = "group",
+  group.col = "Condition",
   group1 = list.obj[[2]][1],
   group2 = list.obj[[2]][2],
   colors = list.obj[[3]])
 })
 
-cowplot::plot_grid(plotlist = ecdf_corr_nocurrents_list)
-```
-
-
-Combined fig corr/ecdf
-```{r}
-temp_list <- tea_plt_list
-
-temp_list[[4]] <- ecdf_corr_list[[1]]
-temp_list[[5]] <- ecdf_corr_list[[2]]
-temp_list[[6]] <- ecdf_corr_list[[3]]
-
-
-cowplot::plot_grid(plotlist = temp_list)
-#TODO how much of the difference in KS between compensated and baseline is noise? I guess we have to cut out the currents and redo it to figure out...
-```
-
-Contrast ecdfs with and without currents.
-```{r}
-temp_list2 <- ecdf_corr_list
-
-temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
-temp_list2[[5]] <- ecdf_corr_nocurrents_list[[2]]
-temp_list2[[6]] <- ecdf_corr_nocurrents_list[[3]]
-
-cowplot::plot_grid(plotlist = temp_list2)
-```
-
-
-### How do these relationships change for TEA over time?
-```{r}
-#TODO
+cowplot::plot_grid(plotlist = ecdf_corr_list)
 ```
 
 
 ## Multivariate relationships
 ### globally, clustering etc
+```{r}
+
+```
+
 
 How do they separate? cluster?
 
