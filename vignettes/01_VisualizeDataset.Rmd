@@ -2231,7 +2231,210 @@ vis_pca_3D(input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c("Co
 ```{r}
 
 ```
+# ###############################################################################
+# Contrast mrna with Brian's Data
 
+Prep data
+```{r}
+# select the mrnas present in both Brian's data and mine. 
+mrna_bd <-select(mrna, 
+                 Source, Pharm, Time, Experiment, Cell, 
+                 bkkca, cav1, cav2, 
+                 inx1, inx2, inx3, inx4, inx5, 
+                 nav, 
+                 shab, shaker, shal, shaw1, shaw2) %>% 
+  mutate(Pharm = ifelse(Source == "Daniel" & Time == "Baseline", "None", Pharm)) %>% 
+  filter(Pharm != "TTX" & Pharm != "AP") %>%     #FIXME dropped for stg meeting presentation
+  filter(!(Pharm == "None" & Time == "Delayed")) #FIXME dropped for stg meeting presentation
+  
+mrna_bd %>% skimr::skim()
+
+mrna_bd %>% 
+  group_by(Time, Pharm, Source) %>% 
+  tally()
+
+mrna_bd$uid <- as.character(seq(1, nrow(mrna_bd)))
+mrna_bd <- mrna_bd %>% 
+  select(-Experiment, -Cell) %>% 
+  unite(Group, Source, Pharm, Time)
+
+mrna_bd <- mrna_bd[, c("Group", "uid",
+                       names(mrna_bd)[!(names(mrna_bd) %in% c("Group", "uid"))])
+                   ]
+
+
+# Remove Outliers 
+mrna_bd_winxiqr_list <- map(unique(mrna_bd$Group), function(group){
+  temp <- mrna_bd[mrna_bd$Group == group, ]
+  dvs <- names(mrna_bd)[!(names(mrna_bd) %in% c("Group", "uid"))]
+  
+  for (dv_col  in dvs){
+    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
+  }
+  
+  return(temp)
+})
+
+mrna_bd_winxiqr <- do.call(rbind, mrna_bd_winxiqr_list)
+
+# Median interpolate missing
+mrna_bd_winxiqr <- imputeMissings::impute(mrna_bd_winxiqr, method = "median/mode")
+```
+
+PCA
+```{r}
+
+vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+           color.by = mrna_bd_winxiqr[, "Group"],
+           turn.x.times = 1,
+           use.colors = RColorBrewer::brewer.pal(7, "Paired")
+)
+
+
+
+mrna_bd_annotations <- mrna_bd_winxiqr %>% 
+  separate(Group, c("Source", "Pharm", "Time")) %>% 
+  select(Source, Pharm, Time)
+
+vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+           color.by = mrna_bd_annotations[, "Source"],
+           turn.x.times = 0,
+           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+)
+
+vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+           color.by = mrna_bd_annotations[, "Pharm"],
+           turn.x.times = 0,
+           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+)
+
+vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+           color.by = mrna_bd_annotations[, "Time"],
+           turn.x.times = 0,
+           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+)
+```
+
+reproducability
+```{r}
+list_for_pca <- list(
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]]
+)
+
+
+
+
+pca_summary_descriptions <- map(list_for_pca, function(df){
+  mk_pca_multi_plt(input.df = df,
+                   scree.max.y = 100)
+})
+
+
+{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[3]]$scree | pca_summary_descriptions[[5]]$scree}/
+{pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[4]]$scree | pca_summary_descriptions[[6]]$scree}
+
+{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[3]]$biplt | pca_summary_descriptions[[5]]$biplt}/
+{pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[4]]$biplt | pca_summary_descriptions[[6]]$biplt}
+```
+
+
+
+Cluster
+```{r}
+set.seed(654684)
+cluster <- pvclust(t(mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]]),
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+
+
+
+```
+
+dendrogram plot method 1
+```{r}
+
+cluster %>% 
+  as.dendrogram() %>% 
+  set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
+  plot()
+
+# plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
+
+# c(bottom, left, top, right)
+par(mar=c(4,2,2,1))
+cluster %>% 
+  as.dendrogram() %>% 
+  set("labels_col", 
+      value = c("#a6cee3", "#1f78b4", "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00"),
+      k = 6) %>%
+  set("branches_k_color", 
+      value = c("#a6cee3", "#1f78b4", "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00"),       k = 6) %>% 
+plot()
+
+my_colors <- case_when(mrna_bd_winxiqr$Group == "Brian_None_Baseline" ~ "#fdd49e",
+          mrna_bd_winxiqr$Group == "Brian_TEA_Compensated" ~ "#fc8d59",
+          mrna_bd_winxiqr$Group == "Brian_TEA_Delayed" ~ "#b30000",
+          mrna_bd_winxiqr$Group == "Daniel_None_Baseline" ~ "#c7e9b4",
+          mrna_bd_winxiqr$Group == "Daniel_TEA_Compensated" ~ "#41b6c4",
+          mrna_bd_winxiqr$Group == "Daniel_TEA_Delayed" ~ "#253494")
+
+colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Groups")
+```
+
+Cor
+```{r}
+library(corrr)
+
+cor_bd <- mrna_bd_winxiqr %>% select(-Group, -uid) %>% correlate()
+
+
+
+library(corrplot)
+corrplot(cor(select(mrna_bd_winxiqr, -Group, -uid)), 
+         p.mat = cor.mtest(select(mrna_bd_winxiqr, -Group, -uid), conf.level = .95)$p,
+         sig.level = .01,
+         insig = "blank",
+         method = "color", 
+         type = "upper",
+         col = RColorBrewer::brewer.pal(n = 8, name = "PuOr"),
+         tl.col = "black", 
+         tl.srt = 45
+         )
+
+
+
+
+
+for (group in unique(mrna_bd_winxiqr$Group)){
+  tiff(file=here("officer_output", paste0(group, "_cor.tiff")),
+       width=7.96, height=6.68, units="in", res=100)
+  
+  corrplot(cor(select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid)), 
+           p.mat = cor.mtest(select(mrna_bd_winxiqr, -Group, -uid), conf.level = .95)$p,
+           sig.level = .01,
+           insig = "blank",
+           method = "color", 
+           type = "upper",
+           col = RColorBrewer::brewer.pal(n = 8, name = "PuOr"),
+           tl.col = "black", 
+           tl.srt = 45
+  )
+  
+  dev.off()
+}
+```
+
+testing anova
+
+
+
+# ###############################################################################
 
 
 
@@ -3038,24 +3241,7 @@ ionic %>%
 ### from untitled2 assumes df = brians joined data
 
 
-```{r}
-# # install.packages("corrr")
-# library(corrr)
-# 
-# x <- df %>% 
-#   dplyr::filter(Pharm == "tea" & Condition == "Delayed") %>% 
-#   dplyr::select( -c(UID, Pharm, Condition)) %>% 
-# correlate() # Create correlation data frame (cor_df)
-# 
-# x %>% 
-#   rearrange() %>%  # rearrange by correlations
-#   shave() # Shave off the upper triangle for a clean result
-# 
-# rplot(x)
-# 
-# # You have to zoom or the chord don't show up. ¯\_(ツ)_/¯
-# network_plot(x, min_cor = .7)
-```
+
 
 
 ```{r}
@@ -3182,41 +3368,7 @@ ionic %>%
 ```
 
 
-```{r}
-# # make network plots
-# library(corrplot)
-# library(psych)
-# library(qgraph)
-# temp <- cor.list[[1]]
-# 
-# mk_plt <- function(use.matrix, use.name){
-#   qgraph(use.matrix,
-#   # minimum= 0,
-#   vsize = 5,
-#   # border.color="#006600",
-#   title = use.name,
-#   label.font = 4,
-#   # edge.color="black",
-#   border.width = 4,
-#   esize = 7,
-#   curveAll = TRUE,
-#   curveDefault = 0.5,
-#   curveShape = -2,
-#   # color= "#006600",
-#   node.width = 1.5,
-#   # border.color= "black",
-#   # borders=TRUE,
-#   # border.color= "black",
-#   # layout= "circle",
-#   fade = FALSE,
-#   labels = colnames(use.matrix) # , labels=TRUE
-# )
-# }
-# 
-# walk(1:length(cor.list), function(i){
-#   mk_plt(cor.list[[i]], treatements[i])
-# })
-```
+
 
 
 ###
@@ -3239,174 +3391,6 @@ ionic %>%
 
 
 
-
-```{r}
-# M <- readxl::read_excel(here("inst", "extdata", "LCTEAhr0hr1hr24.xlsx"))
-# 
-# M.long <- M %>% 
-#   gather(mRNA, Count, 5:75)
-# 
-# M.long %>% 
-#   ggplot(aes(mRNA, Count))+
-#   geom_jitter()+
-#   scale_y_log10()
-# 
-# 
-# M.long <-
-# M.long %>%
-#   mutate(type =
-#              ifelse(mRNA %in% c(
-#                ## Ion Channels ====
-#                #Kv
-#                "Shab", "Shaker", "Shal", "Shaw1", "Shaw2",
-#                "KCNQ1", "KCNQ2",
-#                "KCNH1", "KCNH2", "KCNH3",
-#                #K
-#                "BKKCa", "SKKCa",
-#                "KCNT1", "IRK", "KCNK1", "KCNK2",
-#                #Ca
-#                "CaV1", "CaV2", "CaV3",
-#                #Na
-#                "CbNaV",
-#                "NALCN",
-#                #Hyp/CyclNuc Activated/Gated
-#                "IH",
-#                #TRPs
-#                "TRP-A1", "TRP-A-like", "TRP-M1", "TRP-M3", "TRP-M-like",
-#                #Biogenic amine activated
-#                "HisCL"
-#              ),
-#              "IonChannel",
-#              ifelse(mRNA %in% c(
-#                ## Receptors Biogenic Amines ====
-#                #octopamine
-#                #dopamine
-#                "DAR1A", "DAR2",  "Dopa-1Br",
-#                #serotonin
-#                "HTR1A", "HTR2", "HTR7", "5HTr-1Br",
-#                #histamine
-#                "His-1r", "His-2r", "His-3r",
-#                #gaba
-#                "GABAB-R1",
-#                "LCCH3r",
-#                "RDLr",
-#                "mGABA2", "mGABA3",
-#                ## Receptors Glutamate/Acetylcholine ====
-#                #metabotropic glutamate receptors
-#                "mGluR1", "mGluR2", "mGluR4", "mGluR5", "mGluR7",
-#                #kainate-like receptors
-#                "Kainate-1A", "Kainate-1B", "Kainate-2A", "Kainate-2B", "Kainate-2C",
-#                #NMDA-like receptors
-#                "NMDA-1A", "NMDA-1B", "NMDA-2A", "NMDA-2B", "NMDA-2-like",
-#                #glutamate-gated chloride channel
-#                "GluCl",
-#                #acetylcholine receptors
-#                "mACHrA", "mACHrB",
-#                # Crustacean cardioactive peptide receptor ===
-#                "CCAPr"
-#              ),
-#              "Receptor",
-# 
-#              ifelse(mRNA %in% c(
-#                ## Innexins ====
-#                "INX1", "INX2", "INX3", "INX4", "INX5"
-#              ),
-#              "Innexin",
-# 
-#              ifelse(mRNA %in% c(
-#                #Acetylcholinesterase
-#                "ACHE",
-#                # Actylcholine catalyst
-#                "ChAT",
-#                #vesicular ach transporter
-#                "vAChT",
-#                #vesicular glut transporter
-#                "vGluT"
-#              ),
-#              "Misc",
-#              NA
-#              )))))
-# 
-# ggplot(filter(M, type != "Innexin"), aes(mRNA, Count, color = type))+
-#   geom_jitter()
-# 
-# ggplot(filter(M, type == "Innexin" & mRNA != "INX5"), aes(mRNA, Count, color = type))+
-#   geom_jitter()
-# 
-# ggplot(filter(M, type == "Innexin" & mRNA == "INX5"), aes(mRNA, Count))+
-#   geom_jitter()
-```
-
-```{r}
-
-# temp <- M %>% 
-#   filter(TEA == 0) %>% 
-#   select(names(M[!names(M) %in% c("Sample", "TEA", "Experiment", "Cell")])) 
-# 
-# numeric.cols <- sapply(temp, class) == "numeric"
-# temp <- temp[numeric.cols]
-# 
-# # z <- prcomp(~., data = temp, center = TRUE, scale. = TRUE)
-# # fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
-# # fviz_pca_var(z, col.var="contrib",
-# #              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-# #              repel = TRUE # Avoid text overlapping
-# #              )
-# 
-# 
-# library(factoextra)
-# library(missMDA) # for imputePCA 
-# library("FactoMineR") #PCA
-# 
-# df = temp[, -"IH"]
-# missMDA::imputePCA(df, ncp = 2) # using two components
-# 
-# res.pca <- PCA(df,  graph = FALSE)
-# # Extract eigenvalues/variances
-# get_eig(res.pca)
-# # Visualize eigenvalues/variances
-# fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, 50))
-# # Extract the results for variables
-# var <- get_pca_var(res.pca)
-# var
-# 
-# # Graph of variables: default plot
-# fviz_pca_var(res.pca, col.var = "black")
-# 
-# # Control variable colors using their contributions
-# fviz_pca_var(res.pca, col.var="contrib",
-#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-#              repel = TRUE # Avoid text overlapping
-#              )
-
-```
-
-```{r}
-# df <- EDA.r %>%
-#   filter(Time == 40) %>%
-#   select("r11", "r12", "r1", "rc", "cc", "rmp",
-#    "Mean.Min.V", "Mean.Max.V", "Mean.Med.V", "Mean.Mean.V",
-#     "Mean.Duration", "Mean.On.Duration", "Mean.Duty.Cycle",
-#     "Percent.Shift", "Onset.Delay", "P.Onset.Delay", "Cor",
-#     "Mean.AUC", "Min.AUC", "Mean.AUC.mV.S", "Min.AUC.mV.S")
-# 
-# 
-# z <- prcomp(~., data = df, center = TRUE, scale. = TRUE)
-# fviz_screeplot(z, addlabels = TRUE, ylim = c(0, 50))
-# fviz_pca_var(z, col.var="contrib",
-#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-#              repel = TRUE # Avoid text overlapping
-#              )
-
-# z <- prcomp(~ Fat + Lactose, data = M, center = TRUE, scale. = TRUE)
-#
-# str(z)
-# summary(z)
-# biplot(z)
-
-
-
-```
 ## What structure is there in the dataset?
 
 
