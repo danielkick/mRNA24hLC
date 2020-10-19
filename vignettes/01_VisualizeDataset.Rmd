@@ -395,6 +395,30 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 #   geom_line()+
 #   geom_point()+
 #   facet_grid(.~Key)
+
+#TODO move this to top
+# QC data by completion rate, having variance, and median mrna abundance
+M_all_skim <- M_all %>% skimr::skim()
+M_all_skim <- M_all_skim[M_all_skim$complete_rate >= 0.19 & 
+             M_all_skim$numeric.sd > 0, ]
+
+M_all_skim <- M_all_skim[!(M_all_skim$skim_variable %in% mrna_cols) |
+            ((M_all_skim$skim_variable %in% mrna_cols) & M_all_skim$numeric.p50 >= 50 ), ]
+
+M_all <- M_all[, names(M_all) %in% c(
+  "Condition", "Cell", "Experiment", "Channel", 
+  "Sweep", "Source", "Pharm", "Time", "Sample", 
+  M_all_skim$skim_variable[!is.na(M_all_skim$skim_variable)])
+  ]
+
+# update cols now that data is QCed
+ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")[ionic_cols %in% names(M_all)]
+tecc_cols <- c("vrest", "r11", "r1", "cc.3_4", "cc.3_5", "cc.4_3", "cc.4_5", "cc.5_3", "cc.5_4")[tecc_cols %in% names(M_all)]
+#, "r12", "rc.ig") # ignore rc, ig is a more direct measure
+tevc_cols <- c("ig.3_4", "ig.3_5", "ig.4_5")[tevc_cols %in% names(M_all)]
+epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", 
+               "Max.Amplitude_Delta", "AUC_Delta")[epsp_cols %in% names(M_all)]
+mrna_cols <- mrna_cols[mrna_cols %in% names(M_all)]
 ```
 
 # Primary Questions
@@ -576,6 +600,7 @@ plt_mrna_spagetti %>%
 
 What happens at the network level?
 ```{r}
+#FIXME
 plt_tevc <- M_all %>% 
   select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
   distinct() %>% 
@@ -900,7 +925,7 @@ M_ft <- set_header_labels(M_ft,
 M_ft <- autofit(M_ft)
 M_ft
 
-pptx_file <- "./officer_output/example.pptx"
+pptx_file <- "./officer_output/DanielAnova.pptx"
 save_as_pptx("my table" = M_ft, path = pptx_file)
 
 
@@ -1537,20 +1562,6 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 ### What relationships exist at baseline?
 #### Correlations
 ```{r}
-#TODO move this to top
-# QC data by completion rate, having variance, and median mrna abundance
-M_all_skim <- M_all %>% skimr::skim()
-M_all_skim <- M_all_skim[M_all_skim$complete_rate >= 0.19 & 
-             M_all_skim$numeric.sd > 0, ]
-
-M_all_skim <- M_all_skim[!(M_all_skim$skim_variable %in% mrna_cols) |
-            ((M_all_skim$skim_variable %in% mrna_cols) & M_all_skim$numeric.p50 >= 50 ), ]
-
-M_all <- M_all[, names(M_all) %in% c(
-  "Condition", "Cell", "Experiment", "Channel", 
-  "Sweep", "Source", "Pharm", "Time", "Sample", 
-  M_all_skim$skim_variable[!is.na(M_all_skim$skim_variable)])
-  ]
 
 
 
@@ -1667,7 +1678,7 @@ cor_list_df <- do.call(rbind, cor_list)
 
 
 library(gganimate)
-cor_list_df %>% 
+plt <- cor_list_df %>% 
 ggplot(aes(col_names, row_names, fill = Corr))+
   geom_tile()+
   # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
@@ -1690,7 +1701,7 @@ ggplot(aes(col_names, row_names, fill = Corr))+
   enter_fade()
 
 
-# anim_save("filenamehere.gif", p)
+anim_save(here("officer_output", "FullDVCorrChange.gif"), plt)
 ```
 
 ![](../plots/BaselineTEA.png)
@@ -1731,7 +1742,11 @@ map(list(
   colors = list.obj[[3]])
 })
 
-cowplot::plot_grid(plotlist = ecdf_corr_list)
+
+
+ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
+       filename = here("officer_output", "DanielECDF.tiff"),
+       width = 11.5, height = 4.76)
 ```
 
 ####Repeat with only mrna
@@ -1786,7 +1801,7 @@ cor_list_df <- do.call(rbind, cor_list)
 
 
 library(gganimate)
-cor_list_df %>% 
+plt <- cor_list_df %>% 
 ggplot(aes(col_names, row_names, fill = Corr))+
   geom_tile()+
   # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
@@ -1809,7 +1824,7 @@ ggplot(aes(col_names, row_names, fill = Corr))+
   enter_fade()
 
 
-# anim_save("filenamehere.gif", p)
+anim_save(here("officer_output", "FullDVCorrChange_mrnaonly.gif"), plt)
 ```
 
 ```{r}
@@ -1847,7 +1862,9 @@ map(list(
   colors = list.obj[[3]])
 })
 
-cowplot::plot_grid(plotlist = ecdf_corr_list)
+ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
+       filename = here("officer_output", "DanielECDF_mrnaonly.tiff"),
+       width = 11.5, height = 4.76)
 ```
 
 
@@ -1907,10 +1924,17 @@ cluster <- pvclust(t(select(M_winxiqr, - Condition, -Experiment, -Cell)),
 dendrogram plot method 1
 ```{r}
 library(dendextend)
+
+tiff(file=here("officer_output", "hclust.tiff"),
+     width=7.96, height=6.68, units="in", res=100)
+
 cluster %>% 
   as.dendrogram() %>% 
   set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
   plot()
+
+
+dev.off()
 
 # plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
 ```
@@ -1950,6 +1974,10 @@ ggplot()+
         axis.ticks.x = element_blank(),
         text = element_text(family = "serif"),
         legend.position = "bottom")
+
+ggsave(plot = last_plot(), 
+       filename = here("officer_output", "hclust_ggplot.tiff"),
+       width = 11.5, height = 4.76)
 ```
 
 have dendrogram on both sides
@@ -2060,7 +2088,7 @@ temp.clust <- as.dendrogram(cluster$hclust)
 assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
 
 # use names to get groupings
-time_groups <- as.factor(unlist(transpose(stringr::str_split(names(assignment), pattern = "-"))[[3]]))
+time_groups <- as.factor(unlist(transpose(stringr::str_split(names(assignment), pattern = "-"))[[1]]))
 
 library(purrr)
 set.seed(9348957)
@@ -2082,9 +2110,12 @@ resample.indices %>%
   geom_density()+
   geom_vline(xintercept = as.numeric(resample.indices[1, "Jaccard"]))+
   xlim(0,1)+
-  theme_minimal()
+  theme_minimal()+
+  labs(subtitle = paste0("ep = ", as.character(round(mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"]), digits = 4))))
 # empirical p-value from 10,000 random samplings
-mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"])
+ggsave(plot = last_plot(), 
+       filename = here("officer_output", "hclust_jaccard_dist.tiff"),
+       width = 11.5, height = 4.76)
 ```
 
 #### PCA
@@ -2148,11 +2179,13 @@ pca_summary_descriptions <- map(list_for_pca, function(df){
 
 # {p4|p0}/{p1+p2+p3}
 
-{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}
-
-{pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
-
+{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}/
 {pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[3]]$biplt}
+# {pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
+
+ggsave(plot = last_plot(), 
+       filename = here("officer_output", "PCA_Contrast.tiff"),        
+       width = 11.5, height = 4.76)
 
 ```
 
@@ -2289,7 +2322,7 @@ PCA
 vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
            color.by = mrna_bd_winxiqr[, "Group"],
            turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(7, "Paired")
+           use.colors = RColorBrewer::brewer.pal(8, "Paired")[-3]
 )
 
 
@@ -2300,21 +2333,23 @@ mrna_bd_annotations <- mrna_bd_winxiqr %>%
 
 vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
            color.by = mrna_bd_annotations[, "Source"],
-           turn.x.times = 0,
+           turn.x.times = 1,
            use.colors = RColorBrewer::brewer.pal(3, "Set1")
 )
 
+
 vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
            color.by = mrna_bd_annotations[, "Pharm"],
-           turn.x.times = 0,
+           turn.x.times = 1,
            use.colors = RColorBrewer::brewer.pal(3, "Set1")
 )
 
 vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
            color.by = mrna_bd_annotations[, "Time"],
-           turn.x.times = 0,
+           turn.x.times = 1,
            use.colors = RColorBrewer::brewer.pal(3, "Set1")
 )
+
 ```
 
 reproducability
@@ -2340,8 +2375,12 @@ pca_summary_descriptions <- map(list_for_pca, function(df){
 {pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[3]]$scree | pca_summary_descriptions[[5]]$scree}/
 {pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[4]]$scree | pca_summary_descriptions[[6]]$scree}
 
+ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_Scree.tiff"),        width = 11.5, height = 4.76)
+
 {pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[3]]$biplt | pca_summary_descriptions[[5]]$biplt}/
-{pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[4]]$biplt | pca_summary_descriptions[[6]]$biplt}
+  {pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[4]]$biplt | pca_summary_descriptions[[6]]$biplt}
+
+ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_biplt.tiff"),        width = 11.5, height = 4.76)
 ```
 
 
@@ -2369,6 +2408,8 @@ cluster %>%
 # plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
 
 # c(bottom, left, top, right)
+tiff(file=here("officer_output", "ContrastSource_hclust.tiff"),      width=7.96, height=6.68, units="in", res=100) 
+
 par(mar=c(4,2,2,1))
 cluster %>% 
   as.dendrogram() %>% 
@@ -2387,13 +2428,18 @@ my_colors <- case_when(mrna_bd_winxiqr$Group == "Brian_None_Baseline" ~ "#fdd49e
           mrna_bd_winxiqr$Group == "Daniel_TEA_Delayed" ~ "#253494")
 
 colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Groups")
+
+
+
+dev.off()
+
 ```
 
 Cor
 ```{r}
-library(corrr)
-
-cor_bd <- mrna_bd_winxiqr %>% select(-Group, -uid) %>% correlate()
+# library(corrr)
+# 
+# cor_bd <- mrna_bd_winxiqr %>% select(-Group, -uid) %>% correlate()
 
 
 
@@ -2414,7 +2460,7 @@ corrplot(cor(select(mrna_bd_winxiqr, -Group, -uid)),
 
 
 for (group in unique(mrna_bd_winxiqr$Group)){
-  tiff(file=here("officer_output", paste0(group, "_cor.tiff")),
+  tiff(file=here("officer_output", paste0("ContrastSource_", group, "_cor.tiff")),
        width=7.96, height=6.68, units="in", res=100)
   
   corrplot(cor(select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid)), 
@@ -2657,6 +2703,12 @@ map(list(
 })
 
 cowplot::plot_grid(plotlist = ecdf_corr_list)
+
+
+ggsave(plot = last_plot(),         
+       filename = here("officer_output", "ContrastSource_ecdfs.tiff"),        
+       width = 11.5, height = 4.76)
+
 ```
 
 
