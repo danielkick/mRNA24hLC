@@ -2430,7 +2430,418 @@ for (group in unique(mrna_bd_winxiqr$Group)){
 }
 ```
 
-testing anova
+
+scatterplots
+```{r}
+#TODO ggscatmat is plotting points over the cors
+
+# mrna_bd_scatter <- map(unique(mrna_bd_winxiqr$Group), function(group){
+#   temp <- select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid)
+#   GGally::ggscatmat(temp)
+# })
+# 
+# mrna_bd_scatter[[1]]
+# mrna_bd_scatter[[2]]
+# library(GGally)
+# ggscatmat(mtcars)
+# 
+# pairs(select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid))
+```
+
+ecdfs
+```{r}
+cor_list_df <- map(unique(mrna_bd_winxiqr$Group), function(group){
+  temp <- cor(select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid)) %>% as.data.frame()
+  temp$row <- rownames(temp)
+  temp <- gather(temp, "col", "Corr", names(temp)[names(temp) != "row"])
+  temp$Group <- group
+  
+  return(temp)  
+})
+cor_list_df <- do.call(rbind, cor_list_df)
+
+cor_list_df$Group %>% unique()
+
+
+
+ecdf_corr_list <- 
+map(list(
+    ## ----
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Brian_None_Baseline", 
+    "Brian_TEA_Compensated"
+    ), ],
+  c("Brian_None_Baseline", 
+    "Brian_TEA_Compensated"
+    #"Brian_TEA_Delayed", 
+    #"Daniel_None_Baseline", 
+    #"Daniel_TEA_Compensated", 
+    #"Daniel_TEA_Delayed"
+    ),
+  c( "#a6cee3", 
+     "#1f78b4"
+    # "#fb9a99", 
+    # "#e31a1c", 
+    # "#fdbf6f", 
+    # "#ff7f00"
+    )),
+    list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Brian_TEA_Compensated",
+    "Brian_TEA_Delayed"
+        ), ],
+  c(#"Brian_None_Baseline", 
+    "Brian_TEA_Compensated",
+    "Brian_TEA_Delayed"
+    #"Daniel_None_Baseline", 
+    #"Daniel_TEA_Compensated", 
+    #"Daniel_TEA_Delayed"
+    ),
+  c(# "#a6cee3", 
+     "#1f78b4", 
+     "#fb9a99"
+    # "#e31a1c", 
+    # "#fdbf6f", 
+    # "#ff7f00"
+    )),
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Brian_None_Baseline", 
+    "Brian_TEA_Delayed"
+    ), ],
+  c("Brian_None_Baseline", 
+    #"Brian_TEA_Compensated",
+    "Brian_TEA_Delayed"
+    #"Daniel_None_Baseline", 
+    #"Daniel_TEA_Compensated", 
+    #"Daniel_TEA_Delayed"
+    ),
+  c( "#a6cee3", 
+    # "#1f78b4", 
+     "#fb9a99"
+    # "#e31a1c", 
+    # "#fdbf6f", 
+    # "#ff7f00"
+    )),
+  
+  ## ----
+  
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Daniel_None_Baseline", 
+    "Daniel_TEA_Compensated"
+    ), ],
+  c(#"Brian_None_Baseline", 
+    #"Brian_TEA_Compensated",
+    #"Brian_TEA_Delayed", 
+    "Daniel_None_Baseline", 
+    "Daniel_TEA_Compensated"
+    #"Daniel_TEA_Delayed"
+    ),
+  c(# "#a6cee3", 
+    # "#1f78b4", 
+    # "#fb9a99", 
+     "#e31a1c", 
+     "#fdbf6f"
+    # "#ff7f00"
+    )),
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Daniel_TEA_Compensated", 
+    "Daniel_TEA_Delayed"
+    ), ],
+  c(#"Brian_None_Baseline", 
+    #"Brian_TEA_Compensated",
+    #"Brian_TEA_Delayed", 
+    #"Daniel_None_Baseline", 
+    "Daniel_TEA_Compensated", 
+    "Daniel_TEA_Delayed"
+    ),
+  c(# "#a6cee3", 
+    # "#1f78b4", 
+    # "#fb9a99", 
+     "#e31a1c", 
+     "#fdbf6f"
+    # "#ff7f00"
+    )),
+  
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Daniel_None_Baseline", 
+    "Daniel_TEA_Delayed"
+    ), ],
+  c(#"Brian_None_Baseline", 
+    #"Brian_TEA_Compensated", 
+    #"Brian_TEA_Delayed", 
+    "Daniel_None_Baseline", 
+    #"Daniel_TEA_Compensated", 
+    "Daniel_TEA_Delayed"),
+  c(#"#a6cee3", 
+    # "#1f78b4", 
+    #"#fb9a99", 
+     "#e31a1c", 
+    #"#fdbf6f", 
+    "#ff7f00")),
+  
+  
+  ## ----
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Brian_None_Baseline", 
+    "Daniel_None_Baseline"
+    ), ],
+  c("Brian_None_Baseline", 
+    #"Brian_TEA_Compensated", 
+    #"Brian_TEA_Delayed", 
+    "Daniel_None_Baseline"
+    #"Daniel_TEA_Compensated", 
+    # "Daniel_TEA_Delayed"
+    ),
+  c("#a6cee3", 
+    # "#1f78b4", 
+    #"#fb9a99", 
+    "#e31a1c"
+    #"#fdbf6f", 
+    # "#ff7f00"
+    )),
+  
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Brian_TEA_Compensated", 
+    "Daniel_TEA_Compensated"
+    ), ],
+  c(#"Brian_None_Baseline", 
+    "Brian_TEA_Compensated",
+    #"Brian_TEA_Delayed", 
+    # "Daniel_None_Baseline", 
+    "Daniel_TEA_Compensated"
+    #"Daniel_TEA_Delayed"
+    ),
+  c(#"#a6cee3", 
+    "#1f78b4",
+    #"#fb9a99", 
+     # "#e31a1c", 
+    "#fdbf6f"
+    #"#ff7f00"
+    )),
+  list(
+  cor_list_df[cor_list_df$Group %in% c(
+    "Brian_TEA_Delayed", 
+    "Daniel_TEA_Delayed"
+    ), ],
+  c(#"Brian_None_Baseline", 
+    #"Brian_TEA_Compensated", 
+    "Brian_TEA_Delayed",
+    # "Daniel_None_Baseline", 
+    #"Daniel_TEA_Compensated", 
+    "Daniel_TEA_Delayed"),
+  c(#"#a6cee3", 
+    # "#1f78b4", 
+    "#fb9a99",
+     # "#e31a1c", 
+    #"#fdbf6f", 
+    "#ff7f00")
+  )
+    ## ----
+), function(list.obj){
+  plot_ecdf_ks(
+  df = list.obj[[1]],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = list.obj[[2]][1],
+  group2 = list.obj[[2]][2],
+  colors = list.obj[[3]])
+})
+
+cowplot::plot_grid(plotlist = ecdf_corr_list)
+```
+
+
+
+
+Compare changes
+```{r}
+# refresh NO median interpolation
+mrna_bd_winxiqr <- do.call(rbind, mrna_bd_winxiqr_list)
+
+mrna_bd_winxiqr_to_test <- mrna_bd_winxiqr %>% separate(Group, c("Source", "Pharm", "Time")) %>% distinct()
+
+temp_list <- map(
+  names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))], function(temp_col){
+    print(temp_col)
+    
+    temp <- mrna_bd_winxiqr_to_test[!is.na(mrna_bd_winxiqr_to_test[[temp_col]]), ]
+    
+    temp_b <- temp[temp$Source == "Brian", ]
+    temp_d <- temp[temp$Source == "Daniel", ]
+
+    stat_list <- map(list(temp_b, temp_d), function(temp_in){
+      temp_shuffle <- temp_in
+    
+      
+      fm <- lm(as.formula(paste0(temp_col, " ~ Time")), data = temp_shuffle)
+      
+      fm_hsd <- agricolae::HSD.test(fm, trt = "Time") 
+      fm_hsd <- fm_hsd$group
+      
+      fm_hsd$Condition <- rownames(fm_hsd)
+      
+      
+
+      resample_array <- map(1:1000, function(i){
+        temp_shuffle$Time <- sample(temp_shuffle$Time, replace = F)
+        fm <- lm(as.formula(paste0(temp_col, " ~ Time")), data = temp_shuffle)      
+        return(car::Anova(fm)[1,3])
+      }) %>% unlist()
+
+      return(list(
+        Source = unique(temp_shuffle$Source),
+        dv = temp_col,
+        p = car::Anova(fm)[1,4],
+        ep = mean(resample_array >= car::Anova(fm)[1,3]),
+        hsd_groups = fm_hsd,
+        fm = fm))
+    })
+    
+    return(stat_list)  
+  })
+
+backup <- temp_list
+```
+
+```{r}
+temp_list <- backup
+temp_list <- temp_list %>% transpose()
+
+temp_list_1 <- temp_list[[1]] %>% transpose()
+temp_list_2 <- temp_list[[2]] %>% transpose()
+
+
+fm_overview_table <- data.frame(Source = c(unlist(temp_list_1[[1]]), unlist(temp_list_2[[1]])),
+                                dv  = c(unlist(temp_list_1[[2]]), unlist(temp_list_2[[2]])),
+                                p = c(unlist(temp_list_1[[3]]), unlist(temp_list_2[[3]])),
+                                ep = c(unlist(temp_list_1[[4]]), unlist(temp_list_2[[4]]))
+                                )
+
+# work up post hoc stats
+temp_list_hsd_1 <- map(seq_along(temp_list_1[[5]]), function(i){
+      temp_list_1[[5]][[i]] %>% 
+      gather("dv", "Estimate", names(temp_list_1[[5]][[i]])[1]) %>% 
+      pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
+      mutate_all(as.character)
+  
+})
+
+temp_list_hsd_2 <- map(seq_along(temp_list_2[[5]]), function(i){
+      temp_list_2[[5]][[i]] %>% 
+      gather("dv", "Estimate", names(temp_list_2[[5]][[i]])[1]) %>% 
+      pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
+      mutate_all(as.character)
+  
+}) 
+
+
+fm_overview_hsd_1 <- do.call(rbind, temp_list_hsd_1)
+fm_overview_hsd_2 <- do.call(rbind, temp_list_hsd_2)
+fm_overview_hsd <- rbind(fm_overview_hsd_1, fm_overview_hsd_2) 
+
+fm_overview_table <- cbind(fm_overview_table, fm_overview_hsd)
+fm_overview_table <- fm_overview_table[, -5] #rm redundant dv col
+
+fm_overview_table <- left_join(fm_overview_table, 
+                               rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName))
+
+# add additional cols
+fm_overview_table$fdr <- c(p.adjust(fm_overview_table[fm_overview_table$Source == "Brian", "ep"], method = "fdr"),
+                           p.adjust(fm_overview_table[fm_overview_table$Source == "Daniel", "ep"], method = "fdr"))
+
+fm_overview_table[fm_overview_table$Source == "Daniel", "ep"]
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Estimate_Baseline = as.numeric(Estimate_Baseline),
+         Estimate_Compensated = as.numeric(Estimate_Compensated),
+         Estimate_Delayed = as.numeric(Estimate_Delayed)) %>% 
+  mutate(p = round(p, digits = 4),
+         ep = round(ep, digits = 4),
+         fdr = round(fdr, digits = 4),
+         Estimate_Baseline = round(Estimate_Baseline, digits = 4),
+         Estimate_Compensated = round(Estimate_Compensated, digits = 4),
+         Estimate_Delayed = round(Estimate_Delayed, digits = 4)) %>% 
+  mutate(stars = case_when(fdr > 0.10               ~ "",
+                           fdr < 0.10 & fdr > 0.05  ~ ".",
+                           fdr < 0.05 & fdr > 0.01  ~ "*",
+                           fdr < 0.01 & fdr > 0.001 ~ "**",
+                           fdr < 0.001              ~ "***"
+  ))
+
+fm_overview_table <- fm_overview_table %>% arrange(Family, dv, Source)
+
+M_ft <-flextable(fm_overview_table,
+                 col_keys = c("Family", "dv", "Source",
+                              "p", "ep",
+                              "fdr", 
+                              "stars", "Estimate_Baseline", "Estimate_Compensated", "Estimate_Delayed"))
+
+M_ft <- theme_vanilla(M_ft)
+M_ft <- merge_v(M_ft, j = c("Family", "dv") )
+# M_ft <- color(M_ft, ~ fdr < 0.05, ~ stars, color = "red")
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ Source, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ dv, bold = TRUE)
+M_ft <- bold(M_ft, ~ p   <= 0.05, ~ p, bold = TRUE)
+M_ft <- bold(M_ft, ~ ep  <= 0.05, ~ ep, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ fdr, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ stars, bold = TRUE)
+
+# get the groupings without showing the columns. 
+
+color_a = "#ffeda0"
+color_ab= "#feb24c"
+color_b = "#f03b20"
+color_c = "#2b8cbe"
+
+M_ft <- bg(M_ft, ~ groups_Baseline == "a", ~ Estimate_Baseline, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_Baseline == "ab",~ Estimate_Baseline, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_Baseline == "b", ~ Estimate_Baseline, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_Baseline == "c", ~ Estimate_Baseline, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_Compensated == "a", ~ Estimate_Compensated, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_Compensated == "ab",~ Estimate_Compensated, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_Compensated == "b", ~ Estimate_Compensated, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_Compensated == "c", ~ Estimate_Compensated, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_Delayed == "a", ~ Estimate_Delayed, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_Delayed == "ab",~ Estimate_Delayed, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_Delayed == "b", ~ Estimate_Delayed, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_Delayed == "c", ~ Estimate_Delayed, bg = color_c)
+
+
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Baseline, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Compensated, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Delayed, bg = "White")
+
+
+M_ft <- set_header_labels(M_ft, 
+                          dv = "mRNA",
+                          stars = "",
+                          Estimate_Baseline = "Baseline", 
+                          Estimate_Compensated = "Compensated", 
+                          Estimate_Delayed = "Delayed" )
+
+M_ft <- autofit(M_ft)
+M_ft
+
+pptx_file <- "./officer_output/ContrastTEAPath.pptx"
+save_as_pptx("my table" = M_ft, path = pptx_file)
+
+
+
+
+# fm_overview_table %>% 
+#   ggplot(aes(x = ep))+
+#   geom_histogram(binwidth = 0.025)+
+#   geom_vline(xintercept = 0.05)
+```
 
 
 
