@@ -266,15 +266,15 @@ mrna[mrna$Source == "Brian" &
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "TTX", "Cell"] <- unlist(transpose(temp[[2]]))
 ## deduplicate mrna
-mrna <- mrna %>% 
-  gather(key = "mrna", 
-         value = "count", 
-         names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]) %>% 
+mrna <- mrna %>%
+  gather(key = "mrna",
+         value = "count",
+         names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample", "Experiment", "Cell"))]) %>%
   filter(mrna != c("htr2b", "kainate2b", "nmda1a", "nmda2b", "mglur7", "trpm1", "machrb", "htr1b")) %>% # drop fully missing mrnas
-  group_by(Source, Experiment, Cell, mrna) %>% 
+  group_by(Source, Pharm, Time, Experiment, Cell, mrna) %>%
   mutate(count = median(count, na.rm = T)) %>%
-  ungroup() %>% 
-  distinct() %>% 
+  ungroup() %>%
+  distinct() %>%
   spread(key = "mrna", value = "count")
 ```
 
@@ -893,7 +893,9 @@ M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Compensated, bg = "White")
 M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Delayed, bg = "White")
 
 
-M_ft <- set_header_labels(M_ft, Estimate_Baseline = "Baseline", Estimate_Compensated = "Compensated", Estimate_Delayed = "Delayed" )
+M_ft <- set_header_labels(M_ft, 
+                          dv = "", stars = "",
+                          Estimate_Baseline = "Baseline", Estimate_Compensated = "Compensated", Estimate_Delayed = "Delayed" )
 
 M_ft <- autofit(M_ft)
 M_ft
