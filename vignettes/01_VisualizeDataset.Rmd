@@ -398,6 +398,7 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 
 #TODO move this to top
 # QC data by completion rate, having variance, and median mrna abundance
+M_all_outliers <- M_all
 M_all_skim <- M_all %>% skimr::skim()
 M_all_skim <- M_all_skim[M_all_skim$complete_rate >= 0.19 & 
              M_all_skim$numeric.sd > 0, ]
@@ -421,10 +422,19 @@ epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AU
 mrna_cols <- mrna_cols[mrna_cols %in% names(M_all)]
 ```
 
+
+Overview of number of individuals
+```{r}
+M_all %>% select(Condition, Experiment, Cell) %>% distinct() %>% group_by(Condition) %>% tally() 
+
+M_all %>% select(Condition, Experiment) %>% distinct() %>% group_by(Condition) %>% tally() 
+```
+
 # Primary Questions
 ## mk plots
 What happens at the individual cell level?
 
+plots for stg meeting
 membrane
 ```{r}
 plt_membrane <- M_all %>% 
@@ -432,11 +442,30 @@ plt_membrane <- M_all %>%
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct() 
+  distinct() %>% 
+  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+                               Condition == "Compensated" ~ "1h", 
+                               Condition == "Delayed" ~ "24h"
+                               ))
+  
 
 
 plot_univariate_decorated_0 <- function(temp = plt_membrane,
-                                        yvar = "Ihtk.0"){
+                                        yvar = "Ihtk.0",
+                                        new.y = "",
+                                        new.title = ""){
+  # allow for customizaiton of y axis
+  if (typeof(new.title) == "character"){
+    if(new.y == ""){
+      new.title <- yvar
+    } else if (typeof(new.y) == "character" | typeof(new.y) == "expression"){
+      new.title <- new.title
+    } else {
+      warning("new.y not supported type")
+      new.title <- yvar
+    }
+  }
+  
   names(temp)[names(temp) == yvar] <- "yvar"
   
   temp_bands <- temp %>% 
@@ -467,14 +496,23 @@ plot_univariate_decorated_0 <- function(temp = plt_membrane,
     geom_point(aes(x = Condition, y = q50), color = "lightgray", size = 4)+
     geom_point(aes(x = Condition, y = q50), color = "black", size = 4, shape = 1)+
     geom_point(alpha = 0.5)+
-    labs(y=yvar)
+    labs(title = new.title, y=new.y, x = "")
   
   return(temp_plt)
 }
 
 
 membrane_dvs_plt <- c("r11", "r1", "Ihtk.0", "Ia.0")
-membrane_plts <- map(membrane_dvs_plt, function(i){plot_univariate_decorated_0(temp = ungroup(plt_membrane), yvar = i)})
+new.y_vector <- c(expression(M~Omega), expression(M~Omega), "nA", "nA" )
+new.title_vector     <- c(expression(R[In]), 
+                          expression(R[Membrane]), 
+                          expression(I[HTK] ~ Intercept), 
+                          expression(I[A] ~ Intercept))
+membrane_plts <- map(seq_along(membrane_dvs_plt), function(i){plot_univariate_decorated_0(
+  temp = ungroup(plt_membrane), 
+  yvar = membrane_dvs_plt[i],
+  new.y = new.y_vector[i],
+  new.title = new.title_vector[i])})
 
 membrane_plts[[1]]
 
@@ -488,29 +526,88 @@ walk(seq_along(membrane_dvs_plt), function(i){
   ggsave(paste0(membrane_dvs_plt[i],".tiff"), 
          plot = membrane_plts[[i]], 
          path = here("officer_output"), 
-         width = 11.5/2, height = 4.76)  
+         width = 11.5/4, height = 4.76)  
 })
 ```
+
+excitability
+```{r}
+plt_epsp <- M_all[, c("Condition", "Experiment", "Cell", epsp_cols)] %>% 
+  group_by(Condition, Experiment, Cell) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+                               Condition == "Compensated" ~ "1h", 
+                               Condition == "Delayed" ~ "24h"
+                               ))
+
+epsp_dvs_plt <- c("Cor", 
+                  "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+                  "AUC_Obs", "AUC_Sim", 
+                  "Max.Amplitude_Delta", "AUC_Delta")
+new.y_vector <- c(" ", #FIXME if empty then title doesn't update
+                  "mV", "mV", "mV", 
+                  "mV/Sec", "mV/Sec",
+                  "mV", "mV/Sec")
+new.title_vector <- c("Correlation Coefficient", 
+                      "Observed Baseline", "Observed Amplitude", "Simulated Amplitude", 
+                      "Observed AUC", "Simulated AUC",
+                      "Difference Amplitude", "Difference AUC")
+
+epsp_plts <- map(seq_along(epsp_cols), function(i){plot_univariate_decorated_0(
+  temp = ungroup(plt_epsp), 
+  yvar = epsp_cols[i],
+  new.y = new.y_vector[i],
+  new.title = new.title_vector[i] )})
+
+
+epsp_plts[[1]]
+
+
+walk(seq_along(epsp_dvs_plt), function(i){
+  ggsave(paste0(epsp_dvs_plt[i],".tiff"), 
+         plot = epsp_plts[[i]], 
+         path = here("officer_output"), 
+         width = 11.5/4, height = 4.76)  
+})
+```
+
 
 mrna
 univariate change over time -- bend quartile
 ```{r}
-plt_mrna <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>% 
-  # select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
+plt_membrane <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>% 
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct() 
+  distinct() %>% 
+  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+                               Condition == "Compensated" ~ "1h", 
+                               Condition == "Delayed" ~ "24h"
+                               ))
 
-mrna_plts <- map(mrna_cols, function(i){plot_univariate_decorated_0(temp = ungroup(plt_mrna), yvar = i)})
+
+mrna_plts <- map(seq_along(mrna_cols), function(i){plot_univariate_decorated_0(
+  temp = ungroup(plt_membrane), 
+  yvar = mrna_cols[i],
+  new.y = "Count",
+  new.title = mrna_cols[i] )})
+
+
+mrna_plts[[1]]+theme(plot.title = element_text(face="italic"))
+
 
 walk(seq_along(mrna_cols), function(i){
   ggsave(paste0(mrna_cols[i],".tiff"), 
-         plot = mrna_plts[[i]], 
+         plot = mrna_plts[[i]]+theme(plot.title = element_text(face="italic")), 
          path = here("officer_output"), 
-         width = 11.5/2, height = 4.76)  
+         width = 11.5/4, height = 4.76)  
 })
 ```
+
+
+
 
 univariate change over time -- boxplots
 ```{r}
@@ -601,54 +698,117 @@ plt_mrna_spagetti %>%
 What happens at the network level?
 ```{r}
 #FIXME
-plt_tevc <- M_all %>% 
+plt_tevc <- M_all_outliers %>% 
   select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
   distinct() %>% 
   gather("ElectricalSynapse", "ig", c("ig.3_4", "ig.3_5", "ig.4_5")) %>% 
-  filter(!is.na(ig)) 
+  filter(!is.na(ig))  %>% 
+  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+                               Condition == "Compensated" ~ "1h", 
+                               Condition == "Delayed" ~ "24h"
+                               ))
 
-plt_1.1 <- 
-plt_tevc %>% 
-  filter(ElectricalSynapse != "ig.4_5") %>% 
-  ggplot(aes(x = Condition, y = ig))+
-  geom_boxplot()+
-  ggbeeswarm::geom_beeswarm(alpha = 0.3)+
-  # geom_violin()+
-  # geom_point(position = position_jitter(width = 0.05), alpha = 0.3)+
-  facet_wrap(.~ElectricalSynapse)
-  
-plt_1.2 <- plt_tevc %>% 
-  filter(ElectricalSynapse == "ig.4_5") %>% 
-  ggplot(aes(x = Condition, y = ig))+
-    geom_segment(aes(x = "Baseline", xend = "Baseline", y =0, yend = 0.05), color = "gray", size = 2)+
-  geom_boxplot()+
-  ggbeeswarm::geom_beeswarm(alpha = 0.3)+
-  facet_wrap(.~ElectricalSynapse)+
+
+plt_1.1 <- plot_univariate_decorated_0(
+  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_4")), 
+  yvar = "ig",
+  new.y = "nA/mV",
+  new.title = expression(I[g]~LC[3] %<->% LC[4]))+
+  coord_cartesian(ylim = c(0, 0.1))
+
+plt_1.2 <- plot_univariate_decorated_0(
+  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_5")), 
+  yvar = "ig",
+  new.y = "nA/mV",
+  new.title = expression(I[g]~LC[3] %<->% LC[5]))+
+  coord_cartesian(ylim = c(0, 0.1))
+
+plt_1.3 <- plot_univariate_decorated_0(
+  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.4_5")), 
+  yvar = "ig",
+  new.y = "nA/mV",
+  new.title = expression(I[g]~LC[4] %<->% LC[5]))+
+  coord_cartesian(ylim = c(0, 0.5))+
   scale_y_continuous(position = "right")
 
+
 library(patchwork)
-plt_1.1 + plt_1.2 + plot_layout(widths = c(2, 1) )
+plt_1.1 + plt_1.2 + plt_1.3+ plot_layout(widths = c(1, 1, 1) )
+
+
+ggsave(paste0("ig_lc34.tiff"), 
+         plot = plt_1.1, 
+         path = here("officer_output"), 
+         width = 11.5/4, height = 4.76)  
+ggsave(paste0("ig_lc35.tiff"), 
+         plot = plt_1.2, 
+         path = here("officer_output"), 
+         width = 11.5/4, height = 4.76)  
+ggsave(paste0("ig_lc45.tiff"), 
+         plot = plt_1.3, 
+         path = here("officer_output"), 
+         width = 11.5/4, height = 4.76)  
+
+
 
 #### ####
 
-plt_tecc <- M_all %>% 
+plt_tecc <- M_all_outliers %>% 
   select(Condition, Experiment, cc.3_4, cc.3_5, cc.4_3, cc.4_5, cc.5_3, cc.5_4) %>% 
   group_by(Condition, Experiment) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct() 
+  distinct()  %>% 
+  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+                               Condition == "Compensated" ~ "1h", 
+                               Condition == "Delayed" ~ "24h"
+                               ))
 
-plt_2.0 <- 
-plt_tecc %>% 
-  gather("Cells", "CC", c("cc.3_4", "cc.3_5", "cc.4_3", "cc.4_5", "cc.5_3", "cc.5_4")) %>% 
-  mutate(Cells = factor(Cells, levels = c("cc.3_4", "cc.4_3", "cc.3_5", "cc.5_3", "cc.4_5", "cc.5_4"))) %>% 
-  filter(!is.na(CC)) %>% 
-  ggplot(aes(Condition, CC))+
-  geom_boxplot()+
-  ggbeeswarm::geom_beeswarm(alpha = 0.3)+
-  facet_grid(.~Cells)
+cowplot::plot_grid(plotlist = list(
+  plot_univariate_decorated_0(
+    temp = plt_tecc, 
+    yvar = "cc.3_4",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[3] %->% LC[4]))+
+    coord_cartesian(ylim = c(0, 1)),
+  
+  plot_univariate_decorated_0(
+    temp = plt_tecc, 
+    yvar = "cc.3_5",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[3] %->% LC[5]))+
+    coord_cartesian(ylim = c(0, 1)),
+  
+  plot_univariate_decorated_0(
+    temp = plt_tecc, 
+    yvar = "cc.4_3",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[4] %->% LC[3]))+
+    coord_cartesian(ylim = c(0, 1)),
+  
+  plot_univariate_decorated_0(
+    temp = plt_tecc, 
+    yvar = "cc.4_5",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[4] %->% LC[5]))+
+    coord_cartesian(ylim = c(0, 1)),
+  
+  plot_univariate_decorated_0(
+    temp = plt_tecc, 
+    yvar = "cc.5_3",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[5] %->% LC[4]))+
+    coord_cartesian(ylim = c(0, 1)),
+  
+  plot_univariate_decorated_0(
+    temp = plt_tecc, 
+    yvar = "cc.5_4",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[5] %->% LC[4]))+
+    coord_cartesian(ylim = c(0, 1))
+))
 
-plt_2.0
+
 
 #### ####
 
@@ -696,7 +856,7 @@ what happens at the level of output (excitability)?
 
 ## mk table
 run anovas
-```{r}
+```{r eval=FALSE}
 # temp <- M_all %>% 
 #   select(Condition, Experiment, Cell,  Ihtk.0) %>% 
 #   group_by(Condition, Experiment, Cell) %>% 
@@ -825,7 +985,7 @@ fm_overview_hsd <- do.call(rbind, temp_list_hsd)
 ```
 
 Make table
-```{r}
+```{r eval=FALSE}
 fm_overview_table <- full_join(fm_overview_table, fm_overview_hsd)
 
  
@@ -1749,6 +1909,148 @@ ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1),
        width = 11.5, height = 4.76)
 ```
 
+
+
+ecdfs split by data type
+```{r}
+temp <- cor_list_df %>% 
+  mutate(Condition = case_when(Condition == "Baseline" ~ "0h",
+                               Condition == "Compensated" ~ "1h",
+                               Condition == "Delayed" ~ "24h"))
+
+
+temp$Group <- NA
+
+cor_mem_names <- c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
+cor_exc_names <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta") 
+cor_mrna_names <- c("ache", "bkkca", "cav1", "cav2", "ccapr", "chat", "d1ar", "d2ar", "glucl", "hiscl", "hisr1", "htr1a", "htr7", "inx1", "inx2", "inx3", "inx4", "inx5", "irk", "kainate1b", "kainate2a", "kainate2c", "kcnh1eag", "kcnh2", "kcnh3", "kcnq2", "kcnt1", "lcch3like", "machra", "mgabar1", "mgabar2", "mgabar3", "mglur1", "mglur2", "mglur5", "nalcn", "nav", "nmda1b", "nmda2a", "nmda2like", "shab", "shaker", "shal", "shaw1", "shaw2", "skkca", "trpa1", "trpalike", "trpm3", "trpmlike", "vacht", "vglut")
+
+
+temp[temp$row_names %in% cor_mem_names &
+       temp$col_names %in% cor_mem_names, "Group"] <- "mem"
+
+temp[temp$row_names %in% cor_exc_names &
+       temp$col_names %in% cor_exc_names, "Group"] <- "exc"
+
+temp[temp$row_names %in% cor_mrna_names &
+       temp$col_names %in% cor_mrna_names, "Group"] <- "mrna"
+
+## mrna only ====
+
+
+## membrane only ====
+
+
+
+## excitability only ====
+
+
+color_0h  <- "gray"#"#fdd49e"
+color_1h  <- "#fc8d59"
+color_24h <- "#b30000"
+  
+
+
+ecdf_corr_list <- 
+  map(list(
+    list(
+      temp[temp$Condition %in% c("0h", "1h") &
+             temp$Group == "mem", ],
+      c("0h", "1h"),
+      c(color_0h, 
+        color_1h#,
+        #color_24h
+      )), 
+    list(
+      temp[temp$Condition %in% c("1h", "24h") &
+             temp$Group == "mem", ],
+      c("1h", "24h"),
+      c(#color_0h, 
+        color_1h,
+        color_24h
+      )),
+    list(
+      temp[temp$Condition %in% c("0h", "24h") &
+             temp$Group == "mem", ],
+      c("0h", "24h"),
+      c(color_0h, 
+        # color_1h,
+        color_24h
+      )),
+    
+    ##
+    list(
+      temp[temp$Condition %in% c("0h", "1h") &
+             temp$Group == "exc", ],
+      c("0h", "1h"),
+      c(color_0h, 
+        color_1h#,
+        #color_24h
+      )), 
+    list(
+      temp[temp$Condition %in% c("1h", "24h") &
+             temp$Group == "exc", ],
+      c("1h", "24h"),
+      c(#color_0h, 
+        color_1h,
+        color_24h
+      )),
+    list(
+      temp[temp$Condition %in% c("0h", "24h") &
+             temp$Group == "exc", ],
+      c("0h", "24h"),
+      c(color_0h, 
+        # color_1h,
+        color_24h
+      )),
+    
+    ## 
+    list(
+      temp[temp$Condition %in% c("0h", "1h") &
+             temp$Group == "mrna", ],
+      c("0h", "1h"),
+      c(color_0h, 
+        color_1h#,
+        #color_24h
+      )), 
+    list(
+      temp[temp$Condition %in% c("1h", "24h") &
+             temp$Group == "mrna", ],
+      c("1h", "24h"),
+      c(#color_0h, 
+        color_1h,
+        color_24h
+      )),
+    list(
+      temp[temp$Condition %in% c("0h", "24h") &
+             temp$Group == "mrna", ],
+      c("0h", "24h"),
+      c(color_0h, 
+        # color_1h,
+        color_24h
+      ))
+    
+  ), function(list.obj){
+    plot_ecdf_ks(
+      df = list.obj[[1]],
+      data.col = "Corr",
+      group.col = "Condition",
+      group1 = list.obj[[2]][1],
+      group2 = list.obj[[2]][2],
+      colors = list.obj[[3]])
+  })
+
+cowplot::plot_grid(plotlist = ecdf_corr_list)
+
+
+# ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
+#        filename = here("officer_output", "DanielECDF_mrnaonly.tiff"),
+#        width = 11.5, height = 4.76)
+```
+
+
+
+
 ####Repeat with only mrna
 ```{r}
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
@@ -1868,6 +2170,7 @@ ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1),
 ```
 
 
+
 ## Multivariate relationships
 ### globally, clustering etc
 set up data
@@ -1906,7 +2209,9 @@ M_winxiqr <- M_winxiqr %>%
 library(imputeMissings)
 M_winxiqr <- imputeMissings::impute(M_winxiqr, method = "median/mode")
 
-rownames(M_winxiqr) <- paste(M_winxiqr$Condition, M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
+
+for_label_Condition <- M_winxiqr$Condition
+rownames(M_winxiqr) <- paste(M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
 ```
 
 #### Cluster
@@ -1935,6 +2240,24 @@ cluster %>%
 
 
 dev.off()
+
+
+# tiff(file=here("officer_output", "ContrastSource_hclust.tiff"),      width=7.96, height=6.68, units="in", res=100) 
+
+par(mar=c(7,2,2,1))
+cluster %>% 
+  as.dendrogram() %>% 
+  set("labels_col", 
+      value = c("#1f78b4", "#e31a1c", "#ff7f00"), k = 3) %>%
+  set("branches_k_color", 
+      value = c("#1f78b4", "#e31a1c", "#ff7f00"), k = 3) %>% 
+plot()
+
+my_colors <- case_when(for_label_Condition == "Baseline" ~ "#fdd49e",
+                       for_label_Condition == "Compensated" ~ "#fc8d59",
+                       for_label_Condition == "Delayed" ~ "#b30000")
+
+colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Groups")
 
 # plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
 ```
@@ -2040,6 +2363,62 @@ have dendrogram on both sides
 # #         col=my.colorFct(), 
 # #         scale="row")
 ```
+
+
+Clustering with subsets of the data
+membrane properties
+```{r}
+set.seed(654684)
+cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% c(
+  "vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")] ]),
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+
+?hclust
+
+par(mar=c(7,2,2,1))
+cluster$hclust %>% 
+  as.dendrogram() %>% 
+  set("labels_col", 
+      value = c("#023858", "#737373", "#4d004b"), k = 3) %>%
+  set("branches_k_color", 
+      value = c("#023858", "#737373", "#4d004b"), k = 3) %>% 
+plot()
+
+my_colors <- case_when(for_label_Condition == "Baseline" ~ "#fdd49e",
+                       for_label_Condition == "Compensated" ~ "#fc8d59",
+                       for_label_Condition == "Delayed" ~ "#b30000")
+
+colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Groups")
+
+
+
+
+
+
+
+```
+
+Excitability
+```{r}
+set.seed(654684)
+cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% epsp_cols] ]),
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+```
+
+mRNA
+```{r}
+set.seed(654684)
+cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% mrna_cols] ]),
+                   method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+```
+
+
 
 Evaluating clustering quality
 ```{r}
@@ -2234,27 +2613,74 @@ vis_pca_3D <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::select(
 
 
 vis_pca_3D(input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
-           color.by = M_winxiqr[, "Condition"],
+           # color.by = M_winxiqr[, "Condition"],
+           color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
+                                M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
+                                M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
            turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+           # use.colors = c("#fdd49e", "#fc8d59", "#b30000")
+           use.colors = c("#cc4c02", "#e31a1c", "#800026")
+           #RColorBrewer::brewer.pal(3, "Set1")
 )
 ```
 
-And with only mrna
+With subsets of the data
 ```{r}
-
-vis_pca_3D(input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment",
-                                                                             "vrest", "r11", "r1", 
-                                                                             "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
-                                                                             "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
-                                                                             "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
-                                                                             "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"))]],
-           color.by = M_winxiqr[, "Condition"],
-           turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(3, "Set1")
+## mrna only ====
+vis_pca_3D(
+  input.df =  M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c(
+    "Condition", "Cell", "Experiment",
+    "vrest", "r11", "r1", 
+    "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
+    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]],
+  color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
+                       M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
+                       M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
+  turn.x.times = 1,
+  use.colors = c("#cc4c02", "#e31a1c", "#800026")
 )
 
 
+
+## membrane only ====
+vis_pca_3D(
+  input.df =  M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
+    # "Condition", "Cell", "Experiment",
+    "vrest", "r11", "r1", 
+    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    # "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    # "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
+    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]],
+  color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
+                       M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
+                       M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
+  turn.x.times = 1,
+  use.colors = c("#cc4c02", "#e31a1c", "#800026")
+)
+
+
+## excitability only ====
+
+
+vis_pca_3D(
+  input.df =  M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
+    # "Condition", "Cell", "Experiment",
+    # "vrest", "r11", "r1", 
+    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta"#, 
+    # "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]],
+  color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
+                       M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
+                       M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
+  turn.x.times = 1,
+  use.colors = c("#cc4c02", "#e31a1c", "#800026")
+)
 
 ```
 
