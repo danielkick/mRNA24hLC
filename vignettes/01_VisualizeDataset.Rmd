@@ -10,6 +10,17 @@ library(here)
 library(readxl)
 library(tidyverse)
 
+
+
+library(factoextra)
+library(FactoMineR) #PCA
+library(car)
+# library(cowplot)
+library(patchwork)
+library(rgl) # for vis_pca_3D
+
+
+
 library(ggpmisc) # for labeling through stat_poly_eq
 theme_set(ggplot2::theme_minimal())
 devtools::load_all()
@@ -441,36 +452,35 @@ Part 1. Demonstration that conditions can change mRNA relationships
 Prep data
 ```{r}
 # select the mrnas present in both Brian's data and mine. 
-mrna_bd <-select(mrna, 
+mrna_b <-select(mrna, 
                  Source, Pharm, Time, Experiment, Cell, 
                  bkkca, cav1, cav2, 
                  inx1, inx2, inx3, inx4, inx5, 
                  nav, 
                  shab, shaker, shal, shaw1, shaw2) %>% 
-  mutate(Pharm = ifelse(Source == "Daniel" & Time == "Baseline", "None", Pharm)) %>% 
-  filter(Pharm != "TTX" & Pharm != "AP") %>%     #FIXME dropped for stg meeting presentation
-  filter(!(Pharm == "None" & Time == "Delayed")) #FIXME dropped for stg meeting presentation
+  filter(Source == "Brian")
+  # mutate(Pharm = ifelse(Source == "Daniel" & Time == "Baseline", "None", Pharm)) 
   
-mrna_bd %>% skimr::skim()
+mrna_b %>% skimr::skim()
 
-mrna_bd %>% 
+mrna_b %>% 
   group_by(Time, Pharm, Source) %>% 
   tally()
 
-mrna_bd$uid <- as.character(seq(1, nrow(mrna_bd)))
-mrna_bd <- mrna_bd %>% 
+mrna_b$uid <- as.character(seq(1, nrow(mrna_b)))
+mrna_b <- mrna_b %>% 
   select(-Experiment, -Cell) %>% 
   unite(Group, Source, Pharm, Time)
 
-mrna_bd <- mrna_bd[, c("Group", "uid",
-                       names(mrna_bd)[!(names(mrna_bd) %in% c("Group", "uid"))])
+mrna_b <- mrna_b[, c("Group", "uid",
+                       names(mrna_b)[!(names(mrna_b) %in% c("Group", "uid"))])
                    ]
 
 
 # Remove Outliers 
-mrna_bd_winxiqr_list <- map(unique(mrna_bd$Group), function(group){
-  temp <- mrna_bd[mrna_bd$Group == group, ]
-  dvs <- names(mrna_bd)[!(names(mrna_bd) %in% c("Group", "uid"))]
+mrna_b_winxiqr_list <- map(unique(mrna_b$Group), function(group){
+  temp <- mrna_b[mrna_b$Group == group, ]
+  dvs <- names(mrna_b)[!(names(mrna_b) %in% c("Group", "uid"))]
   
   for (dv_col  in dvs){
     temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
@@ -479,45 +489,180 @@ mrna_bd_winxiqr_list <- map(unique(mrna_bd$Group), function(group){
   return(temp)
 })
 
-mrna_bd_winxiqr <- do.call(rbind, mrna_bd_winxiqr_list)
+mrna_b_winxiqr <- do.call(rbind, mrna_b_winxiqr_list)
 
 # Median interpolate missing
-mrna_bd_winxiqr <- imputeMissings::impute(mrna_bd_winxiqr, method = "median/mode")
+mrna_b_winxiqr_interp <- imputeMissings::impute(mrna_b_winxiqr, method = "median/mode")
 ```
+
+UMAP
+```{r}
+
+iris.data = iris[, grep("Sepal|Petal", colnames(iris))]
+iris.labels = iris[, "Species"]
+
+
+library(umap)
+iris.umap = umap(iris.data)
+
+iris.umap
+
+
+head(iris.umap$layout, 3)
+
+plot.iris <- function(x, labels,
+         main="A UMAP visualization of the Iris dataset",
+         colors=c("#ff7f00", "#e377c2", "#17becf"),
+         pad=0.1, cex=0.6, pch=19, add=FALSE, legend.suffix="",
+         cex.main=1, cex.legend=0.85) {
+
+  layout = x
+  if (is(x, "umap")) {
+    layout = x$layout
+  }
+
+  xylim = range(layout)
+  xylim = xylim + ((xylim[2]-xylim[1])*pad)*c(-0.5, 0.5)
+  if (!add) {
+    par(mar=c(0.2,0.7,1.2,0.7), ps=10)
+    plot(xylim, xylim, type="n", axes=F, frame=F)
+    rect(xylim[1], xylim[1], xylim[2], xylim[2], border="#aaaaaa", lwd=0.25)
+  }
+  points(layout[,1], layout[,2], col=colors[as.integer(labels)],
+         cex=cex, pch=pch)
+  mtext(side=3, main, cex=cex.main)
+
+  labels.u = unique(labels)
+  legend.pos = "topleft"
+  legend.text = as.character(labels.u)
+  if (add) {
+    legend.pos = "bottomleft"
+    legend.text = paste(as.character(labels.u), legend.suffix)
+  }
+
+  legend(legend.pos, legend=legend.text, inset=0.03,
+         col=colors[as.integer(labels.u)],
+         bty="n", pch=pch, cex=cex.legend)
+}
+
+
+plot.iris(iris.umap, iris.labels)
+
+
+
+
+iris.wnoise = iris.data + matrix(rnorm(150*40, 0, 0.1), ncol=4)
+colnames(iris.wnoise) = colnames(iris.data)
+head(iris.wnoise, 3)
+
+iris.wnoise.umap = predict(iris.umap, iris.wnoise)
+head(iris.wnoise.umap, 3)
+
+plot.iris(iris.umap, iris.labels)
+plot.iris(iris.wnoise.umap, iris.labels, add=T, pch=4, legend.suffix=" (with noise)")
+
+
+
+# defaults
+umap.defaults
+custom.config = umap.defaults
+custom.config$random_state = 123
+
+iris.umap.config = umap(iris.data, config=custom.config)
+plot.iris(iris.umap.config, iris.labels,
+          main="Another UMAP visualization (different seed)")
+
+# alternate
+iris.umap.args = umap(iris.data, random_state=123)
+
+```
+
+
+
+```{r}
+mrna_b_winxiqr_interp %>% head()
+iris.umap = umap(iris.data)
+
+
+temp.umap = umap(select(mrna_b_winxiqr_interp, -Group, -uid))
+
+temp <- temp.umap$layout %>% as.tibble()
+
+col_by_df <- mrna_b_winxiqr_interp[, "Group"] %>% as.data.frame() %>% rename("Group" = ".")
+col_by_df <- separate(col_by_df, col = "Group", sep = "_", c("Author", "Blocker", "Time"))
+
+# ggplot(temp, aes(V1, V2, color = col_by_df$Blocker))+
+#   geom_point()+
+#   geom_density2d()
+# 
+# ggplot(temp, aes(V1, V2, color = col_by_df$Time))+
+#   geom_point()
+# 
+# 
+# ggplot(temp, aes(V1, V2, 
+#                  group = mrna_b_winxiqr_interp$Group))+
+#   geom_point(aes(color = mrna_b_winxiqr_interp$Group))+
+#   stat_density_2d(aes(#color = mrna_b_winxiqr_interp$Group, 
+#                       fill = mrna_b_winxiqr_interp$Group), geom = "polygon", alpha = 0.03)
+# 
+# 
+# ggplot(temp, aes(V1, V2, 
+#                  group = col_by_df$Blocker))+
+#   stat_density_2d(aes(#color = mrna_b_winxiqr_interp$Group, 
+#                       fill = col_by_df$Blocker), geom = "polygon", alpha = 0.1)+
+#   geom_point(aes(color = col_by_df$Blocker))
+
+
+# plot with convex hulls
+# https://stats.stackexchange.com/questions/22805/how-to-draw-neat-polygons-around-scatterplot-regions-in-ggplot2
+
+#getting the convex hull of each unique point set, must contain no missing data
+df <- temp
+df$Blocker <- col_by_df$Blocker
+find_hull <- function(df) df[chull(df$V1, df$V2), ]
+hulls <- plyr::ddply(df, "Blocker", find_hull)
+
+ggplot(df, aes(V1, V2, color = Blocker, fill = Blocker))+
+  geom_polygon(data = hulls, alpha = 0.1) +
+  geom_point()
+
+```
+
+
+
 
 PCA
 ```{r}
 
-vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-           color.by = mrna_bd_winxiqr[, "Group"],
+vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
+           color.by = mrna_bd_winxiqr_interp[, "Group"],
            turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(8, "Paired")[-3]
+           use.colors = RColorBrewer::brewer.pal(9, "Paired")
 )
 
 
-
-mrna_bd_annotations <- mrna_bd_winxiqr %>% 
-  separate(Group, c("Source", "Pharm", "Time")) %>% 
-  select(Source, Pharm, Time)
-
-vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-           color.by = mrna_bd_annotations[, "Source"],
-           turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(3, "Set1")
-)
-
-
-vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-           color.by = mrna_bd_annotations[, "Pharm"],
-           turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(3, "Set1")
-)
-
-vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-           color.by = mrna_bd_annotations[, "Time"],
-           turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(3, "Set1")
-)
+# 
+# mrna_bd_annotations <- mrna_bd_winxiqr_interp %>% 
+#   separate(Group, c("Source", "Pharm", "Time")) %>% 
+#   select(Source, Pharm, Time)
+# 
+# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
+#            color.by = mrna_bd_annotations[, "Source"],
+#            turn.x.times = 1,
+#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
+# )
+# 
+# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
+#            color.by = mrna_bd_annotations[, "Pharm"],
+#            turn.x.times = 1,
+#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
+# )
+# 
+# vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+#            color.by = mrna_bd_annotations[, "Time"],
+#            turn.x.times = 1,
+#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
+# )
 
 ```
 
@@ -3340,41 +3485,10 @@ ggsave(plot = last_plot(),
 #### PCA
 
 ```{r}
-library(factoextra)
-library(FactoMineR) #PCA
-library(car)
-# library(cowplot)
-library(patchwork)
 
 
-mk_pca_multi_plt <- function(input.df = t_pass,
-                             scree.max.y = 100){
-  
-  res.pca <- PCA(input.df,  graph = FALSE)
-  # Extract eigenvalues/variances
-  # get_eig(res.pca)
-  
-  # Visualize eigenvalues/variances
-  p0 <- fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, scree.max.y))
-  
-  p1 <- fviz_contrib(res.pca, choice = "var", axes = 1, top = 20)
-  p2 <- fviz_contrib(res.pca, choice = "var", axes = 2, top = 20)
-  p3 <- fviz_contrib(res.pca, choice = "var", axes = 3, top = 20)
-  
-  # Control variable colors using their contributions
-  p4 <- fviz_pca_var(res.pca, col.var="contrib",
-                     gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-                     repel = TRUE # Avoid text overlapping
-  )
-  
-  # pca.multi <- {p4|p0}/{p1+p2+p3}
-  # return(pca.multi)
-  return(list(scree = p0, 
-              cont1 = p1, 
-              cont2 = p2, 
-              cont3 = p3, 
-              biplt = p4))
-}
+
+
 
 list_for_pca <- list(
   M_winxiqr[M_winxiqr$Condition == "Baseline", 
@@ -3410,45 +3524,9 @@ ggsave(plot = last_plot(),
 
 3d
 ```{r}
-library(rgl)
 
-vis_pca_3D <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::select(-lc, -net, -pass),
-                       color.by = M[M$pass == T, "lc"],
-                       turn.x.times = 2,
-           use.colors = RColorBrewer::brewer.pal(8, "Set1")){
-  
-  res.pca <- PCA(input.df,  graph = FALSE)
-  
-  indivduals <- get_pca_ind(res.pca)
-  indivduals <- as.data.frame(indivduals$coord)
-  indivduals$cell.num <- as.factor(as.character(color.by))
-  
-  car::scatter3d(x = indivduals$Dim.1,
-                 z = indivduals$Dim.3,
-                 y = indivduals$Dim.2,
-                 groups = indivduals$cell.num,
-                 
-                 
-                 
-                 surface=F, 
-                 # fit = "smooth",
-                 # surface.alpha = 0.5,
-                 grid = F,
-                 # residuals = F,
-                 bg.col = "white", # white black
-                 surface.col = use.colors, 
-                 point.col = use.colors,                 
-                 
-                 xlab = "Dim. 1",
-                 ylab = "Dim. 2",
-                 zlab = "Dim. 3",
-                 revolutions=turn.x.times, 
-                 # revolutions = 1,
-                 
-                 # surface = F,
-                 ellipsoid = TRUE
-  )
-}
+
+
 
 
 
