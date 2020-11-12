@@ -61,8 +61,8 @@ plot_ecdf_ks <- function(
     stat_ecdf(aes(x = Value, group = Condition, color = Condition))+
     labs(x = "Sample",
          y = "ECDF",
-         title = paste("K-S Test", as.character(group1), "vs", as.character(group2),
-                       "\np-value:", as.character(test.res$p.value, digits = 4)))+
+         subtitle = paste("K-S Test", as.character(group1), "vs", as.character(group2),
+                       "\np-value:", as.character(round(test.res$p.value, digits = 4))))+
     theme_minimal()+
     theme(legend.position = "bottom")+
     scale_color_manual(values = colors)#+
