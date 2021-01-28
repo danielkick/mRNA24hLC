@@ -1,6 +1,13 @@
 ---
 title: "01_VisualizeDataset"
-output: html_document
+author: "Daniel Kick"
+date: 'Last updated: `r Sys.Date()`'
+output:
+  html_document:
+    smart: no
+    theme: flatly
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
@@ -619,6 +626,26 @@ col_by_df <- separate(col_by_df, col = "Group", sep = "_", c("Author", "Blocker"
 #getting the convex hull of each unique point set, must contain no missing data
 df <- temp
 df$Blocker <- col_by_df$Blocker
+find_hull <- function(df) df[chull(df$V1, df$V2), ]
+hulls <- plyr::ddply(df, "Blocker", find_hull)
+
+ggplot(df, aes(V1, V2, color = Blocker, fill = Blocker))+
+  geom_polygon(data = hulls, alpha = 0.1) +
+  geom_point()
+
+
+df <- temp
+df$Blocker <- col_by_df$Time
+find_hull <- function(df) df[chull(df$V1, df$V2), ]
+hulls <- plyr::ddply(df, "Blocker", find_hull)
+
+ggplot(df, aes(V1, V2, color = Blocker, fill = Blocker))+
+  geom_polygon(data = hulls, alpha = 0.1) +
+  geom_point()
+
+
+df <- temp
+df$Blocker <- mrna_b_winxiqr_interp$Group
 find_hull <- function(df) df[chull(df$V1, df$V2), ]
 hulls <- plyr::ddply(df, "Blocker", find_hull)
 
