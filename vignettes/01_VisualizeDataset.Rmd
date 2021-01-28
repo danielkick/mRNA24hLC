@@ -524,51 +524,39 @@ mrna_b_winxiqr_interp <- imputeMissings::impute(mrna_b_winxiqr, method = "median
 ## Gestalt view: are there distinct groups?
 
 ### PCA
+
+All groups
 ```{r}
-#FIXME
-# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
-#            color.by = mrna_bd_winxiqr_interp[, "Group"],
-#            turn.x.times = 1,
-#            use.colors = RColorBrewer::brewer.pal(9, "Paired")
-# )
-
-# vis_pca_3D(input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
-#            color.by = unlist(select(mrna_b_winxiqr_interp, Group)),
-#            turn.x.times = 0,
-#            use.colors = RColorBrewer::brewer.pal(9, "Paired")
-# )
-
-
 vis_pca_3D_plotly(
   input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
   color.by = unlist(select(mrna_b_winxiqr_interp, Group)),
-  use.colors = RColorBrewer::brewer.pal(9, "Paired")
+  use.colors = RColorBrewer::brewer.pal(9, "Paired"),
+  ellipse.opacity = 0#.02
+  )
+```
+
+
+```{r}
+mrna_b_annotations <- mrna_b_winxiqr_interp %>%
+  separate(Group, c("Source", "Pharm", "Time")) %>%
+  select(Source, Pharm, Time)
+
+# Color by Pharm
+vis_pca_3D_plotly(
+  input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
+  color.by = unlist(select(mrna_b_annotations, Pharm)),
+  use.colors = RColorBrewer::brewer.pal(9, "Paired"),
+  ellipse.opacity = 0#.02
   )
 
 
-# 
-# mrna_bd_annotations <- mrna_bd_winxiqr_interp %>% 
-#   separate(Group, c("Source", "Pharm", "Time")) %>% 
-#   select(Source, Pharm, Time)
-# 
-# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
-#            color.by = mrna_bd_annotations[, "Source"],
-#            turn.x.times = 1,
-#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
-# )
-# 
-# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
-#            color.by = mrna_bd_annotations[, "Pharm"],
-#            turn.x.times = 1,
-#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
-# )
-# 
-# vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-#            color.by = mrna_bd_annotations[, "Time"],
-#            turn.x.times = 1,
-#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
-# )
-
+# Color by Time exposed
+vis_pca_3D_plotly(
+  input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
+  color.by = unlist(select(mrna_b_annotations, Time)),
+  use.colors = RColorBrewer::brewer.pal(9, "Paired"),
+  ellipse.opacity = 0#.02
+  )
 ```
 
 reproducibility
