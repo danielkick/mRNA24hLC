@@ -16,9 +16,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(here)
 library(readxl)
 library(tidyverse)
-
-
-
 library(factoextra)
 library(FactoMineR) #PCA
 library(car)
@@ -26,15 +23,14 @@ library(car)
 library(patchwork)
 library(rgl) # for vis_pca_3D
 
-
-
 library(ggpmisc) # for labeling through stat_poly_eq
 theme_set(ggplot2::theme_minimal())
 devtools::load_all()
 ```
 
-## load data and create a uid
-```{r}
+# Data preparation
+## Load data and create a uid
+```{r load data}
 ## Load in data ====
 load(here("data", "ionic.rds"))
 load(here("data", "tevc.rds"))
@@ -43,12 +39,12 @@ load(here("data", "mrna.rds"))
 epsp <- read.csv(here("data", "epsp.csv")) %>% as_tibble()
 metadata <- read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"),
                        sheet = "MetadataEphys")  
-mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) # tables from Northcutt 2016 and annotations
-
+# tables from Northcutt 2016 and annotations
+mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) 
 ```
 
-```{r}
-## Add Experment/Cell to metadata ====
+```{r mk metadata}
+## Add Experiment/Cell to metadata ====
 metadata <- metadata %>% 
   mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
                             # Type %in% c("igj","igj_50", "gj") ~ "gjcc",
@@ -62,6 +58,8 @@ metadata <- metadata %>%
   mutate(FileName = paste0(Experiment, "_", num_zeros, as.character(Recording), ".abf" )) %>% 
   select(-num_zeros)
 
+
+
 #TODO there are only two Type == "gj". Replace these with igj|igj_50
 #   Experiment  Page Recording Type    TEA Condition Include Notes   In4   In9 ABFType FileName       
 #   <chr>      <dbl>     <dbl> <chr> <dbl> <chr>     <lgl>   <lgl> <dbl> <dbl> <chr>   <chr>          
@@ -69,7 +67,8 @@ metadata <- metadata %>%
 # 2 190906         0        50 gj       24 Delayed   NA      NA        4    NA NA      190906_0050.abf
 
 
-### use a subset of metadata cols to add experment/cell data to other dfs ####
+
+### use a subset of metadata cols to add experiment/cell data to other dfs ####
 small_metadata <- metadata %>% 
   select(Experiment, FileName, In4, In9) %>% 
   gather("Channel", "Cell", c("In4", "In9"))
@@ -79,9 +78,9 @@ small_metadata2 <- metadata %>%
   gather("Channel", "Cell", c("In4", "In9"))
 ```
 
-
-```{r}
-## Add Experment/Cell to tecc ====
+## Current Clamp
+```{r tecc metadata}
+## Add Experiment/Cell to tecc ====
 tecc <- tecc %>% 
   mutate(PreSyn = case_when(
     (abs(R1S3Mean) > abs(R1S6Mean)) ~ Signal1, 
@@ -118,9 +117,9 @@ tecc <- left_join(tecc, spread(small_metadata, Channel, Cell)) %>%
   spread(PrePost, cc)
 ```
 
-handle tevc data
-```{r}
-## Add Experment/Cell to tevc ====
+## Voltage Clamp (Gap Junction Procedure)
+```{r tevc metadata}
+## Add Experiment/Cell to tevc ====
 tevc <-
   tevc %>% 
   select(FileName, PreSyn, MedianIg) %>% 
@@ -174,8 +173,9 @@ tevc[is.na(tevc$ig.4_5), "ig.4_5"] <- tevc[is.na(tevc$ig.4_5), "ig.5_4"]
 tevc <- tevc %>% select(-ig.4_3, -ig.5_3, -ig.5_4)
 ```
 
-add metadata to epsp
-```{r}
+
+## Add metadata to epsp
+```{r epsp metadata}
 ## Add Experment/Cell to epsp ====
 epsp <- left_join(epsp, small_metadata2)
 
@@ -187,7 +187,7 @@ epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predic
 ##
 ```
 
-Relabel Brian's cells
+## Update labeling on Brian's cells
 ```{r}
 # Relabel Brian's cells ----
 ##
@@ -297,7 +297,7 @@ mrna <- mrna %>%
 ```
 
 
-Add additional context
+## Add whether network was active to metadata
 ```{r}
 # Was there activity on the EC? 
 metadata <- full_join(metadata,
@@ -333,11 +333,13 @@ metadata %>%
   filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% 
   distinct() %>% 
   group_by(Condition, ExtracellularActive) %>% 
-  tally()
+  tally() %>%
+  filter(!is.na(ExtracellularActive)) %>% 
+  pivot_wider(names_from = "ExtracellularActive", values_from = "n")
 
 ```
 
-Create cross type data, sans Brian's cells
+## Create cross type data, sans Brian's cells
 ```{r}
 small_metadata <- metadata[, c("Experiment",  "FileName", "Condition")]
 
@@ -441,19 +443,41 @@ mrna_cols <- mrna_cols[mrna_cols %in% names(M_all)]
 ```
 
 
-Overview of number of individuals
+# About the data
+## What conditions exist in both datasets?
+```{r}
+temp <- mrna %>% select(Pharm, Time, Source) %>% distinct()
+
+temp %>% group_by(Pharm, Source) %>%  mutate(exists = "T") %>% spread(Time, exists)
+```
+
+## How many networks had _any_ extracellular activity by their colleciton point?
+```{r}
+metadata %>% 
+  select(Experiment, Condition, ExtracellularActive) %>% 
+  filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% 
+  distinct() %>% 
+  group_by(Condition, ExtracellularActive) %>% 
+  tally() %>%
+  filter(!is.na(ExtracellularActive)) %>% 
+  pivot_wider(names_from = "ExtracellularActive", values_from = "n")
+```
+
+## How many individuals were there in each group?
 ```{r}
 M_all %>% select(Condition, Experiment, Cell) %>% distinct() %>% group_by(Condition) %>% tally() 
 
 M_all %>% select(Condition, Experiment) %>% distinct() %>% group_by(Condition) %>% tally() 
 ```
 
+# What's happening in Brian's Data?
 
 
+
+# Working Notes
 Paper Overview:
 Short term changes fail longterm
 Part 1. Demonstration that conditions can change mRNA relationships
-
 # Contrast mrna with Brian's Data
 
 Prep data
@@ -503,7 +527,7 @@ mrna_b_winxiqr_interp <- imputeMissings::impute(mrna_b_winxiqr, method = "median
 ```
 
 UMAP
-```{r}
+```{r eval=FALSE}
 
 iris.data = iris[, grep("Sepal|Petal", colnames(iris))]
 iris.labels = iris[, "Species"]
@@ -586,7 +610,7 @@ iris.umap.args = umap(iris.data, random_state=123)
 
 
 
-```{r}
+```{r eval=FALSE}
 mrna_b_winxiqr_interp %>% head()
 iris.umap = umap(iris.data)
 
@@ -659,7 +683,7 @@ ggplot(df, aes(V1, V2, color = Blocker, fill = Blocker))+
 
 
 PCA
-```{r}
+```{r eval=FALSE}
 
 vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
            color.by = mrna_bd_winxiqr_interp[, "Group"],
@@ -694,7 +718,7 @@ vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(n
 ```
 
 reproducability
-```{r}
+```{r eval=FALSE}
 list_for_pca <- list(
   mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
   mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
@@ -727,7 +751,7 @@ ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSo
 
 
 Cluster
-```{r}
+```{r eval=FALSE}
 set.seed(654684)
 cluster <- pvclust(t(mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]]),
                    method.hclust = "ward.D2",
@@ -739,7 +763,7 @@ cluster <- pvclust(t(mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_wi
 ```
 
 dendrogram plot method 1
-```{r}
+```{r eval=FALSE}
 
 cluster %>% 
   as.dendrogram() %>% 
@@ -777,7 +801,7 @@ dev.off()
 ```
 
 Cor
-```{r}
+```{r eval=FALSE}
 # library(corrr)
 # 
 # cor_bd <- mrna_bd_winxiqr %>% select(-Group, -uid) %>% correlate()
@@ -821,7 +845,7 @@ for (group in unique(mrna_bd_winxiqr$Group)){
 
 
 scatterplots
-```{r}
+```{r eval=FALSE}
 #TODO ggscatmat is plotting points over the cors
 
 # mrna_bd_scatter <- map(unique(mrna_bd_winxiqr$Group), function(group){
@@ -838,7 +862,7 @@ scatterplots
 ```
 
 ecdfs
-```{r}
+```{r eval=FALSE}
 cor_list_df <- map(unique(mrna_bd_winxiqr$Group), function(group){
   temp <- cor(select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid)) %>% as.data.frame()
   temp$row <- rownames(temp)
@@ -1056,7 +1080,7 @@ ggsave(plot = last_plot(),
 
 
 Compare changes
-```{r}
+```{r eval=FALSE}
 # refresh NO median interpolation
 mrna_bd_winxiqr <- do.call(rbind, mrna_bd_winxiqr_list)
 
@@ -1105,7 +1129,7 @@ temp_list <- map(
 backup <- temp_list
 ```
 
-```{r}
+```{r eval=FALSE}
 temp_list <- backup
 temp_list <- temp_list %>% transpose()
 
@@ -1259,7 +1283,7 @@ What happens at the individual cell level?
 
 plots for stg meeting
 membrane
-```{r}
+```{r eval=FALSE}
 plt_membrane <- M_all %>% 
   select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
   group_by(Condition, Experiment, Cell) %>% 
@@ -1354,7 +1378,7 @@ walk(seq_along(membrane_dvs_plt), function(i){
 ```
 
 excitability
-```{r}
+```{r eval=FALSE}
 plt_epsp <- M_all[, c("Condition", "Experiment", "Cell", epsp_cols)] %>% 
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
@@ -1399,7 +1423,7 @@ walk(seq_along(epsp_dvs_plt), function(i){
 
 mrna
 univariate change over time -- bend quartile
-```{r}
+```{r eval=FALSE}
 plt_membrane <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>% 
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
@@ -1433,7 +1457,7 @@ walk(seq_along(mrna_cols), function(i){
 
 
 univariate change over time -- boxplots
-```{r}
+```{r eval=FALSE}
 # devtools::install_github("teunbrand/ggh4x")
 library(ggh4x)
 
@@ -1479,7 +1503,7 @@ return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))+scale_
 ```
 
 mrna -- spagetti plot
-```{r}
+```{r eval=FALSE}
 plt_mrna_spagetti <- right_join(
   rename(
     select(mRNAInfo, Family, RGeneName), 
@@ -1519,7 +1543,7 @@ plt_mrna_spagetti %>%
 
 
 What happens at the network level?
-```{r}
+```{r eval=FALSE}
 #FIXME
 plt_tevc <- M_all_outliers %>% 
   select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
@@ -2544,7 +2568,7 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 
 ### What relationships exist at baseline?
 #### Correlations
-```{r}
+```{r eval=FALSE}
 
 # QC data by completion rate, having variance, and median mrna abundance
 M_all_skim <- M_all %>% skimr::skim()
@@ -2706,7 +2730,7 @@ ggplot(aes(col_names, row_names, fill = Corr))+
 ```
 
 
-```{r}
+```{r eval=FALSE}
 
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
   temp <- M_all[M_all$Condition == condition, ]
@@ -2849,7 +2873,7 @@ anim_save(here("officer_output", "FullDVCorrChange.gif"), plt)
 ![](../plots/BaselineTEA.png)
 
 #### ECDFs
-```{r}
+```{r eval=FALSE}
 ecdf_corr_list <- 
 map(list(
   list(
@@ -2894,7 +2918,7 @@ ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1),
 
 
 ecdfs split by data type
-```{r}
+```{r eval=FALSE}
 temp <- cor_list_df %>% 
   mutate(Condition = case_when(Condition == "Baseline" ~ "0h",
                                Condition == "Compensated" ~ "1h",
@@ -3034,7 +3058,7 @@ cowplot::plot_grid(plotlist = ecdf_corr_list)
 
 
 ####Repeat with only mrna
-```{r}
+```{r eval=FALSE}
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
   temp <- M_all[M_all$Condition == condition, ]
   
@@ -3111,7 +3135,7 @@ ggplot(aes(col_names, row_names, fill = Corr))+
 anim_save(here("officer_output", "FullDVCorrChange_mrnaonly.gif"), plt)
 ```
 
-```{r}
+```{r eval=FALSE}
 ecdf_corr_list <- 
 map(list(
   list(
@@ -3152,7 +3176,7 @@ ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1),
 ```
 
 Combined fig corr/ecdf
-```{r}
+```{r eval=FALSE}
 temp_list <- tea_plt_list
 
 temp_list[[4]] <- ecdf_corr_list[[1]]
@@ -3165,7 +3189,7 @@ cowplot::plot_grid(plotlist = temp_list)
 ```
 
 Contrast ecdfs with and without currents.
-```{r}
+```{r eval=FALSE}
 temp_list2 <- ecdf_corr_list
 
 temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
@@ -3177,7 +3201,7 @@ cowplot::plot_grid(plotlist = temp_list2)
 
 
 ### How do these relationships change for TEA over time?
-```{r}
+```{r eval=FALSE}
 #TODO
 ```
 
@@ -3186,7 +3210,7 @@ cowplot::plot_grid(plotlist = temp_list2)
 ## Multivariate relationships
 ### globally, clustering etc
 set up data
-```{r}
+```{r eval=FALSE}
 # Copied from above ----
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
   temp <- M_all[M_all$Condition == condition, ]
@@ -3228,7 +3252,7 @@ rownames(M_winxiqr) <- paste(M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
 
 #### Cluster
 dendrogram 
-```{r}
+```{r eval=FALSE}
 library(pvclust)
 library(ggdendro)
 set.seed(654684)
@@ -3239,7 +3263,7 @@ cluster <- pvclust(t(select(M_winxiqr, - Condition, -Experiment, -Cell)),
 ```
 
 dendrogram plot method 1
-```{r}
+```{r eval=FALSE}
 library(dendextend)
 
 tiff(file=here("officer_output", "hclust.tiff"),
@@ -3275,7 +3299,7 @@ colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Gr
 ```
 
 dendrogram plot method 2
-```{r}
+```{r eval=FALSE}
 plt <- ggdendro::ggdendrogram(cluster$hclust)
 
 cluster_dend <- ggdendro::dendro_data(as.dendrogram(cluster$hclust), type = "rectangle")
@@ -3316,7 +3340,7 @@ ggsave(plot = last_plot(),
 ```
 
 have dendrogram on both sides
-```{r}
+```{r eval=FALSE}
 # cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
 #                    method.hclust = "ward.D2",
 #                    method.dist = "correlation",
@@ -3379,7 +3403,7 @@ have dendrogram on both sides
 
 Clustering with subsets of the data
 membrane properties
-```{r}
+```{r eval=FALSE}
 set.seed(654684)
 cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% c(
   "vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")] ]),
@@ -3413,7 +3437,7 @@ colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Gr
 ```
 
 Excitability
-```{r}
+```{r eval=FALSE}
 set.seed(654684)
 cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% epsp_cols] ]),
                    method.hclust = "ward.D2",
@@ -3422,7 +3446,7 @@ cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% epsp_col
 ```
 
 mRNA
-```{r}
+```{r eval=FALSE}
 set.seed(654684)
 cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% mrna_cols] ]),
                    method.hclust = "ward.D2",
@@ -3433,7 +3457,7 @@ cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% mrna_col
 
 
 Evaluating clustering quality
-```{r}
+```{r eval=FALSE}
 # if (!requireNamespace("BiocManager", quietly = TRUE))
 #     install.packages("BiocManager")
 # BiocManager::install("BiocGenerics")
@@ -3474,7 +3498,7 @@ get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
 ```
 
 resampling based evaluation of jaccard
-```{r}
+```{r eval=FALSE}
 temp.clust <- as.dendrogram(cluster$hclust)
 assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
 
@@ -3511,7 +3535,7 @@ ggsave(plot = last_plot(),
 
 #### PCA
 
-```{r}
+```{r eval=FALSE}
 
 
 
@@ -3550,7 +3574,7 @@ ggsave(plot = last_plot(),
 ```
 
 3d
-```{r}
+```{r eval=FALSE}
 
 
 
@@ -3570,7 +3594,7 @@ vis_pca_3D(input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c("Co
 ```
 
 With subsets of the data
-```{r}
+```{r eval=FALSE}
 ## mrna only ====
 vis_pca_3D(
   input.df =  M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c(
@@ -3634,7 +3658,7 @@ vis_pca_3D(
 
 ### specifically
 
-```{r}
+```{r eval=FALSE}
 
 ```
 # ###############################################################################
@@ -3647,7 +3671,7 @@ vis_pca_3D(
 
 
 # Secondary Questions
-```{r}
+```{r eval=FALSE}
 scatter_w_wo_outliers(temp = distinct(select(filter(M_all, Time == "Baseline"), shal, Ia.0)), 
                   X = "shal", 
                   Y = "Ia.0")
@@ -3742,7 +3766,7 @@ scatter_w_wo_outliers(temp = distinct(select(filter(M_all, Time == "Delayed"), s
 
 
 
-```{r}
+```{r eval=FALSE}
 load(here("data", "ionic.rds"))
 load(here("data", "tevc.rds"))
 load(here("data", "tecc.rds"))
@@ -3754,7 +3778,7 @@ mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) # table
 # ionic ~ mrna?
 
 ## Make a joint dataset
-```{r}
+```{r eval=FALSE}
 M <- left_join(ionic, mrna)
 
 M <- M[!is.na(M$x18s), ]
@@ -3773,7 +3797,7 @@ MeasuredmRNA <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sam
 ```
 
 ## Clean up data cols
-```{r}
+```{r eval=FALSE}
 PercentNotNA <- map(MeasuredmRNA, function(i){
   mean(!is.na(M[[i]]))
 }) %>% unlist()
@@ -3785,7 +3809,7 @@ MeasuredKCurrents <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope") # use in map 
 
 ## How well does this work for currents we know something about?
 Ia ~ shal
-```{r}
+```{r eval=FALSE}
 # TEXTING WITH DAVE
 scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
                   X = "shal", 
@@ -3847,7 +3871,7 @@ ggplot(temp, aes(x = shal, y = Ia.0))+
 
 
 Ia ~ shaker
-```{r}
+```{r eval=FALSE}
 scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
                   X = "shaker", 
                   Y = "Ia.0")
@@ -3855,7 +3879,7 @@ scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"),
 
 
 Model comparison *shal best predicts Ia*
-```{r}
+```{r eval=FALSE}
 temp <- filter(M, Time == "Baseline") 
 # What's the best model?
 library(AICcmodavg)
@@ -3886,7 +3910,7 @@ aictab(cand.set = list(
 
 
 IHTK ~ bkkca
-```{r}
+```{r eval=FALSE}
 scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
                   X = "bkkca", 
                   Y = "Ihtk.0")
@@ -4063,7 +4087,7 @@ contrast cooks with a fit t distribution.
 
 
 IHTK ~ skkca
-```{r}
+```{r eval=FALSE}
 scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
                   X = "skkca", 
                   Y = "Ihtk.0")
@@ -4071,7 +4095,7 @@ scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"),
 
 
 How do K channels predict IKv intercepts?
-```{r}
+```{r eval=FALSE}
 # TODO redo this using the info in mRNAInfo 
 # TODO use next block as inspiration.
 
@@ -4144,7 +4168,7 @@ How do K channels predict IKv intercepts?
 
 ## Linear models -- what predicts ionics?
 This falls under the auspices of EDA. 
-```{r}
+```{r eval=FALSE}
 KCurrent = "Ihtk.0"
 mRNA = "BkkCa"
 
@@ -4234,7 +4258,7 @@ p.df %>%
 ```
 
 ## PCA what loads with ionics?
-```{r}
+```{r eval=FALSE}
 library(factoextra)
 # library(missMDA) # for imputePCA 
 library("FactoMineR") #PCA
@@ -4259,7 +4283,7 @@ fviz_pca_var(ResPCA,
 ```
 
 ## What correlates with ionics?
-```{r}
+```{r eval=FALSE}
 library(corrr)
 
 MCorrr <- MNumericOnly %>% 
@@ -4341,14 +4365,14 @@ corrplot(MCorr, method = "square", type = "upper", tl.col = "black", order = "hc
 
 
 
-```{r}
+```{r eval=FALSE}
 #TODO read in ionic
 
 
 ```
 
 Marginal plot
-```{r}
+```{r eval=FALSE}
 # p <- ionic %>% filter(!is.na(Ihtk.0) & !is.na(Ia.0)) %>% 
 #   ggplot(aes(Ihtk.0, Ia.0, group = Condition, color = Condition))+
 #   # geom_smooth(method = "lm", se = F)+
@@ -4368,7 +4392,7 @@ Marginal plot
 ```
 
 
-```{r}
+```{r eval=FALSE}
 # p <- ionic %>% filter(!is.na(Ihtk.Slope) & !is.na(Ia.Slope)) %>% 
 #   ggplot(aes(Ihtk.Slope, Ia.Slope, group = Condition, color = Condition))+
 #   # geom_smooth(method = "lm", se = F)+
@@ -4388,7 +4412,7 @@ Marginal plot
 ```
 
 
-```{r}
+```{r eval=FALSE}
 # cowplot::plot_grid(plotlist = 
 # map(c("Ihtk.0", "Ia.0", "Ihtk.Slope", "Ia.Slope"), function(i){
 #     ggplot(ionic, aes(x = Condition, group = Condition, fill = Condition))+
@@ -4409,7 +4433,7 @@ Marginal plot
 ```
 
 
-```{r}
+```{r eval=FALSE}
 ionic %>% 
   filter(!is.na(Cell)) %>% 
   select(-c(Ihtk.0, Ihtk.Slope)) %>%  
@@ -4450,7 +4474,7 @@ ionic %>%
 
 
 
-```{r}
+```{r eval=FALSE}
 # x %>% 
 #   gather(mrna, cor, 2:ncol(.)) %>% 
 #   ggplot(aes(rowname, mrna, fill = cor))+
@@ -4510,7 +4534,7 @@ ionic %>%
 
 
 ##Attempts at visualizing correlations
-```{r}
+```{r eval=FALSE}
 # treatments <- unique(M$TREATMENT)
 # mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
 # 
@@ -4553,7 +4577,7 @@ ionic %>%
 
 
 ### vis with line plot?
-```{r}
+```{r eval=FALSE}
 # N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
 # N$cor <- ""
 # 
@@ -4567,7 +4591,7 @@ ionic %>%
 # #N <- gather(N, )
 ```
 
-```{r}
+```{r eval=FALSE}
 # ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
 #   geom_point()+
 #   geom_line()
@@ -4590,7 +4614,7 @@ ionic %>%
 
 ### Quality control and outlier analysis
 
-### Characterizing the baseline
+### Characterizing the baselinem
 
 ### 
 ### Compare Brian's and My molecular data
