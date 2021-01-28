@@ -15,9 +15,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(here)
 library(readxl)
+
+library(plotly) # loaded first so that it doesn't become the default filter
 library(tidyverse)
 library(factoextra)
 library(FactoMineR) #PCA
+library(umap) # for UMAP
 library(car)
 # library(cowplot)
 library(patchwork)
@@ -471,18 +474,9 @@ M_all %>% select(Condition, Experiment) %>% distinct() %>% group_by(Condition) %
 ```
 
 # What's happening in Brian's Data?
-
-
-
-# Working Notes
-Paper Overview:
-Short term changes fail longterm
-Part 1. Demonstration that conditions can change mRNA relationships
-# Contrast mrna with Brian's Data
-
-Prep data
+## Prep data -- cull outliers and median interpolate missing values
 ```{r}
-# select the mrnas present in both Brian's data and mine. 
+# select the mRNAs present in both Brian's data and mine. 
 mrna_b <-select(mrna, 
                  Source, Pharm, Time, Experiment, Cell, 
                  bkkca, cav1, cav2, 
@@ -526,93 +520,91 @@ mrna_b_winxiqr <- do.call(rbind, mrna_b_winxiqr_list)
 mrna_b_winxiqr_interp <- imputeMissings::impute(mrna_b_winxiqr, method = "median/mode")
 ```
 
-UMAP
-```{r eval=FALSE}
 
-iris.data = iris[, grep("Sepal|Petal", colnames(iris))]
-iris.labels = iris[, "Species"]
+## Gestalt view: are there distinct groups?
 
+### PCA
+```{r}
+#FIXME
+# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
+#            color.by = mrna_bd_winxiqr_interp[, "Group"],
+#            turn.x.times = 1,
+#            use.colors = RColorBrewer::brewer.pal(9, "Paired")
+# )
 
-library(umap)
-iris.umap = umap(iris.data)
-
-iris.umap
-
-
-head(iris.umap$layout, 3)
-
-plot.iris <- function(x, labels,
-         main="A UMAP visualization of the Iris dataset",
-         colors=c("#ff7f00", "#e377c2", "#17becf"),
-         pad=0.1, cex=0.6, pch=19, add=FALSE, legend.suffix="",
-         cex.main=1, cex.legend=0.85) {
-
-  layout = x
-  if (is(x, "umap")) {
-    layout = x$layout
-  }
-
-  xylim = range(layout)
-  xylim = xylim + ((xylim[2]-xylim[1])*pad)*c(-0.5, 0.5)
-  if (!add) {
-    par(mar=c(0.2,0.7,1.2,0.7), ps=10)
-    plot(xylim, xylim, type="n", axes=F, frame=F)
-    rect(xylim[1], xylim[1], xylim[2], xylim[2], border="#aaaaaa", lwd=0.25)
-  }
-  points(layout[,1], layout[,2], col=colors[as.integer(labels)],
-         cex=cex, pch=pch)
-  mtext(side=3, main, cex=cex.main)
-
-  labels.u = unique(labels)
-  legend.pos = "topleft"
-  legend.text = as.character(labels.u)
-  if (add) {
-    legend.pos = "bottomleft"
-    legend.text = paste(as.character(labels.u), legend.suffix)
-  }
-
-  legend(legend.pos, legend=legend.text, inset=0.03,
-         col=colors[as.integer(labels.u)],
-         bty="n", pch=pch, cex=cex.legend)
-}
+# vis_pca_3D(input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
+#            color.by = unlist(select(mrna_b_winxiqr_interp, Group)),
+#            turn.x.times = 0,
+#            use.colors = RColorBrewer::brewer.pal(9, "Paired")
+# )
 
 
-plot.iris(iris.umap, iris.labels)
+vis_pca_3D_plotly(
+  input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
+  color.by = unlist(select(mrna_b_winxiqr_interp, Group)),
+  use.colors = RColorBrewer::brewer.pal(9, "Paired")
+  )
 
 
-
-
-iris.wnoise = iris.data + matrix(rnorm(150*40, 0, 0.1), ncol=4)
-colnames(iris.wnoise) = colnames(iris.data)
-head(iris.wnoise, 3)
-
-iris.wnoise.umap = predict(iris.umap, iris.wnoise)
-head(iris.wnoise.umap, 3)
-
-plot.iris(iris.umap, iris.labels)
-plot.iris(iris.wnoise.umap, iris.labels, add=T, pch=4, legend.suffix=" (with noise)")
-
-
-
-# defaults
-umap.defaults
-custom.config = umap.defaults
-custom.config$random_state = 123
-
-iris.umap.config = umap(iris.data, config=custom.config)
-plot.iris(iris.umap.config, iris.labels,
-          main="Another UMAP visualization (different seed)")
-
-# alternate
-iris.umap.args = umap(iris.data, random_state=123)
+# 
+# mrna_bd_annotations <- mrna_bd_winxiqr_interp %>% 
+#   separate(Group, c("Source", "Pharm", "Time")) %>% 
+#   select(Source, Pharm, Time)
+# 
+# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
+#            color.by = mrna_bd_annotations[, "Source"],
+#            turn.x.times = 1,
+#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
+# )
+# 
+# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
+#            color.by = mrna_bd_annotations[, "Pharm"],
+#            turn.x.times = 1,
+#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
+# )
+# 
+# vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+#            color.by = mrna_bd_annotations[, "Time"],
+#            turn.x.times = 1,
+#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
+# )
 
 ```
 
-
-
+reproducibility
 ```{r eval=FALSE}
-mrna_b_winxiqr_interp %>% head()
-iris.umap = umap(iris.data)
+list_for_pca <- list(
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]]
+)
+
+
+pca_summary_descriptions <- map(list_for_pca, function(df){
+  mk_pca_multi_plt(input.df = df,
+                   scree.max.y = 100)
+})
+
+
+{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[3]]$scree | pca_summary_descriptions[[5]]$scree}/
+{pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[4]]$scree | pca_summary_descriptions[[6]]$scree}
+
+ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_Scree.tiff"),        width = 11.5, height = 4.76)
+
+{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[3]]$biplt | pca_summary_descriptions[[5]]$biplt}/
+  {pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[4]]$biplt | pca_summary_descriptions[[6]]$biplt}
+
+ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_biplt.tiff"),        width = 11.5, height = 4.76)
+```
+
+
+### UMAP
+```{r}
+# mrna_b_winxiqr_interp %>% head()
+# iris.umap = umap(iris.data)
 
 
 temp.umap = umap(select(mrna_b_winxiqr_interp, -Group, -uid))
@@ -680,73 +672,15 @@ ggplot(df, aes(V1, V2, color = Blocker, fill = Blocker))+
 ```
 
 
-
-
-PCA
-```{r eval=FALSE}
-
-vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
-           color.by = mrna_bd_winxiqr_interp[, "Group"],
-           turn.x.times = 1,
-           use.colors = RColorBrewer::brewer.pal(9, "Paired")
-)
-
-
-# 
-# mrna_bd_annotations <- mrna_bd_winxiqr_interp %>% 
-#   separate(Group, c("Source", "Pharm", "Time")) %>% 
-#   select(Source, Pharm, Time)
-# 
-# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
-#            color.by = mrna_bd_annotations[, "Source"],
-#            turn.x.times = 1,
-#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
-# )
-# 
-# vis_pca_3D(input.df = mrna_bd_winxiqr_interp[, names(mrna_bd_winxiqr_interp)[!(names(mrna_bd_winxiqr_interp) %in% c("Group", "uid"))]],
-#            color.by = mrna_bd_annotations[, "Pharm"],
-#            turn.x.times = 1,
-#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
-# )
-# 
-# vis_pca_3D(input.df = mrna_bd_winxiqr[, names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-#            color.by = mrna_bd_annotations[, "Time"],
-#            turn.x.times = 1,
-#            use.colors = RColorBrewer::brewer.pal(3, "Set1")
-# )
-
-```
-
-reproducability
-```{r eval=FALSE}
-list_for_pca <- list(
-  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
-  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]]
-)
+# Working Notes
+Paper Overview:
+Short term changes fail longterm
+Part 1. Demonstration that conditions can change mRNA relationships
+# Contrast mrna with Brian's Data
 
 
 
 
-pca_summary_descriptions <- map(list_for_pca, function(df){
-  mk_pca_multi_plt(input.df = df,
-                   scree.max.y = 100)
-})
-
-
-{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[3]]$scree | pca_summary_descriptions[[5]]$scree}/
-{pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[4]]$scree | pca_summary_descriptions[[6]]$scree}
-
-ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_Scree.tiff"),        width = 11.5, height = 4.76)
-
-{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[3]]$biplt | pca_summary_descriptions[[5]]$biplt}/
-  {pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[4]]$biplt | pca_summary_descriptions[[6]]$biplt}
-
-ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_biplt.tiff"),        width = 11.5, height = 4.76)
-```
 
 
 
