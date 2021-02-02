@@ -8,7 +8,11 @@ output:
     toc_float: true
 ---
 
+<<<<<<< HEAD
 ```{r eval=FALSE, include=FALSE}
+=======
+```{r}
+>>>>>>> 5d8178fbd703d1e6c7bfd8e4e965f09349b1fb2e
 # below: yaml for html without distill
 # output:
 #   html_document:
@@ -585,6 +589,18 @@ cowplot::plot_grid(
     mrna_b_pca_plts$cont1, 
     mrna_b_pca_plts$scree)
   )
+<<<<<<< HEAD
+
+# ggsave(plot = last_plot(),         
+#        filename = here("officer_output", "mRNA_Brian_PCA.tiff"),        
+#        width = 11.5, height = 4.76)
+```
+
+### UMAP
+```{r}
+set.seed(16069)
+temp.umap = umap(select(mrna_b_winxiqr_interp, -Group, -uid))
+=======
 
 # ggsave(plot = last_plot(),         
 #        filename = here("officer_output", "mRNA_Brian_PCA.tiff"),        
@@ -629,6 +645,48 @@ mrna_b_umap_plts[[1]] / mrna_b_umap_plts[[2]] / mrna_b_umap_plts[[3]]
 
 ### Clustering
 
+```{r}
+# If a move to tidygraph/ggraph becomes desirable
+# https://rpubs.com/Roeland-KINDT/702542
+>>>>>>> 5d8178fbd703d1e6c7bfd8e4e965f09349b1fb2e
+
+set.seed(654684)
+cluster <- pvclust(
+  t(select(mrna_b_winxiqr_interp, -Group, -uid)),
+  method.hclust = "ward.D2",
+                   method.dist = "correlation",
+                   use.cor = "pairwise.complete.obs")
+```
+
+<<<<<<< HEAD
+# plot with convex hulls
+# https://stats.stackexchange.com/questions/22805/how-to-draw-neat-polygons-around-scatterplot-regions-in-ggplot2
+
+#getting the convex hull of each unique point set, must contain no missing data
+mrna_b_umap_plts <- map(
+  c("Group", "Blocker", "Time"), function(current_grouping){
+    df <- temp
+    if (current_grouping == "Group"){
+      df$Group <- mrna_b_winxiqr_interp[[current_grouping]]    
+    } else {
+      df$Group <- col_by_df[[current_grouping]]
+    }
+    
+    find_hull <- function(df) df[chull(df$V1, df$V2), ]
+    hulls <- plyr::ddply(df, "Group", find_hull)
+    
+    ggplot(df, aes(V1, V2, color = Group, fill = Group))+
+      geom_polygon(data = hulls, alpha = 0.1) +
+      geom_point()
+  })
+
+# plot_grid(plotlist = mrna_b_umap_plts)
+
+mrna_b_umap_plts[[1]] / mrna_b_umap_plts[[2]] / mrna_b_umap_plts[[3]]
+```
+
+### Clustering
+
 ```{r cache=TRUE}
 # If a move to tidygraph/ggraph becomes desirable
 # https://rpubs.com/Roeland-KINDT/702542
@@ -641,6 +699,8 @@ cluster <- pvclust(
                    use.cor = "pairwise.complete.obs")
 ```
 
+=======
+>>>>>>> 5d8178fbd703d1e6c7bfd8e4e965f09349b1fb2e
 ```{r}
 # library(ggdendro)
 # 
@@ -670,6 +730,74 @@ cluster <- pvclust(
 #   set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
 #   plot()
 # 
+<<<<<<< HEAD
+
+# for bar with all groups
+my_colors <- case_when(
+  mrna_b_winxiqr$Group == "Brian_AP_Delayed" ~ "#8c2d04",
+  
+  mrna_b_winxiqr$Group == "Brian_None_Baseline" ~ "#4292c6",
+  mrna_b_winxiqr$Group == "Brian_None_Delayed" ~ "#084594",
+  
+  mrna_b_winxiqr$Group == "Brian_TEA_Compensated" ~ "#ef3b2c",
+  mrna_b_winxiqr$Group == "Brian_TEA_Delayed" ~ "#99000d",
+  
+  mrna_b_winxiqr$Group == "Brian_TTX_Delayed" ~ "#4a1486")
+
+# for bars with one group
+flag_ap_d <- ifelse(mrna_b_winxiqr$Group == "Brian_AP_Delayed" , "#8c2d04", NA)
+flag_none_b <- ifelse(mrna_b_winxiqr$Group == "Brian_None_Baseline" , "#4292c6", NA)
+flag_none_d <- ifelse(mrna_b_winxiqr$Group == "Brian_None_Delayed" , "#084594", NA)
+flag_tea_c <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_Compensated" , "#ef3b2c", NA)
+flag_tea_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_Delayed" , "#99000d", NA)
+flag_ttx_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TTX_Delayed" , "#4a1486", NA)
+  
+  
+group_flag_list <- list(
+  flag_ap_d,
+  flag_none_b,
+  flag_none_d,
+  flag_tea_c,
+  flag_tea_d,
+  flag_ttx_d
+)  
+group_flag_name_list <- list(
+  "ap_d",
+  "none_b",
+  "none_d",
+  "tea_c",
+  "tea_d",
+  "ttx_d"
+)  
+
+
+par(mar=c(8,2,2,1)) # quick ref on par https://bookdown.org/ndphillips/YaRrr/plot-margins.html
+
+dend <- cluster %>% 
+  as.dendrogram() %>% 
+  set("branches_k_color",
+      value = c(
+        #"#a6cee3", 
+        "#1f78b4", 
+        "#fb9a99",
+        "#e31a1c", 
+        #"#fdbf6f", 
+        "#ff7f00"
+        ),
+      k = 4)
+  # set("labels_col", 
+  #     value = c("#a6cee3", "#1f78b4", "#fb9a99", 
+  #               "#e31a1c", "#fdbf6f", "#ff7f00"),
+  #     k = 6) #%>%
+  
+
+plot(dend)
+
+colored_bars(colors = my_colors, 
+             dend = as.dendrogram(cluster), 
+             rowLabels = " Groups",
+             y_shift = -.15)
+=======
 
 # for bar with all groups
 my_colors <- case_when(
@@ -737,6 +865,7 @@ colored_bars(colors = my_colors,
              rowLabels = " Groups",
              y_shift = -.15)
 
+>>>>>>> 5d8178fbd703d1e6c7bfd8e4e965f09349b1fb2e
 
 bar_y_pos <- -0.15
 for (i in seq_along(group_flag_list)){
@@ -747,6 +876,17 @@ for (i in seq_along(group_flag_list)){
              y_shift = bar_y_pos)
 }
 
+<<<<<<< HEAD
+bar_y_pos <- -0.15
+for (i in seq_along(group_flag_list)){
+  bar_y_pos <- bar_y_pos-0.05
+  colored_bars(colors = group_flag_list[[i]], 
+             dend = as.dendrogram(cluster), 
+             rowLabels = group_flag_name_list[[i]],
+             y_shift = bar_y_pos)
+}
+
+=======
 
 ```
 
@@ -755,6 +895,76 @@ for (i in seq_along(group_flag_list)){
 
 
 
+dendrogram plot method 1
+```{r eval=FALSE}
+#FIXME
+
+cluster %>% 
+  as.dendrogram() %>% 
+  set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
+  plot()
+
+# plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
+
+# c(bottom, left, top, right)
+# tiff(file=here("officer_output", "ContrastSource_hclust.tiff"),      width=7.96, height=6.68, units="in", res=100) 
+
+par(mar=c(4,2,2,1))
+cluster %>% 
+  as.dendrogram() %>% 
+  set("labels_col", 
+      value = c("#a6cee3", "#1f78b4", "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00"),
+      k = 6) %>%
+  set("branches_k_color", 
+      value = c("#a6cee3", "#1f78b4", "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00"),       k = 6) %>% 
+plot()
+
+my_colors <- case_when(mrna_bd_winxiqr$Group == "Brian_None_Baseline" ~ "#fdd49e",
+          mrna_bd_winxiqr$Group == "Brian_TEA_Compensated" ~ "#fc8d59",
+          mrna_bd_winxiqr$Group == "Brian_TEA_Delayed" ~ "#b30000",
+          mrna_bd_winxiqr$Group == "Daniel_None_Baseline" ~ "#c7e9b4",
+          mrna_bd_winxiqr$Group == "Daniel_TEA_Compensated" ~ "#41b6c4",
+          mrna_bd_winxiqr$Group == "Daniel_TEA_Delayed" ~ "#253494")
+
+colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Groups")
+
+
+
+dev.off()
+>>>>>>> 5d8178fbd703d1e6c7bfd8e4e965f09349b1fb2e
+
+```
+
+
+<<<<<<< HEAD
+=======
+# Working Notes
+Paper Overview:
+Short term changes fail longterm
+Part 1. Demonstration that conditions can change mRNA relationships
+# Contrast mrna with Brian's Data
+compare brian/daniel TEA/baseline groups
+```{r eval=FALSE}
+list_for_pca <- list(
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_None_Baseline", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Compensated", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+    mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Brian_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]],
+  mrna_bd_winxiqr[mrna_bd_winxiqr$Group == "Daniel_TEA_Delayed", names(mrna_bd_winxiqr)[!(names(mrna_bd_winxiqr) %in% c("Group", "uid"))]]
+)
+>>>>>>> 5d8178fbd703d1e6c7bfd8e4e965f09349b1fb2e
+
+pca_summary_descriptions <- map(list_for_pca, function(df){
+  mk_pca_multi_plt(input.df = df,
+                   scree.max.y = 100)
+})
+
+
+{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[3]]$scree | pca_summary_descriptions[[5]]$scree}/
+{pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[4]]$scree | pca_summary_descriptions[[6]]$scree}
+
+<<<<<<< HEAD
 dendrogram plot method 1
 ```{r eval=FALSE}
 #FIXME
@@ -827,6 +1037,15 @@ ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSo
 
 ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_biplt.tiff"),        width = 11.5, height = 4.76)
 ```
+=======
+ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_Scree.tiff"),        width = 11.5, height = 4.76)
+
+{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[3]]$biplt | pca_summary_descriptions[[5]]$biplt}/
+  {pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[4]]$biplt | pca_summary_descriptions[[6]]$biplt}
+
+ggsave(plot = last_plot(),         filename = here("officer_output", "ContrastSource_PCA_Time_biplt.tiff"),        width = 11.5, height = 4.76)
+```
+>>>>>>> 5d8178fbd703d1e6c7bfd8e4e965f09349b1fb2e
 dendrogram plot method 1
 ```{r eval=FALSE}
 #FIXME
