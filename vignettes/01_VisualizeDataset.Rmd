@@ -1051,9 +1051,26 @@ mrna_rep_winxiqr <- mrna_rep_winxiqr %>%
 ## Compare Correlations
 ```{r}
 
-mrna_rep_winxiqr
+temp <- 
+mrna_rep_winxiqr %>% 
+  filter(Source == "Daniel") %>% 
+  select(Time, inx5)
 
+temp <- temp %>% mutate(pass = T) %>% filter(!is.na(inx5))
 
+temp2 <- mrna_rep %>% 
+  separate("Group", into = c("Source", "Time"), sep = "_") %>% 
+  filter(Source == "Daniel") %>% 
+  select(Time, inx5)
+
+p1 <- full_join(temp, temp2) %>% 
+  ggplot(aes(x = Time, y = inx5, color = pass))+
+  geom_point()
+
+p2 <- full_join(temp, temp2) %>% 
+  ggplot(aes(x = Time, y = inx5, color = pass))+
+  geom_point()+
+  scale_y_log10()
 
 ```
 
@@ -1068,7 +1085,10 @@ mrna_rep_winxiqr
 #             Kruskal = kruskal.test(Count ~ Time, .data)
 
 
-# calc p values ####
+
+
+
+# calc p values with kruskal-Wallis and follow it up with a Dunn's ####
 mrna_rep_winxiqr <- mrna_rep_winxiqr %>% 
   pivot_longer(
     names_to = "mRNA",
@@ -1081,6 +1101,7 @@ stats <- expand.grid(
   mRNA = unique(mrna_rep_winxiqr$mRNA),
   Main = NA,
   BvsC = NA,
+  BvsD = NA,
   CvsD = NA
 )
 
@@ -1088,11 +1109,22 @@ for (i in 1:nrow(stats)){
   t_Source <- stats[i, "Source"]
   t_mRNA <- stats[i, "mRNA"]
   
-  temp <- mrna_rep_winxiqr %>% filter(Source == t_Source & mRNA == t_mRNA & !is.na(Count))
+  temp <- mrna_rep_winxiqr %>% 
+    filter(Source == t_Source & mRNA == t_mRNA & !is.na(Count)) %>% 
+    mutate(Time = as.factor(Time)) # Avoid coering to factor in dunnTest()
   
   stats[i, "Main"] <- kruskal.test(Count ~ Time, temp)$p.value
-  stats[i, "BvsC"] <- wilcox.test(Count ~ Time, temp[temp$Time != "Delayed",])$p.value
-  stats[i, "CvsD"] <- wilcox.test(Count ~ Time, temp[temp$Time != "Baseline",])$p.value
+  
+  # i = 1
+  dunn_res <- dunnTest(Count ~ Time, 
+           data = temp, 
+           method = "bonferroni") #FIXME 
+  #FIXME -- Is bonferroni ideal here or would we be better off with sidak, holm, or hs?
+  dunn_res <- dunn_res$res
+  
+  stats[i, "BvsC"] <- filter(dunn_res, Comparison == "Baseline - Compensated")$P.adj
+  stats[i, "BvsD"] <- filter(dunn_res, Comparison == "Baseline - Delayed")$P.adj
+  stats[i, "CvsD"] <- filter(dunn_res, Comparison == "Compensated - Delayed")$P.adj
 }
 
 # get medians and prepare to plot ####
@@ -1132,8 +1164,25 @@ mrna_rep_medians <- full_join(mrna_rep_medians, stats) %>%
          color2 = factor(color2, levels = c("down", "none", "up")))
   
 
+
+
 # plot ####
-ggplot(mrna_rep_medians[, ])+
+ggplot(filter(mrna_rep_medians, mRNA != "inx5"))+
+  geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
+                                  names(select(mrna_rep_winxiqr, -inx5, -Source, -Time, -uid))
+  ), 
+  Time == "Baseline"), 
+  aes(x = 0.5, y = Count), shape = "-")+
+  geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
+                                  names(select(mrna_rep_winxiqr, -inx5, -Source, -Time, -uid))
+  ), 
+  Time == "Compensated"), 
+  aes(x = 1.5, y = Count), shape = "-")+
+  geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
+                                  names(select(mrna_rep_winxiqr, -inx5, -Source, -Time, -uid))
+  ), 
+  Time == "Delayed"), 
+  aes(x = 2.5, y = Count), shape = "-")+
   # geom_point(aes(id, MedianCount))+
   # geom_line(aes(id, MedianCount))+
   # geom_rect(aes(xmin = 1, xmax = 2, 
@@ -1155,9 +1204,8 @@ ggplot(mrna_rep_medians[, ])+
   scale_color_manual(values = c("red", "gray", "green"))+
   theme_clean()+
   theme(legend.position = "")+
-  # facet_grid(Source ~ mRNA)
-  facet_wrap(Source ~ mRNA, scales = "free_y")
-
+  facet_grid(Source ~ mRNA)
+# facet_wrap(Source ~ mRNA, scales = "free_y")
 ```
 
 
