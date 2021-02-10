@@ -1019,8 +1019,6 @@ mrna_rep %>%
   spread("Time", "n")
 
 
-
-
 mrna_rep$uid <- as.character(seq(1, nrow(mrna_rep)))
 mrna_rep <- mrna_rep %>% 
   select(-Experiment, -Cell) %>% 
@@ -1051,9 +1049,6 @@ mrna_rep_winxiqr <- mrna_rep_winxiqr %>%
 
 ## Compare Correlations
 ```{r}
-# mrna_rep_winxiqr
-
-
 cor_groupings <- expand.grid(
   Source = c("Brian", "Daniel"),
   Time = c("Baseline", "Compensated", "Delayed")
@@ -1179,12 +1174,7 @@ for (i in 1:nrow(stats)){
 }
 
 # get medians and prepare to plot ####
-
 mrna_rep_medians <- mrna_rep_winxiqr %>% 
-  # pivot_longer(
-  #   names_to = "mRNA",
-  #   values_to = "Count",
-  #   cols = names(select(mrna_rep_winxiqr, -Source, -Time, -uid))) %>% 
   group_by(Source, Time, mRNA) %>% 
   summarise(MedianCount = median(Count, na.rm =T)) %>% 
   arrange(Source, mRNA, Time)
@@ -1215,9 +1205,6 @@ mrna_rep_medians <- full_join(mrna_rep_medians, stats) %>%
   mutate(color1 = factor(color1, levels = c("down", "none", "up")),
          color2 = factor(color2, levels = c("down", "none", "up")))
   
-
-
-
 # plot ####
 temp <- mrna_rep_winxiqr %>% spread("Time", "Count")
 
@@ -1240,39 +1227,6 @@ ggplot(mrna_rep_medians)+
   theme_clean()+
   theme(legend.position = "")+
   facet_grid(Source ~ mRNA)
-
-
-# ggplot(filter(mrna_rep_medians, mRNA != "inx5"))+
-#   geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
-#                                   names(select(mrna_rep_winxiqr, -Source, -Time, -uid))
-#   ), 
-#   Time == "Baseline"), 
-#   aes(x = 0.5, y = Count), shape = "-")+
-#   geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
-#                                   names(select(mrna_rep_winxiqr, -Source, -Time, -uid))
-#   ), 
-#   Time == "Compensated"), 
-#   aes(x = 1.5, y = Count), shape = "-")+
-#   geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
-#                                   names(select(mrna_rep_winxiqr, -Source, -Time, -uid))
-#   ), 
-#   Time == "Delayed"), 
-#   aes(x = 2.5, y = Count), shape = "-")+
-#   geom_segment(aes(x = 0, xend = 1, y = Baseline, yend = Baseline), size = 1)+
-#   geom_segment(aes(x = 1, xend = 2, y = Compensated, yend = Compensated, 
-#                    color = color1), size = 1)+
-#   geom_segment(aes(x = 2, xend = 3, y = Delayed, yend = Delayed, 
-#                    color = color2), size = 1)+
-#   
-#   geom_segment(aes(x = 1, xend = 1, y = Baseline, yend = Compensated, 
-#                    color = color1), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
-#   geom_segment(aes(x = 2, xend = 2, y = Compensated, yend = Delayed, 
-#                    color = color2), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
-#   scale_color_manual(values = c("red", "gray", "green"))+
-#   theme_clean()+
-#   theme(legend.position = "")+
-#   facet_grid(Source ~ mRNA)
-# # facet_wrap(Source ~ mRNA, scales = "free_y")
 ```
 
 How similar are the results?
