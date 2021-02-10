@@ -1132,6 +1132,56 @@ plot_grid(plotlist = ecdf_list_sourcetime[[1]], nrow = 1)/ # brian
 plot_grid(plotlist = ecdf_list_sourcetime[[2]], nrow = 1) # daniel
 ```
 
+Contrast correlation thresholds -- did they fall in similar ranges?
+Bin correlations and examine with a jaccard index
+```{r}
+n_bins <- 5
+
+Time
+
+
+
+
+library('clusteval')
+
+
+set.seed(9080)
+cor_jaccard_list <- map(c("Baseline", "Compensated", "Delayed"), function(Time){
+  temp <- cor_comp_df[cor_comp_df$Time == Time, ] %>% 
+    mutate(Bins = cut(Corr, breaks = seq(-1, 1, length.out = n_bins))) %>% 
+    select(-Corr) %>% 
+    pivot_wider(names_from = "Source", values_from = "Bins")
+  
+  obs_jaccard <- cluster_similarity(temp$Brian, temp$Daniel, similarity="jaccard")  
+  
+  
+  null_jaccard <- map(1:10000, function(i){
+    cluster_similarity(sample(temp$Brian, replace = F), 
+                       temp$Daniel, similarity="jaccard")
+  }) %>% 
+    unlist()
+  
+  
+  temp <- with(density(null_jaccard), data.frame(x, y))
+  temp <- temp %>% mutate(xmax = max(x),
+                          obs = obs_jaccard,
+                          ep = mean(null_jaccard >= obs_jaccard))
+  
+  return(temp)
+})
+
+
+plot_grid(plotlist = map(cor_jaccard_list, function(temp){
+  ggplot(data = temp, aes(x = x, y = y))+
+    geom_line()+
+    geom_vline(xintercept = temp$obs[1])+
+    geom_ribbon(data = temp[temp$x > temp$obs, ], 
+                aes(xmin = obs, xmax = xmax, ymin = 0, ymax = y))+
+    labs(subtitle = paste("    ep=", as.character(temp$ep[1])))
+}), labels = c("0h", "1h", "24h"), nrow = 1)
+```
+
+
 ## Compare Directional Changes
 ```{r}
 # calc p values with kruskal-Wallis and follow it up with a Dunn's ####
@@ -1231,9 +1281,79 @@ ggplot(mrna_rep_medians)+
 
 How similar are the results?
 ```{r}
+temp <- mrna_rep_medians %>% 
+  select(Source, mRNA, starts_with("updown"), Main, BvsC, BvsD, CvsD) %>% 
+  distinct() 
 
-mrna_rep_medians
+# Convert the results to catagories based on what our conclusion would be
+# Is there a main effect? 
+# Significantly different group? 
+# What direction is it different in?
+temp <- temp %>% 
+  # If there is no main effect all comparisons are in the NA group
+  mutate( 
+    BvsC = ifelse(Main >= 0.05, NA, BvsC),
+    BvsD = ifelse(Main >= 0.05, NA, BvsD),
+    CvsD = ifelse(Main >= 0.05, NA, CvsD)
+  ) %>% 
+  # If there is no post hoc effect that comparison is in the NA group
+  mutate( 
+    BvsC = ifelse(BvsC >= 0.05, NA, BvsC),
+    BvsD = ifelse(BvsD >= 0.05, NA, BvsD),
+    CvsD = ifelse(CvsD >= 0.05, NA, CvsD)
+  ) %>% 
+  # Re-write lack of a change as 'none' instead of NA
+  # if there _is_ a post hoc effect then assign that cell the sign of change
+  mutate( 
+    BvsC = ifelse(is.na(BvsC), 'none', updown12 ),
+    BvsD = ifelse(is.na(BvsD), 'none', updown13 ),
+    CvsD = ifelse(is.na(CvsD), 'none', updown23 )
+  ) %>% 
+  select(Source, mRNA, BvsC, BvsD, CvsD )
+  
 
+
+temp <- temp %>% 
+  pivot_longer(cols = c("BvsC", "BvsD", "CvsD")) %>% 
+  mutate(value = factor(value, levels = c("down", "none", "up"))) %>% 
+  pivot_wider(names_from = "Source", values_from = "value")
+
+
+temp %>% 
+  pivot_longer(c("Brian", "Daniel"), 
+               names_to = "Source", 
+               values_to = "value") %>% 
+  ggplot(aes(x = Source, y = value, color = Source, group = Source))+
+  geom_hline(yintercept = c("none"))+
+  geom_segment(aes(xend = Source, yend = "none"), size = 3, lineend = "butt")+
+  facet_grid(name~mRNA)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "")
+
+
+
+obs_jaccard <- cluster_similarity(temp$Brian, temp$Daniel, similarity="jaccard")  
+
+null_jaccard <- map(1:10000, function(i){
+  cluster_similarity(sample(temp$Brian, replace = F), 
+                     temp$Daniel, similarity="jaccard")
+}) %>% 
+  unlist()
+
+
+temp <- with(density(null_jaccard), data.frame(x, y))
+temp <- temp %>% mutate(xmax = max(x),
+                        obs = obs_jaccard,
+                        ep = mean(null_jaccard >= obs_jaccard))
+
+ggplot(data = temp, aes(x = x, y = y))+
+  geom_line()+
+  geom_vline(xintercept = temp$obs[1])+
+  geom_ribbon(data = temp[temp$x > temp$obs, ], 
+              aes(xmin = obs, xmax = xmax, ymin = 0, ymax = y))+
+  labs(subtitle = paste("    ep=", as.character(temp$ep[1])))
+
+# ggplot()+geom_histogram(aes(x = null_jaccard))
 
 ```
 
