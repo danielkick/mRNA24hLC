@@ -36,6 +36,7 @@ library(umap) # for UMAP
 library(pvclust)
 library(dendextend)
 
+library(ggthemes)
 library(cowplot)
 library(patchwork)
 library(rgl) # for vis_pca_3D
@@ -724,7 +725,8 @@ for (i in seq_along(group_flag_list)){
 
 ```
 
-Correlations
+## Correlations
+### Correlation heatmaps
 ```{r}
 library(ggcorrplot)
 
@@ -763,8 +765,402 @@ for (temp.group in c("Brian_All", unique(mrna_b_winxiqr$Group))){
   
 }
 
-plot_grid(plotlist = cor_plt_list)
+
+# cor_plt_list[[1]] +
+  cor_plt_list[[3]] + cor_plt_list[[4]] +
+  cor_plt_list[[5]] + cor_plt_list[[6]] +
+  # plot_spacer() +
+  plot_spacer() + cor_plt_list[[2]] +
+  plot_spacer() + cor_plt_list[[7]] + plot_layout(ncol = 4) #plot_layout(ncol = 5)
 ```
+
+
+### Correlations ECDFs
+```{r}
+cor_list_df <- map(unique(mrna_b_winxiqr$Group), function(group){
+  temp <- cor(select(mrna_b_winxiqr[mrna_b_winxiqr$Group == group, ], -Group, -uid), use = "pairwise.complete.obs") %>% as.data.frame()
+  temp$row <- rownames(temp)
+  temp <- gather(temp, "col", "Corr", names(temp)[names(temp) != "row"])
+  temp$Group <- group
+  
+  return(temp)  
+})
+cor_list_df <- do.call(rbind, cor_list_df)
+
+# cor_list_df$Group %>% unique()
+
+ecdf_corr_list <- map(
+list(list("Brian_None_Baseline", "Brian_None_Delayed"),
+     list("Brian_None_Baseline", "Brian_TEA_Compensated"),
+     list("Brian_None_Delayed", "Brian_AP_Delayed"),
+     list("Brian_None_Delayed", "Brian_TEA_Delayed"),
+     list("Brian_None_Delayed", "Brian_TTX_Delayed")
+     ),
+
+function(group_comparison){
+  plot_ecdf_ks(
+  df = cor_list_df[cor_list_df$Group %in% group_comparison, ],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = group_comparison[1],
+  group2 = group_comparison[2],
+  colors = c("black", "red"))
+})
+
+# cowplot::plot_grid(plotlist = ecdf_corr_list)
+
+ecdf_corr_list[[1]] + ecdf_corr_list[[2]] + plot_spacer()+ 
+  ecdf_corr_list[[3]] + ecdf_corr_list[[4]] + ecdf_corr_list[[5]]
+
+
+# ggsave(plot = last_plot(),         
+#        filename = here("officer_output", "ContrastSource_ecdfs.tiff"),        
+#        width = 11.5, height = 4.76)
+```
+
+
+## Changes in mean mRNA levels
+
+
+```{r}
+# refresh NO median interpolation
+mrna_b_winxiqr <- do.call(rbind, mrna_b_winxiqr_list)
+
+mrna_b_winxiqr_to_test <- mrna_b_winxiqr %>% 
+  separate(Group, c("Source", "Pharm", "Time")) %>% 
+  select(-Source) %>% 
+  distinct()
+
+library(broom)
+```
+
+### How does time alter control cells?
+_cav2_, _shab_, and _shaker_ change over time.
+```{r}
+# desired tests
+# time in control
+temp <- mrna_b_winxiqr_to_test %>% filter(Pharm %in% c("None"))
+temp %>% group_by(Time) %>% tally()
+
+temp_ys <- names(select(temp, -Time, -Pharm, -uid))
+
+temp_fms <- map(temp_ys, function(temp_y){
+  fm <- lm(as.formula(paste0(temp_y," ~ Time")), data = temp)
+  res <- broom::tidy(fm)
+  res$y <- temp_y
+  return(res)
+})
+
+temp_p <- do.call(rbind, temp_fms) %>% filter(term != "(Intercept)")
+temp_p <- temp_p %>% select(y, term, estimate, std.error, statistic, p.value) %>% 
+  mutate(p.adj = p.adjust(p.value, method = "holm")) %>% 
+  mutate(stars = case_when(p.adj < 0.001 ~ "***",
+                       p.adj >= 0.001 & p.adj < 0.01 ~ "**",
+                       p.adj >= 0.01 & p.adj < 0.05 ~ "*",
+                       p.adj >= 0.05 & p.adj < 0.1 ~ ".",
+                       p.adj >= 0.1 ~ " "
+                       ))
+
+temp_p
+```
+
+
+```{r}
+temp %>% 
+  pivot_longer(temp_ys, names_to = "mRNA", values_to = "Count") %>% 
+  filter(mRNA %in% unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))) %>% 
+  # group_by(Time) %>% 
+  ggplot(aes(x= Time, y= Count, fill = mRNA))+
+  geom_boxplot()+
+  geom_point()+
+  ggthemes::theme_clean()+
+  scale_fill_brewer()+
+  facet_grid(.~mRNA)
+```
+
+### How does time alter TEA cells?
+_bkkca_ expression, _inx1_ expression, and maybe _inx3_ expression
+```{r}
+# time in TEA
+temp <- mrna_b_winxiqr_to_test %>% filter(Pharm %in% c("TEA"))
+temp %>% group_by(Time) %>% tally()
+
+temp_ys <- names(select(temp, -Time, -Pharm, -uid))
+
+temp_fms <- map(temp_ys, function(temp_y){
+  fm <- lm(as.formula(paste0(temp_y," ~ Time")), data = temp)
+  res <- broom::tidy(fm)
+  res$y <- temp_y
+  return(res)
+})
+
+temp_p <- do.call(rbind, temp_fms) %>% filter(term != "(Intercept)")
+temp_p <- temp_p %>% select(y, term, estimate, std.error, statistic, p.value) %>% 
+  mutate(p.adj = p.adjust(p.value, method = "holm")) %>% 
+  mutate(stars = case_when(p.adj < 0.001 ~ "***",
+                       p.adj >= 0.001 & p.adj < 0.01 ~ "**",
+                       p.adj >= 0.01 & p.adj < 0.05 ~ "*",
+                       p.adj >= 0.05 & p.adj < 0.1 ~ ".",
+                       p.adj >= 0.1 ~ " "
+                       ))
+
+temp_p
+```
+
+```{r}
+temp %>% 
+  pivot_longer(temp_ys, names_to = "mRNA", values_to = "Count") %>% 
+  filter(mRNA %in% unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))) %>% 
+  # group_by(Time) %>% 
+  ggplot(aes(x= Time, y= Count, fill = mRNA))+
+  geom_boxplot()+
+  geom_point()+
+  ggthemes::theme_clean()+
+  scale_fill_brewer()+
+  facet_grid(.~mRNA)
+```
+
+### How do blockers alter cells after all have been incubated?
+```{r}
+# steady state differences?
+  # ap vs TEA vs ttx vs control
+temp <- mrna_b_winxiqr_to_test %>% filter(Time %in% c("Delayed"))
+temp %>% group_by(Pharm) %>% tally()
+
+temp_fms <- map(temp_ys, function(temp_y){
+  fm <- lm(as.formula(paste0(temp_y," ~ Pharm")), data = temp)
+  res <- broom::tidy(fm)
+  res$y <- temp_y
+  return(res)
+})
+
+temp_p <- do.call(rbind, temp_fms) %>% filter(term != "(Intercept)")
+temp_p <- temp_p %>% select(y, term, estimate, std.error, statistic, p.value) %>% 
+  mutate(p.adj = p.adjust(p.value, method = "holm")) %>% 
+  mutate(stars = case_when(p.adj < 0.001 ~ "***",
+                       p.adj >= 0.001 & p.adj < 0.01 ~ "**",
+                       p.adj >= 0.01 & p.adj < 0.05 ~ "*",
+                       p.adj >= 0.05 & p.adj < 0.1 ~ ".",
+                       p.adj >= 0.1 ~ " "
+                       ))
+
+temp_p
+```
+
+
+```{r}
+temp %>% 
+  pivot_longer(temp_ys, names_to = "mRNA", values_to = "Count") %>% 
+  filter(mRNA %in% unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))) %>% 
+  mutate(Pharm = factor(Pharm, levels = c("None", "TEA", "AP", "TTX"))) %>% 
+  ggplot(aes(x= Pharm, y= Count, fill = mRNA))+
+  geom_boxplot()+
+  geom_point()+
+  ggthemes::theme_clean()+
+  scale_fill_brewer()+
+  facet_wrap(.~mRNA, scales = "free_y")
+```
+
+```{r}
+
+library(ggpubr)
+
+temp %>% 
+  pivot_longer(temp_ys, names_to = "mRNA", values_to = "Count") %>% 
+  filter(mRNA %in% unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))[1] ) %>% 
+  mutate(Pharm = factor(Pharm, levels = c("None", "TEA", "AP", "TTX"))) %>% 
+  ggboxplot(x = "Pharm", 
+            y = "Count", 
+            fill = "Pharm",
+            width = 0.2,
+            palette = RColorBrewer::brewer.pal(4, "Set1")
+  )+
+  geom_point(position = position_jitter(width = 0.05))+
+  stat_compare_means(comparisons = list(
+    c("None", "TEA"),
+    c("None", "AP"),
+    c("None", "TTX"),
+    c("TEA", "AP")
+  ), 
+  label = "p.signif")+ # Add significance levels
+  stat_compare_means(label.y = 0)+
+  theme(legend.position = "")
+```
+
+# Transition -- Do some of these changes replicate?
+We've seen that at least some mRNAs change, presumably due to time and time incubated in the treatment.
+
+Can we replicate these effects? When we focus on TEA do we get changes in the same transcripts?
+
+## Data preparation
+```{r}
+# select the mRNAs present in both Brian's data and mine. 
+mrna_rep <-select(mrna, 
+                  Source, Pharm, Time, Experiment, Cell, 
+                  bkkca, cav1, cav2, 
+                  inx1, inx2, inx3, inx4, inx5, 
+                  nav, 
+                  shab, shaker, shal, shaw1, shaw2) %>% 
+  filter(
+    (Source == "Brian" & Pharm %in% c("None", "TEA")) |
+      Source == "Daniel"
+         ) %>% 
+  filter(!(Source == "Brian" & Pharm %in% c("None") & Time == "Delayed")) %>% 
+  mutate(Pharm = ifelse(Source == "Daniel" & Time == "Baseline", "None", Pharm)) %>% 
+  select(-Pharm) %>% 
+  distinct()
+  
+mrna_rep %>% skimr::skim()
+
+mrna_rep %>% 
+  group_by(Time, Source) %>% 
+  tally() %>% 
+  spread("Time", "n")
+
+
+
+
+mrna_rep$uid <- as.character(seq(1, nrow(mrna_rep)))
+mrna_rep <- mrna_rep %>% 
+  select(-Experiment, -Cell) %>% 
+  unite(Group, Source, Time)
+
+mrna_rep <- mrna_rep[, c("Group", "uid",
+                       names(mrna_rep)[!(names(mrna_rep) %in% c("Group", "uid"))])
+                   ]
+
+
+# Remove Outliers 
+mrna_rep_winxiqr_list <- map(unique(mrna_rep$Group), function(group){
+  temp <- mrna_rep[mrna_rep$Group == group, ]
+  dvs <- names(mrna_rep)[!(names(mrna_rep) %in% c("Group", "uid"))]
+  
+  for (dv_col  in dvs){
+    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
+  }
+  
+  return(temp)
+})
+
+mrna_rep_winxiqr <- do.call(rbind, mrna_rep_winxiqr_list)
+
+mrna_rep_winxiqr <- mrna_rep_winxiqr %>% 
+  separate("Group", into = c("Source", "Time"), sep = "_")
+```
+
+## Compare Correlations
+```{r}
+
+mrna_rep_winxiqr
+
+
+
+```
+
+## Compare Directional Changes
+```{r}
+
+
+
+
+# kruskal.test(bkkca ~ Time, mrna_rep_winxiqr[mrna_rep_winxiqr$Source == "Brian", ])
+# ,
+#             Kruskal = kruskal.test(Count ~ Time, .data)
+
+
+# calc p values ####
+mrna_rep_winxiqr <- mrna_rep_winxiqr %>% 
+  pivot_longer(
+    names_to = "mRNA",
+    values_to = "Count",
+    cols = names(select(mrna_rep_winxiqr, -Source, -Time, -uid)))
+
+stats <- expand.grid(
+  Source = c("Brian", "Daniel"),
+  # Time = c("Baseline", "Compensated", "Delayed"),
+  mRNA = unique(mrna_rep_winxiqr$mRNA),
+  Main = NA,
+  BvsC = NA,
+  CvsD = NA
+)
+
+for (i in 1:nrow(stats)){
+  t_Source <- stats[i, "Source"]
+  t_mRNA <- stats[i, "mRNA"]
+  
+  temp <- mrna_rep_winxiqr %>% filter(Source == t_Source & mRNA == t_mRNA & !is.na(Count))
+  
+  stats[i, "Main"] <- kruskal.test(Count ~ Time, temp)$p.value
+  stats[i, "BvsC"] <- wilcox.test(Count ~ Time, temp[temp$Time != "Delayed",])$p.value
+  stats[i, "CvsD"] <- wilcox.test(Count ~ Time, temp[temp$Time != "Baseline",])$p.value
+}
+
+# get medians and prepare to plot ####
+
+mrna_rep_medians <- mrna_rep_winxiqr %>% 
+  # pivot_longer(
+  #   names_to = "mRNA",
+  #   values_to = "Count",
+  #   cols = names(select(mrna_rep_winxiqr, -Source, -Time, -uid))) %>% 
+  group_by(Source, Time, mRNA) %>% 
+  summarise(MedianCount = median(Count, na.rm =T)) %>% 
+  arrange(Source, mRNA, Time)
+  
+
+mrna_rep_medians <- mrna_rep_medians %>% 
+  mutate(
+    MedianCount2 = MedianCount,
+    id = case_when(Time == "Baseline" ~ 1,
+                   Time == "Compensated" ~ 2,
+                   Time == "Delayed" ~ 3)) %>% 
+  pivot_wider(names_from = "Time", values_from = "MedianCount") %>% 
+  rename(MedianCount = MedianCount2) %>% 
+  group_by(Source, mRNA) %>% 
+  mutate(Baseline = median(Baseline, na.rm = T),
+         Compensated = median(Compensated, na.rm = T),
+         Delayed = median(Delayed, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(updown1 = ifelse(Baseline < Compensated, "up", "down"), 
+         updown2 = ifelse(Compensated < Delayed, "up", "down"))
+
+
+# combine stats and prepared plotting df####
+mrna_rep_medians <- full_join(mrna_rep_medians, stats) %>% 
+  mutate(color1 = ifelse(Main < 0.05 & BvsC < 0.05, updown1, "none"),
+         color2 = ifelse(Main < 0.05 & CvsD < 0.05, updown2, "none")) %>% 
+  mutate(color1 = factor(color1, levels = c("down", "none", "up")),
+         color2 = factor(color2, levels = c("down", "none", "up")))
+  
+
+# plot ####
+ggplot(mrna_rep_medians[, ])+
+  # geom_point(aes(id, MedianCount))+
+  # geom_line(aes(id, MedianCount))+
+  # geom_rect(aes(xmin = 1, xmax = 2, 
+  #               ymin = Baseline, ymax = Compensated,
+  #               fill = updown1))+
+  # geom_rect(aes(xmin = 2, xmax = 3, 
+  #               ymin = Compensated, ymax = Delayed,
+  #               fill = updown2))+
+  geom_segment(aes(x = 0, xend = 1, y = Baseline, yend = Baseline), size = 1)+
+  geom_segment(aes(x = 1, xend = 2, y = Compensated, yend = Compensated, 
+                   color = color1), size = 1)+
+  geom_segment(aes(x = 2, xend = 3, y = Delayed, yend = Delayed, 
+                   color = color2), size = 1)+
+  
+  geom_segment(aes(x = 1, xend = 1, y = Baseline, yend = Compensated, 
+                   color = color1), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
+  geom_segment(aes(x = 2, xend = 2, y = Compensated, yend = Delayed, 
+                   color = color2), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
+  scale_color_manual(values = c("red", "gray", "green"))+
+  theme_clean()+
+  theme(legend.position = "")+
+  # facet_grid(Source ~ mRNA)
+  facet_wrap(Source ~ mRNA, scales = "free_y")
+
+```
+
+
 
 
 # Working Notes
@@ -857,220 +1253,7 @@ scatterplots
 # pairs(select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid))
 ```
 
-ecdfs
-```{r eval=FALSE}
-cor_list_df <- map(unique(mrna_bd_winxiqr$Group), function(group){
-  temp <- cor(select(mrna_bd_winxiqr[mrna_bd_winxiqr$Group == group, ], -Group, -uid)) %>% as.data.frame()
-  temp$row <- rownames(temp)
-  temp <- gather(temp, "col", "Corr", names(temp)[names(temp) != "row"])
-  temp$Group <- group
-  
-  return(temp)  
-})
-cor_list_df <- do.call(rbind, cor_list_df)
 
-cor_list_df$Group %>% unique()
-
-
-
-ecdf_corr_list <- 
-map(list(
-    ## ----
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Brian_None_Baseline", 
-    "Brian_TEA_Compensated"
-    ), ],
-  c("Brian_None_Baseline", 
-    "Brian_TEA_Compensated"
-    #"Brian_TEA_Delayed", 
-    #"Daniel_None_Baseline", 
-    #"Daniel_TEA_Compensated", 
-    #"Daniel_TEA_Delayed"
-    ),
-  c( "#a6cee3", 
-     "#1f78b4"
-    # "#fb9a99", 
-    # "#e31a1c", 
-    # "#fdbf6f", 
-    # "#ff7f00"
-    )),
-    list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Brian_TEA_Compensated",
-    "Brian_TEA_Delayed"
-        ), ],
-  c(#"Brian_None_Baseline", 
-    "Brian_TEA_Compensated",
-    "Brian_TEA_Delayed"
-    #"Daniel_None_Baseline", 
-    #"Daniel_TEA_Compensated", 
-    #"Daniel_TEA_Delayed"
-    ),
-  c(# "#a6cee3", 
-     "#1f78b4", 
-     "#fb9a99"
-    # "#e31a1c", 
-    # "#fdbf6f", 
-    # "#ff7f00"
-    )),
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Brian_None_Baseline", 
-    "Brian_TEA_Delayed"
-    ), ],
-  c("Brian_None_Baseline", 
-    #"Brian_TEA_Compensated",
-    "Brian_TEA_Delayed"
-    #"Daniel_None_Baseline", 
-    #"Daniel_TEA_Compensated", 
-    #"Daniel_TEA_Delayed"
-    ),
-  c( "#a6cee3", 
-    # "#1f78b4", 
-     "#fb9a99"
-    # "#e31a1c", 
-    # "#fdbf6f", 
-    # "#ff7f00"
-    )),
-  
-  ## ----
-  
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Daniel_None_Baseline", 
-    "Daniel_TEA_Compensated"
-    ), ],
-  c(#"Brian_None_Baseline", 
-    #"Brian_TEA_Compensated",
-    #"Brian_TEA_Delayed", 
-    "Daniel_None_Baseline", 
-    "Daniel_TEA_Compensated"
-    #"Daniel_TEA_Delayed"
-    ),
-  c(# "#a6cee3", 
-    # "#1f78b4", 
-    # "#fb9a99", 
-     "#e31a1c", 
-     "#fdbf6f"
-    # "#ff7f00"
-    )),
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Daniel_TEA_Compensated", 
-    "Daniel_TEA_Delayed"
-    ), ],
-  c(#"Brian_None_Baseline", 
-    #"Brian_TEA_Compensated",
-    #"Brian_TEA_Delayed", 
-    #"Daniel_None_Baseline", 
-    "Daniel_TEA_Compensated", 
-    "Daniel_TEA_Delayed"
-    ),
-  c(# "#a6cee3", 
-    # "#1f78b4", 
-    # "#fb9a99", 
-     "#e31a1c", 
-     "#fdbf6f"
-    # "#ff7f00"
-    )),
-  
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Daniel_None_Baseline", 
-    "Daniel_TEA_Delayed"
-    ), ],
-  c(#"Brian_None_Baseline", 
-    #"Brian_TEA_Compensated", 
-    #"Brian_TEA_Delayed", 
-    "Daniel_None_Baseline", 
-    #"Daniel_TEA_Compensated", 
-    "Daniel_TEA_Delayed"),
-  c(#"#a6cee3", 
-    # "#1f78b4", 
-    #"#fb9a99", 
-     "#e31a1c", 
-    #"#fdbf6f", 
-    "#ff7f00")),
-  
-  
-  ## ----
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Brian_None_Baseline", 
-    "Daniel_None_Baseline"
-    ), ],
-  c("Brian_None_Baseline", 
-    #"Brian_TEA_Compensated", 
-    #"Brian_TEA_Delayed", 
-    "Daniel_None_Baseline"
-    #"Daniel_TEA_Compensated", 
-    # "Daniel_TEA_Delayed"
-    ),
-  c("#a6cee3", 
-    # "#1f78b4", 
-    #"#fb9a99", 
-    "#e31a1c"
-    #"#fdbf6f", 
-    # "#ff7f00"
-    )),
-  
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Brian_TEA_Compensated", 
-    "Daniel_TEA_Compensated"
-    ), ],
-  c(#"Brian_None_Baseline", 
-    "Brian_TEA_Compensated",
-    #"Brian_TEA_Delayed", 
-    # "Daniel_None_Baseline", 
-    "Daniel_TEA_Compensated"
-    #"Daniel_TEA_Delayed"
-    ),
-  c(#"#a6cee3", 
-    "#1f78b4",
-    #"#fb9a99", 
-     # "#e31a1c", 
-    "#fdbf6f"
-    #"#ff7f00"
-    )),
-  list(
-  cor_list_df[cor_list_df$Group %in% c(
-    "Brian_TEA_Delayed", 
-    "Daniel_TEA_Delayed"
-    ), ],
-  c(#"Brian_None_Baseline", 
-    #"Brian_TEA_Compensated", 
-    "Brian_TEA_Delayed",
-    # "Daniel_None_Baseline", 
-    #"Daniel_TEA_Compensated", 
-    "Daniel_TEA_Delayed"),
-  c(#"#a6cee3", 
-    # "#1f78b4", 
-    "#fb9a99",
-     # "#e31a1c", 
-    #"#fdbf6f", 
-    "#ff7f00")
-  )
-    ## ----
-), function(list.obj){
-  plot_ecdf_ks(
-  df = list.obj[[1]],
-  data.col = "Corr",
-  group.col = "Group",
-  group1 = list.obj[[2]][1],
-  group2 = list.obj[[2]][2],
-  colors = list.obj[[3]])
-})
-
-cowplot::plot_grid(plotlist = ecdf_corr_list)
-
-
-ggsave(plot = last_plot(),         
-       filename = here("officer_output", "ContrastSource_ecdfs.tiff"),        
-       width = 11.5, height = 4.76)
-
-```
 
 
 
