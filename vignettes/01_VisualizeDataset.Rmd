@@ -29,6 +29,7 @@ library(readxl)
 library(plotly) # loaded first so that it doesn't become the default filter
 library(tidyverse)
 library(car)
+library(FSA) # for Dunn's Test
 
 library(factoextra)
 library(FactoMineR) #PCA
@@ -998,7 +999,7 @@ Can we replicate these effects? When we focus on TEA do we get changes in the sa
 mrna_rep <-select(mrna, 
                   Source, Pharm, Time, Experiment, Cell, 
                   bkkca, cav1, cav2, 
-                  inx1, inx2, inx3, inx4, inx5, 
+                  inx1, inx2, inx3, inx4, #inx5, #<- inx5 is likely not expressed
                   nav, 
                   shab, shaker, shal, shaw1, shaw2) %>% 
   filter(
@@ -1050,44 +1051,94 @@ mrna_rep_winxiqr <- mrna_rep_winxiqr %>%
 
 ## Compare Correlations
 ```{r}
+# mrna_rep_winxiqr
 
-temp <- 
-mrna_rep_winxiqr %>% 
-  filter(Source == "Daniel") %>% 
-  select(Time, inx5)
 
-temp <- temp %>% mutate(pass = T) %>% filter(!is.na(inx5))
+cor_groupings <- expand.grid(
+  Source = c("Brian", "Daniel"),
+  Time = c("Baseline", "Compensated", "Delayed")
+)
 
-temp2 <- mrna_rep %>% 
-  separate("Group", into = c("Source", "Time"), sep = "_") %>% 
-  filter(Source == "Daniel") %>% 
-  select(Time, inx5)
+cor_list <- map(seq(1, nrow(cor_groupings)), function(i){
+  cor_df <- filter(mrna_rep_winxiqr, 
+                   Source == cor_groupings[i, "Source"],
+                   Time == cor_groupings[i, "Time"]) %>% 
+    select(-Source, -Time, -uid)
+  
+  cor_df <- cor(cor_df, use = "pairwise.complete.obs")
+  
+  # Shave to diagonal
+  for (j in seq(1, nrow(cor_df))){
+    cor_df[j, 1:j] <- NA
+  }
+  
+  cor_df <- as.data.frame(cor_df) %>% mutate(x = rownames(cor_df))
+  
+  cor_df <- pivot_longer(cor_df, 
+                         cols = names(select(cor_df, -x)),
+                         names_to = "y", 
+                         values_to = "Corr") %>% 
+  mutate(
+  Source = cor_groupings[i, "Source"],
+  Time = cor_groupings[i, "Time"]  
+) %>% 
+  select(Source, Time, x, y, Corr)
+  
+ return(cor_df)
+})
 
-p1 <- full_join(temp, temp2) %>% 
-  ggplot(aes(x = Time, y = inx5, color = pass))+
-  geom_point()
+cor_comp_df <- do.call(rbind, cor_list) %>% 
+  filter(!is.na(Corr))
 
-p2 <- full_join(temp, temp2) %>% 
-  ggplot(aes(x = Time, y = inx5, color = pass))+
-  geom_point()+
-  scale_y_log10()
 
+
+cor_comp_df %>% 
+  ggplot(aes(x = Time, y = Corr, fill = Source, group = Source))+
+  # geom_line()+
+  geom_col(position = "dodge")+
+  geom_hline(yintercept = 0)+
+  geom_hline(yintercept = sqrt(0.6), color = "red", linetype = "dashed")+
+  scale_fill_manual(values = c("Black", "DarkGray"))+
+  facet_grid(x ~ y)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+# cor_comp_df
+
+ecdf_list_time <- map(c("Baseline", "Compensated", "Delayed"), function(Time){
+      plot_ecdf_ks(
+        df = cor_comp_df[cor_comp_df$Time == Time, ],
+        data.col = "Corr",
+        group.col = "Source",
+        group1 = "Brian",
+        group2 = "Daniel",
+        colors = c("black", "red"))})
+
+
+ecdf_list_sourcetime <- map(
+  c("Brian", "Daniel"), function(Source){
+    map(
+      list(c("Baseline", "Compensated"),
+           c("Baseline", "Delayed"),
+           c("Compensated", "Delayed")), function(Time){
+             plot_ecdf_ks(
+               df = cor_comp_df[cor_comp_df$Source == Source & cor_comp_df$Time %in% Time, ],
+               data.col = "Corr",
+               group.col = "Time",
+               group1 = Time[1],
+               group2 = Time[2],
+               colors = c("black", "red"))
+           })
+  })
+
+
+plot_grid(plotlist = ecdf_list_time, nrow = 1)/
+plot_grid(plotlist = ecdf_list_sourcetime[[1]], nrow = 1)/ # brian
+plot_grid(plotlist = ecdf_list_sourcetime[[2]], nrow = 1) # daniel
 ```
 
 ## Compare Directional Changes
 ```{r}
-
-
-
-
-# kruskal.test(bkkca ~ Time, mrna_rep_winxiqr[mrna_rep_winxiqr$Source == "Brian", ])
-# ,
-#             Kruskal = kruskal.test(Count ~ Time, .data)
-
-
-
-
-
 # calc p values with kruskal-Wallis and follow it up with a Dunn's ####
 mrna_rep_winxiqr <- mrna_rep_winxiqr %>% 
   pivot_longer(
@@ -1152,14 +1203,15 @@ mrna_rep_medians <- mrna_rep_medians %>%
          Compensated = median(Compensated, na.rm = T),
          Delayed = median(Delayed, na.rm = T)) %>% 
   ungroup() %>% 
-  mutate(updown1 = ifelse(Baseline < Compensated, "up", "down"), 
-         updown2 = ifelse(Compensated < Delayed, "up", "down"))
+  mutate(updown12 = ifelse(Baseline < Compensated, "up", "down"), 
+         updown13 = ifelse(Baseline < Delayed, "up", "down"),
+         updown23 = ifelse(Compensated < Delayed, "up", "down"))
 
 
 # combine stats and prepared plotting df####
 mrna_rep_medians <- full_join(mrna_rep_medians, stats) %>% 
-  mutate(color1 = ifelse(Main < 0.05 & BvsC < 0.05, updown1, "none"),
-         color2 = ifelse(Main < 0.05 & CvsD < 0.05, updown2, "none")) %>% 
+  mutate(color1 = ifelse(Main < 0.05 & BvsC < 0.05, updown12, "none"),
+         color2 = ifelse(Main < 0.05 & CvsD < 0.05, updown23, "none")) %>% 
   mutate(color1 = factor(color1, levels = c("down", "none", "up")),
          color2 = factor(color2, levels = c("down", "none", "up")))
   
@@ -1167,30 +1219,13 @@ mrna_rep_medians <- full_join(mrna_rep_medians, stats) %>%
 
 
 # plot ####
-ggplot(filter(mrna_rep_medians, mRNA != "inx5"))+
-  geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
-                                  names(select(mrna_rep_winxiqr, -inx5, -Source, -Time, -uid))
-  ), 
-  Time == "Baseline"), 
-  aes(x = 0.5, y = Count), shape = "-")+
-  geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
-                                  names(select(mrna_rep_winxiqr, -inx5, -Source, -Time, -uid))
-  ), 
-  Time == "Compensated"), 
-  aes(x = 1.5, y = Count), shape = "-")+
-  geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
-                                  names(select(mrna_rep_winxiqr, -inx5, -Source, -Time, -uid))
-  ), 
-  Time == "Delayed"), 
-  aes(x = 2.5, y = Count), shape = "-")+
-  # geom_point(aes(id, MedianCount))+
-  # geom_line(aes(id, MedianCount))+
-  # geom_rect(aes(xmin = 1, xmax = 2, 
-  #               ymin = Baseline, ymax = Compensated,
-  #               fill = updown1))+
-  # geom_rect(aes(xmin = 2, xmax = 3, 
-  #               ymin = Compensated, ymax = Delayed,
-  #               fill = updown2))+
+temp <- mrna_rep_winxiqr %>% spread("Time", "Count")
+
+ggplot(mrna_rep_medians)+
+  geom_point(data = temp, aes(x = 0.5, y = Baseline), shape = "-")+
+  geom_point(data = temp, aes(x = 1.5, y = Compensated), shape = "-")+
+  geom_point(data = temp, aes(x = 2.5, y = Delayed), shape = "-")+
+
   geom_segment(aes(x = 0, xend = 1, y = Baseline, yend = Baseline), size = 1)+
   geom_segment(aes(x = 1, xend = 2, y = Compensated, yend = Compensated, 
                    color = color1), size = 1)+
@@ -1205,7 +1240,47 @@ ggplot(filter(mrna_rep_medians, mRNA != "inx5"))+
   theme_clean()+
   theme(legend.position = "")+
   facet_grid(Source ~ mRNA)
-# facet_wrap(Source ~ mRNA, scales = "free_y")
+
+
+# ggplot(filter(mrna_rep_medians, mRNA != "inx5"))+
+#   geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
+#                                   names(select(mrna_rep_winxiqr, -Source, -Time, -uid))
+#   ), 
+#   Time == "Baseline"), 
+#   aes(x = 0.5, y = Count), shape = "-")+
+#   geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
+#                                   names(select(mrna_rep_winxiqr, -Source, -Time, -uid))
+#   ), 
+#   Time == "Compensated"), 
+#   aes(x = 1.5, y = Count), shape = "-")+
+#   geom_point(data = filter(gather(mrna_rep_winxiqr, "mRNA", "Count", 
+#                                   names(select(mrna_rep_winxiqr, -Source, -Time, -uid))
+#   ), 
+#   Time == "Delayed"), 
+#   aes(x = 2.5, y = Count), shape = "-")+
+#   geom_segment(aes(x = 0, xend = 1, y = Baseline, yend = Baseline), size = 1)+
+#   geom_segment(aes(x = 1, xend = 2, y = Compensated, yend = Compensated, 
+#                    color = color1), size = 1)+
+#   geom_segment(aes(x = 2, xend = 3, y = Delayed, yend = Delayed, 
+#                    color = color2), size = 1)+
+#   
+#   geom_segment(aes(x = 1, xend = 1, y = Baseline, yend = Compensated, 
+#                    color = color1), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
+#   geom_segment(aes(x = 2, xend = 2, y = Compensated, yend = Delayed, 
+#                    color = color2), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
+#   scale_color_manual(values = c("red", "gray", "green"))+
+#   theme_clean()+
+#   theme(legend.position = "")+
+#   facet_grid(Source ~ mRNA)
+# # facet_wrap(Source ~ mRNA, scales = "free_y")
+```
+
+How similar are the results?
+```{r}
+
+mrna_rep_medians
+
+
 ```
 
 
