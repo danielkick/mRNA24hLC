@@ -1137,12 +1137,7 @@ Bin correlations and examine with a jaccard index
 ```{r}
 n_bins <- 5
 
-Time
-
-
-
-
-library('clusteval')
+library('clusteval') # for cluster_similarity(x, y, similarity="jaccard")
 
 
 set.seed(9080)
@@ -1214,7 +1209,7 @@ for (i in 1:nrow(stats)){
   # i = 1
   dunn_res <- dunnTest(Count ~ Time, 
            data = temp, 
-           method = "bonferroni") #FIXME 
+           method = "bonferroni") # bonferroni and hs produce the same result since it's within a single round of kruskal-wallis
   #FIXME -- Is bonferroni ideal here or would we be better off with sidak, holm, or hs?
   dunn_res <- dunn_res$res
   
