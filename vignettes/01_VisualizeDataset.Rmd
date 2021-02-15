@@ -1378,7 +1378,7 @@ Part 2a.
 
 
 scatterplots
-```{r eval=FALSE}
+```{r }
 #TODO ggscatmat is plotting points over the cors
 
 # mrna_bd_scatter <- map(unique(mrna_bd_winxiqr$Group), function(group){
@@ -1408,7 +1408,7 @@ What happens at the individual cell level?
 
 plots for stg meeting
 membrane
-```{r eval=FALSE}
+```{r }
 plt_membrane <- M_all %>% 
   select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
   group_by(Condition, Experiment, Cell) %>% 
@@ -1503,7 +1503,7 @@ walk(seq_along(membrane_dvs_plt), function(i){
 ```
 
 excitability
-```{r eval=FALSE}
+```{r }
 plt_epsp <- M_all[, c("Condition", "Experiment", "Cell", epsp_cols)] %>% 
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
@@ -1548,7 +1548,7 @@ walk(seq_along(epsp_dvs_plt), function(i){
 
 mrna
 univariate change over time -- bend quartile
-```{r eval=FALSE}
+```{r }
 plt_membrane <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>% 
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
@@ -1582,7 +1582,7 @@ walk(seq_along(mrna_cols), function(i){
 
 
 univariate change over time -- boxplots
-```{r eval=FALSE}
+```{r }
 # devtools::install_github("teunbrand/ggh4x")
 library(ggh4x)
 
@@ -1628,7 +1628,7 @@ return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))+scale_
 ```
 
 mrna -- spagetti plot
-```{r eval=FALSE}
+```{r }
 plt_mrna_spagetti <- right_join(
   rename(
     select(mRNAInfo, Family, RGeneName), 
@@ -1668,7 +1668,7 @@ plt_mrna_spagetti %>%
 
 
 What happens at the network level?
-```{r eval=FALSE}
+```{r }
 #FIXME
 plt_tevc <- M_all_outliers %>% 
   select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
@@ -1828,7 +1828,7 @@ what happens at the level of output (excitability)?
 
 ## mk table
 run anovas
-```{r eval=FALSE}
+```{r }
 # temp <- M_all %>% 
 #   select(Condition, Experiment, Cell,  Ihtk.0) %>% 
 #   group_by(Condition, Experiment, Cell) %>% 
@@ -1957,7 +1957,7 @@ fm_overview_hsd <- do.call(rbind, temp_list_hsd)
 ```
 
 Make table
-```{r eval=FALSE}
+```{r }
 fm_overview_table <- full_join(fm_overview_table, fm_overview_hsd)
 
  
@@ -2072,7 +2072,7 @@ save_as_pptx("my table" = M_ft, path = pptx_file)
 
 ## Another take on excitability:
 ### binned Cor
-```{r eval=FALSE}
+```{r }
 
 # Goal: extract Absolute measures and differential measures for 
 # 1. Burst Amplitude (max mV)
@@ -2248,7 +2248,7 @@ ggplot(aes(x = Time, y = Cor))+
 ```
 
 ### Binned by event
-```{r eval=FALSE}
+```{r }
 
 # Goal: extract Absolute measures and differential measures for 
 # 1. Burst Amplitude (max mV)
@@ -2536,7 +2536,7 @@ epsp_stim %>%
 ```
 
 ### Rolling Cor
-```{r eval=FALSE}
+```{r }
 
 # Goal: extract Absolute measures and differential measures for 
 # 1. Burst Amplitude (max mV)
@@ -2693,7 +2693,7 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 
 ### What relationships exist at baseline?
 #### Correlations
-```{r eval=FALSE}
+```{r }
 
 # QC data by completion rate, having variance, and median mrna abundance
 M_all_skim <- M_all %>% skimr::skim()
@@ -2855,7 +2855,7 @@ ggplot(aes(col_names, row_names, fill = Corr))+
 ```
 
 
-```{r eval=FALSE}
+```{r }
 
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
   temp <- M_all[M_all$Condition == condition, ]
@@ -2998,7 +2998,7 @@ anim_save(here("officer_output", "FullDVCorrChange.gif"), plt)
 ![](../plots/BaselineTEA.png)
 
 #### ECDFs
-```{r eval=FALSE}
+```{r }
 ecdf_corr_list <- 
 map(list(
   list(
@@ -3043,7 +3043,7 @@ ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1),
 
 
 ecdfs split by data type
-```{r eval=FALSE}
+```{r }
 temp <- cor_list_df %>% 
   mutate(Condition = case_when(Condition == "Baseline" ~ "0h",
                                Condition == "Compensated" ~ "1h",
@@ -3183,7 +3183,7 @@ cowplot::plot_grid(plotlist = ecdf_corr_list)
 
 
 ####Repeat with only mrna
-```{r eval=FALSE}
+```{r }
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
   temp <- M_all[M_all$Condition == condition, ]
   
@@ -3260,7 +3260,7 @@ ggplot(aes(col_names, row_names, fill = Corr))+
 anim_save(here("officer_output", "FullDVCorrChange_mrnaonly.gif"), plt)
 ```
 
-```{r eval=FALSE}
+```{r }
 ecdf_corr_list <- 
 map(list(
   list(
@@ -3301,7 +3301,7 @@ ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1),
 ```
 
 Combined fig corr/ecdf
-```{r eval=FALSE}
+```{r }
 temp_list <- tea_plt_list
 
 temp_list[[4]] <- ecdf_corr_list[[1]]
@@ -3314,7 +3314,7 @@ cowplot::plot_grid(plotlist = temp_list)
 ```
 
 Contrast ecdfs with and without currents.
-```{r eval=FALSE}
+```{r }
 temp_list2 <- ecdf_corr_list
 
 temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
@@ -3326,7 +3326,7 @@ cowplot::plot_grid(plotlist = temp_list2)
 
 
 ### How do these relationships change for TEA over time?
-```{r eval=FALSE}
+```{r }
 #TODO
 ```
 
@@ -3335,7 +3335,7 @@ cowplot::plot_grid(plotlist = temp_list2)
 ## Multivariate relationships
 ### globally, clustering etc
 set up data
-```{r eval=FALSE}
+```{r }
 # Copied from above ----
 M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
   temp <- M_all[M_all$Condition == condition, ]
@@ -3377,7 +3377,7 @@ rownames(M_winxiqr) <- paste(M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
 
 #### Cluster
 dendrogram 
-```{r eval=FALSE}
+```{r }
 library(pvclust)
 library(ggdendro)
 set.seed(654684)
@@ -3388,7 +3388,7 @@ cluster <- pvclust(t(select(M_winxiqr, - Condition, -Experiment, -Cell)),
 ```
 
 dendrogram plot method 1
-```{r eval=FALSE}
+```{r }
 library(dendextend)
 
 tiff(file=here("officer_output", "hclust.tiff"),
@@ -3424,7 +3424,7 @@ colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Gr
 ```
 
 dendrogram plot method 2
-```{r eval=FALSE}
+```{r }
 plt <- ggdendro::ggdendrogram(cluster$hclust)
 
 cluster_dend <- ggdendro::dendro_data(as.dendrogram(cluster$hclust), type = "rectangle")
@@ -3465,7 +3465,7 @@ ggsave(plot = last_plot(),
 ```
 
 have dendrogram on both sides
-```{r eval=FALSE}
+```{r }
 # cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
 #                    method.hclust = "ward.D2",
 #                    method.dist = "correlation",
@@ -3528,7 +3528,7 @@ have dendrogram on both sides
 
 Clustering with subsets of the data
 membrane properties
-```{r eval=FALSE}
+```{r }
 set.seed(654684)
 cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% c(
   "vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")] ]),
@@ -3562,7 +3562,7 @@ colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Gr
 ```
 
 Excitability
-```{r eval=FALSE}
+```{r }
 set.seed(654684)
 cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% epsp_cols] ]),
                    method.hclust = "ward.D2",
@@ -3571,7 +3571,7 @@ cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% epsp_col
 ```
 
 mRNA
-```{r eval=FALSE}
+```{r }
 set.seed(654684)
 cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% mrna_cols] ]),
                    method.hclust = "ward.D2",
@@ -3582,7 +3582,7 @@ cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% mrna_col
 
 
 Evaluating clustering quality
-```{r eval=FALSE}
+```{r }
 # if (!requireNamespace("BiocManager", quietly = TRUE))
 #     install.packages("BiocManager")
 # BiocManager::install("BiocGenerics")
@@ -3623,7 +3623,7 @@ get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
 ```
 
 resampling based evaluation of jaccard
-```{r eval=FALSE}
+```{r }
 temp.clust <- as.dendrogram(cluster$hclust)
 assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
 
@@ -3660,7 +3660,7 @@ ggsave(plot = last_plot(),
 
 #### PCA
 
-```{r eval=FALSE}
+```{r }
 
 
 
