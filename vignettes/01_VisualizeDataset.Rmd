@@ -489,6 +489,7 @@ M_all %>% select(Condition, Experiment, Cell) %>% distinct() %>% group_by(Condit
 M_all %>% select(Condition, Experiment) %>% distinct() %>% group_by(Condition) %>% tally() 
 ```
 
+# 1 ############################################################################
 # What's happening in Brian's Data?
 ## Prep data -- cull outliers and median interpolate missing values
 ```{r}
@@ -988,6 +989,7 @@ temp %>%
   theme(legend.position = "")
 ```
 
+# 2 ############################################################################
 # Transition -- Do some of these changes replicate?
 We've seen that at least some mRNAs change, presumably due to time and time incubated in the treatment.
 
@@ -1401,7 +1403,7 @@ scatterplots
 
 
 
-
+# 3 ############################################################################
 # Primary Questions
 ## mk plots
 What happens at the individual cell level?
@@ -3778,22 +3780,7 @@ vis_pca_3D(
 
 ```
 
-
-
-
-### specifically
-
-```{r eval=FALSE}
-
-```
 # ###############################################################################
-
-
-# ###############################################################################
-
-
-
-
 
 # Secondary Questions
 ```{r eval=FALSE}
