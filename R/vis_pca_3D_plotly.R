@@ -17,8 +17,11 @@ vis_pca_3D_plotly <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::
                               color.by = M[M$pass == T, "lc"],
                               # turn.x.times = 2,
                               use.colors = RColorBrewer::brewer.pal(8, "Set1"),
+                              point.size = 7,
+                              point.opacity = 0.04,
                               dropdowns = T,
                               dropdown.width = 1.5,
+                              dropdown.opacity = 1,
                               ellipse.opacity = 0.05){
 
   res.pca <- PCA(input.df,  graph = FALSE)
@@ -35,7 +38,10 @@ vis_pca_3D_plotly <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::
                 y = indivduals$Dim.2,
                 z = indivduals$Dim.3,
                 color = indivduals$cell.num,
-                colors = use.colors) %>%
+                colors = use.colors,
+                marker = list(
+                  size = point.size, #5, #3.5,
+                  opacity= point.opacity)) %>%
     layout(scene = list(xaxis = list(title = 'Dim. 1'),
                         yaxis = list(title = 'Dim. 2'),
                         zaxis = list(title = 'Dim. 3',
@@ -43,7 +49,6 @@ vis_pca_3D_plotly <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::
                                                max(indivduals$Dim.3)+zaxis_pad
                                      )
                         )))
-
 
   # add drop down lines
   if (dropdowns == T){
@@ -62,7 +67,8 @@ vis_pca_3D_plotly <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::
           color = indivduals_dropdown$cell.num,
           mode = "lines",
           line = list(
-            width = dropdown.width
+            width = dropdown.width,
+            opacity = dropdown.opacity
           #   color = use.colors[as.numeric(indivduals[i, ]$cell.num)]
           )
         )
