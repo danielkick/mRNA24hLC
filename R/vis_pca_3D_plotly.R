@@ -17,6 +17,8 @@ vis_pca_3D_plotly <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::
                               color.by = M[M$pass == T, "lc"],
                               # turn.x.times = 2,
                               use.colors = RColorBrewer::brewer.pal(8, "Set1"),
+                              dropdowns = T,
+                              dropdown.width = 1.5,
                               ellipse.opacity = 0.05){
 
   res.pca <- PCA(input.df,  graph = FALSE)
@@ -25,19 +27,51 @@ vis_pca_3D_plotly <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::
   indivduals <- as.data.frame(indivduals$coord)
   indivduals$cell.num <- as.factor(as.character(color.by))
 
-  pca_plt <- plot_ly(indivduals,
-                     x = ~Dim.1,
-                     y = ~Dim.2,
-                     z = ~Dim.3,
-                     color = ~cell.num,
-                     colors = use.colors) %>%
-    add_markers() %>%
+  # manually set so that we can apply a dropdown that goes to the "floor"
+  zaxis_pad <- 0.05 *(max(indivduals$Dim.3) - min(indivduals$Dim.3))
+
+  pca_plt <- plot_ly() %>%
+    add_markers(x = indivduals$Dim.1,
+                y = indivduals$Dim.2,
+                z = indivduals$Dim.3,
+                color = indivduals$cell.num,
+                colors = use.colors) %>%
     layout(scene = list(xaxis = list(title = 'Dim. 1'),
                         yaxis = list(title = 'Dim. 2'),
-                        zaxis = list(title = 'Dim. 3')))
+                        zaxis = list(title = 'Dim. 3',
+                                     range = c(min(indivduals$Dim.3)-zaxis_pad,
+                                               max(indivduals$Dim.3)+zaxis_pad
+                                     )
+                        )))
+
+
+  # add drop down lines
+  if (dropdowns == T){
+    for (i in 1:nrow(indivduals)){
+      plt_floor <- min(indivduals$Dim.3)-zaxis_pad
+      indivduals_dropdown <- indivduals[i, ]
+      indivduals_dropdown <- rbind(indivduals_dropdown, indivduals_dropdown)
+
+      indivduals_dropdown[1, "Dim.3"] <- plt_floor#0
+
+      pca_plt <- pca_plt %>%
+        add_trace(
+          x = indivduals_dropdown$Dim.1,
+          y = indivduals_dropdown$Dim.2,
+          z = indivduals_dropdown$Dim.3,
+          color = indivduals_dropdown$cell.num,
+          mode = "lines",
+          line = list(
+            width = dropdown.width
+          #   color = use.colors[as.numeric(indivduals[i, ]$cell.num)]
+          )
+        )
+    }
+  }
+
 
   # add ellipses
-  if (ellipse.opacity <= 0){
+  if (ellipse.opacity > 0){
     # inspired by:
     # https://stackoverflow.com/questions/50412858/plotting-ellipse3d-in-r-plotly-with-surface-ellipse
     ellipse_list <- map(unique(indivduals$cell.num), function(ellipse.group){
@@ -54,7 +88,7 @@ vis_pca_3D_plotly <- function(input.df = dplyr::filter(M, pass == T) %>% dplyr::
         add_trace(x=ellipse_list[[i]]$vb [1,],
                   y=ellipse_list[[i]]$vb [2,],
                   z=ellipse_list[[i]]$vb [3,],
-                  colors = use.colors[i],
+                  color = unique(indivduals$cell.num)[i],
                   type='mesh3d',
                   alphahull = 0,
                   opacity = ellipse.opacity)
