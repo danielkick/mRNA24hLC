@@ -35,12 +35,16 @@ library(factoextra)
 library(FactoMineR) #PCA
 library(umap) # for UMAP
 library(pvclust)
-library(dendextend)
+library(dendextend) # for color_labels
+
 
 library(ggthemes)
 library(cowplot)
 library(patchwork)
 library(rgl) # for vis_pca_3D
+library(ggnewscale) # for newscale so that mk_hclust
+# library(scales) # for overiding scientific notation on dendrogram y axis 
+
 
 library(ggpmisc) # for labeling through stat_poly_eq
 theme_set(ggplot2::theme_minimal())
@@ -62,13 +66,44 @@ metadata <- read_excel(here("inst", "extdata", "ManualDataEphys02.xlsx"),
 mRNAInfo <- readxl::read_excel(here("inst", "extdata", "mRNAInfo.xlsx")) 
 ```
 
+## Convert condition labels
+```{r}
+# ionic$Condition
+# # tevc
+# # tecc
+# mrna$Time
+# # epsp
+# metadata$Condition
+# # mRNAInfo
+
+ionic <- ionic %>% 
+  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+                               Condition == "Compensated" ~ "1h",
+                               Condition == "Delayed" ~ "24h"
+  ))
+
+mrna <- mrna %>% 
+  mutate(Time = case_when(Time == "Baseline"    ~ "0h",
+                          Time == "Compensated" ~ "1h",
+                          Time == "Delayed" ~ "24h"
+  ))
+
+metadata <- metadata %>% 
+  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+                               Condition == "Compensated" ~ "1h",
+                               Condition == "Delayed" ~ "24h"
+  ))
+
+```
+
+
 ```{r mk metadata}
 ## Add Experiment/Cell to metadata ====
 metadata <- metadata %>% 
   mutate(ABFType = case_when(Type %in% c("tevc") ~ "gjvc",
-                            # Type %in% c("igj","igj_50", "gj") ~ "gjcc",
-                            # Type %in% c("epsp", "epsp_50") ~ "epsp",
-                            Type %in% c("fi_50", "fi") ~ "fi")) %>% 
+                             # Type %in% c("igj","igj_50", "gj") ~ "gjcc",
+                             # Type %in% c("epsp", "epsp_50") ~ "epsp",
+                             Type %in% c("fi_50", "fi") ~ "fi")) %>% 
   # make expected file names
   mutate(num_zeros = str_length(Recording)) %>% 
   mutate(num_zeros = ifelse(num_zeros == 1, "000", 
@@ -104,18 +139,18 @@ tecc <- tecc %>%
   mutate(PreSyn = case_when(
     (abs(R1S3Mean) > abs(R1S6Mean)) ~ Signal1, 
     (abs(R1S3Mean) < abs(R1S6Mean)) ~ Signal4
-    ),
-    vrest = case_when(
+  ),
+  vrest = case_when(
     (abs(R1S3Mean) > abs(R1S6Mean)) ~ R1S1Baseline, 
     (abs(R1S3Mean) < abs(R1S6Mean)) ~ R1S4Baseline
-    )) %>% 
+  )) %>% 
   mutate(PreSyn = case_when(
     PreSyn == "IN 9" ~ "In9",
     PreSyn == "IN 4" ~ "In4"
   )) %>% 
   select(FileName, PreSyn, vrest, #Signal1, Signal4, R1S1Baseline, R1S4Baseline, 
          cc, r11, r1#, r12, rc # gap junction measures we'll get from voltage clamp
-         ) %>% 
+  ) %>% 
   distinct() %>% 
   rename(Channel = PreSyn)
 
@@ -125,12 +160,12 @@ tecc <- left_join(tecc, spread(small_metadata, Channel, Cell)) %>%
                           Channel == "In4" ~ In4),
          PrePost = case_when(Channel == "In9" ~ paste0("cc.", as.character(In9), "_", as.character(In4)),
                              Channel == "In4" ~ paste0("cc.", as.character(In4), "_", as.character(In9)))
-         ) %>% 
+  ) %>% 
   filter(!is.na(Cell) &
            !is.na(In4) &
            !is.na(In9)) %>% 
   filter(In4 %in% c(3, 4, 5) &
-         In9 %in% c(3, 4, 5)) %>% 
+           In9 %in% c(3, 4, 5)) %>% 
   select(-In4, -In9) %>% 
   filter(!is.na(cc)) %>% 
   spread(PrePost, cc)
@@ -156,12 +191,12 @@ tevc <- left_join(tevc, spread(small_metadata, Channel, Cell)) %>%
                           Channel == "In4" ~ In4),
          PrePost = case_when(Channel == "In9" ~ paste0("ig.", as.character(In9), "_", as.character(In4)),
                              Channel == "In4" ~ paste0("ig.", as.character(In4), "_", as.character(In9)))
-         ) %>% 
+  ) %>% 
   filter(!is.na(Cell) &
            !is.na(In4) &
            !is.na(In9)) %>% 
   filter(In4 %in% c(3, 4, 5) &
-         In9 %in% c(3, 4, 5)) %>% 
+           In9 %in% c(3, 4, 5)) %>% 
   select(-In4, -In9) %>% 
   filter(!is.na(ig)) %>% 
   spread(PrePost, ig)
@@ -211,8 +246,8 @@ epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predic
 # Relabel Brian's cells ----
 ##
 temp <- mrna[mrna$Source == "Brian" &
-       mrna$Pharm == "AP" &
-       mrna$Time == "Delayed", "Cell"]%>% 
+               mrna$Pharm == "AP" &
+               mrna$Time == "24h", "Cell"]%>% 
   unlist() %>% 
   str_remove(pattern = "#") %>% 
   str_split(pattern = " ") %>%
@@ -220,79 +255,79 @@ temp <- mrna[mrna$Source == "Brian" &
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "AP" &
-       mrna$Time == "Delayed", "Experiment"] <- unlist(transpose(temp[[1]]))
+       mrna$Time == "24h", "Experiment"] <- unlist(transpose(temp[[1]]))
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "AP" &
-       mrna$Time == "Delayed", "Cell"] <- unlist(transpose(temp[[2]])) %>% str_remove(pattern = "LC")
+       mrna$Time == "24h", "Cell"] <- unlist(transpose(temp[[2]])) %>% str_remove(pattern = "LC")
 
 
 ##
 temp <- mrna[mrna$Source == "Brian" &
-       mrna$Pharm == "None" &
-       mrna$Time == "Baseline", "Cell"] %>% 
+               mrna$Pharm == "None" &
+               mrna$Time == "0h", "Cell"] %>% 
   unlist() %>% 
   str_remove(pattern = "Control #")
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "None" &
-       mrna$Time == "Baseline", "Experiment"] <- temp
+       mrna$Time == "0h", "Experiment"] <- temp
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "None" &
-       mrna$Time == "Baseline", "Cell"] <- NA
+       mrna$Time == "0h", "Cell"] <- NA
 
 
 ##
 temp <- mrna[mrna$Source == "Brian" &
-       mrna$Pharm == "None" &
-       mrna$Time == "Delayed", "Cell"] %>% 
+               mrna$Pharm == "None" &
+               mrna$Time == "24h", "Cell"] %>% 
   unlist() %>% 
   str_split(pattern = " ") %>%
   transpose()
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "None" &
-       mrna$Time == "Delayed", "Experiment"] <- unlist(transpose(temp[[1]]))
+       mrna$Time == "24h", "Experiment"] <- unlist(transpose(temp[[1]]))
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "None" &
-       mrna$Time == "Delayed", "Cell"] <- unlist(transpose(temp[[2]])) %>% str_remove(pattern = "LC")
+       mrna$Time == "24h", "Cell"] <- unlist(transpose(temp[[2]])) %>% str_remove(pattern = "LC")
 
 
 ##
 temp <- mrna[mrna$Source == "Brian" &
-       mrna$Pharm == "TEA" &
-       mrna$Time == "Compensated", "Cell"] %>% 
+               mrna$Pharm == "TEA" &
+               mrna$Time == "1h", "Cell"] %>% 
   unlist() %>% 
   str_remove(pattern = "TEA #")
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "TEA" &
-       mrna$Time == "Compensated", "Experiment"] <- temp
+       mrna$Time == "1h", "Experiment"] <- temp
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "TEA" &
-       mrna$Time == "Compensated", "Cell"] <- NA
+       mrna$Time == "1h", "Cell"] <- NA
 
 ##
 temp <- mrna[mrna$Source == "Brian" &
-       mrna$Pharm == "TEA" &
-       mrna$Time == "Delayed", "Cell"] %>% 
+               mrna$Pharm == "TEA" &
+               mrna$Time == "24h", "Cell"] %>% 
   unlist() %>% 
   str_remove(pattern = "TEA24-")
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "TEA" &
-       mrna$Time == "Delayed", "Experiment"] <- temp
+       mrna$Time == "24h", "Experiment"] <- temp
 
 mrna[mrna$Source == "Brian" &
        mrna$Pharm == "TEA" &
-       mrna$Time == "Delayed", "Cell"] <- NA
+       mrna$Time == "24h", "Cell"] <- NA
 
 ##
 temp <- mrna[mrna$Source == "Brian" &
-       mrna$Pharm == "TTX", "Cell"] %>% 
+               mrna$Pharm == "TTX", "Cell"] %>% 
   unlist() %>% 
   str_split(pattern = "-") %>%
   transpose()
@@ -320,36 +355,36 @@ mrna <- mrna %>%
 ```{r}
 # Was there activity on the EC? 
 metadata <- full_join(metadata,
-tibble::tribble(
-  ~Experiment, ~ExtracellularActive,
-    "190808a",                 TRUE,
-     "190830",                 TRUE,
-     "190903",                 TRUE,
-     "190904",                 TRUE,
-     "190905",                 TRUE,
-     "190906",                 TRUE,
-     "190907",                 TRUE,
-     "190915",                 TRUE,
-    "190916a",                 TRUE,
-    "190917a",                   NA, # File not found. Entry not found in notebook either.
-     "190917",                 TRUE,
-     "190918",                 TRUE,
-     "190924",                 TRUE,
-    "190924a",                 TRUE,
-     "191002",                 TRUE,
-     "191004",                 TRUE,
-     "190926",                 TRUE,
-     "190927",                FALSE,
-    "190927a",                 TRUE,
-     "190930",                FALSE,
-    "190930a",                FALSE,
-     "191001",                 TRUE
-  )
+                      tibble::tribble(
+                        ~Experiment, ~ExtracellularActive,
+                        "190808a",                 TRUE,
+                        "190830",                 TRUE,
+                        "190903",                 TRUE,
+                        "190904",                 TRUE,
+                        "190905",                 TRUE,
+                        "190906",                 TRUE,
+                        "190907",                 TRUE,
+                        "190915",                 TRUE,
+                        "190916a",                 TRUE,
+                        "190917a",                   NA, # File not found. Entry not found in notebook either.
+                        "190917",                 TRUE,
+                        "190918",                 TRUE,
+                        "190924",                 TRUE,
+                        "190924a",                 TRUE,
+                        "191002",                 TRUE,
+                        "191004",                 TRUE,
+                        "190926",                 TRUE,
+                        "190927",                FALSE,
+                        "190927a",                 TRUE,
+                        "190930",                FALSE,
+                        "190930a",                FALSE,
+                        "191001",                 TRUE
+                      )
 )
 
 metadata %>% 
   select(Experiment, Condition, ExtracellularActive) %>% 
-  filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% 
+  filter(Condition %in% c("0h", "1h", "24h")) %>% 
   distinct() %>% 
   group_by(Condition, ExtracellularActive) %>% 
   tally() %>%
@@ -382,8 +417,8 @@ M_tecc <- M_tecc %>% mutate(
   cc.5_3  = ifelse(cc.5_3 > 0 & cc.5_3 < 1, cc.5_3, NA),
   cc.5_4  = ifelse(cc.5_4 > 0 & cc.5_4 < 1, cc.5_4, NA)
 ) #%>% 
-  # mutate(rc = rc^-1) %>% 
-  # rename(rc.ig = rc)
+# mutate(rc = rc^-1) %>% 
+# rename(rc.ig = rc)
 
 #vrest     cc   r11    r12    r1    rc 
 M_tevc <- left_join(tevc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
@@ -392,7 +427,7 @@ M_epsp <- left_join(epsp, small_metadata) %>%
   select(-FileName, -Type) %>% 
   mutate(Cell = as.character(Cell))  %>% 
   mutate(Key = case_when(Key %in% c("In4", "In9") ~ "Obs",
-                                  Key %in% c("predicted")  ~ "Sim")) %>% 
+                         Key %in% c("predicted")  ~ "Sim")) %>% 
   pivot_wider(names_from = "Key", values_from  = c("Min.V", "Max.Amplitude", "AUC")) %>% 
   mutate(Max.Amplitude_Sim = Max.Amplitude_Sim + (Min.V_Obs - Min.V_Sim)) %>% 
   mutate(Max.Amplitude_Delta = Max.Amplitude_Obs - Max.Amplitude_Sim,
@@ -405,7 +440,7 @@ M_epsp <- left_join(epsp, small_metadata) %>%
               "AUC_Obs", "AUC_Sim", "AUC_Delta"), median, na.rm = T) %>% 
   distinct() %>% 
   ungroup()
-  
+
 
 #Sweep   Cor Key        Min.V Max.Amplitude    AUC 
 M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell))
@@ -423,10 +458,10 @@ mrna_cols <- names(mrna)[!(names(mrna) %in% c("Source", "Pharm", "Time", "Sample
 M_all <- full_join(M_ionic, M_tecc) %>% full_join(M_tevc) %>% full_join(M_epsp) %>% full_join(M_mrna)
 
 reordered_names <- c(names(M_all)[!(names(M_all) %in% c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols))], 
-                                                      c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols))
+                     c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols))
 
 
-M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed") & Cell %in% c(3, 4, 5)) %>% distinct()
+M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("0h", "1h", "24h") & Cell %in% c(3, 4, 5)) %>% distinct()
 
 # #TODO this needs some prep work. We'll want to capture the variance in these measures.
 # # Not clear how to do that. 
@@ -440,16 +475,16 @@ M_all <- M_all[, reordered_names] %>% filter(Condition %in% c("Baseline", "Compe
 M_all_outliers <- M_all
 M_all_skim <- M_all %>% skimr::skim()
 M_all_skim <- M_all_skim[M_all_skim$complete_rate >= 0.19 & 
-             M_all_skim$numeric.sd > 0, ]
+                           M_all_skim$numeric.sd > 0, ]
 
 M_all_skim <- M_all_skim[!(M_all_skim$skim_variable %in% mrna_cols) |
-            ((M_all_skim$skim_variable %in% mrna_cols) & M_all_skim$numeric.p50 >= 50 ), ]
+                           ((M_all_skim$skim_variable %in% mrna_cols) & M_all_skim$numeric.p50 >= 50 ), ]
 
 M_all <- M_all[, names(M_all) %in% c(
   "Condition", "Cell", "Experiment", "Channel", 
   "Sweep", "Source", "Pharm", "Time", "Sample", 
   M_all_skim$skim_variable[!is.na(M_all_skim$skim_variable)])
-  ]
+]
 
 # update cols now that data is QCed
 ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")[ionic_cols %in% names(M_all)]
@@ -474,7 +509,7 @@ temp %>% group_by(Pharm, Source) %>%  mutate(exists = "T") %>% spread(Time, exis
 ```{r}
 metadata %>% 
   select(Experiment, Condition, ExtracellularActive) %>% 
-  filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% 
+  filter(Condition %in% c("0h", "1h", "24h")) %>% 
   distinct() %>% 
   group_by(Condition, ExtracellularActive) %>% 
   tally() %>%
@@ -495,14 +530,14 @@ M_all %>% select(Condition, Experiment) %>% distinct() %>% group_by(Condition) %
 ```{r}
 # select the mRNAs present in both Brian's data and mine. 
 mrna_b <-select(mrna, 
-                 Source, Pharm, Time, Experiment, Cell, 
-                 bkkca, cav1, cav2, 
-                 inx1, inx2, inx3, inx4, inx5, 
-                 nav, 
-                 shab, shaker, shal, shaw1, shaw2) %>% 
+                Source, Pharm, Time, Experiment, Cell, 
+                bkkca, cav1, cav2, 
+                inx1, inx2, inx3, inx4, inx5, 
+                nav, 
+                shab, shaker, shal, shaw1, shaw2) %>% 
   filter(Source == "Brian")
-  # mutate(Pharm = ifelse(Source == "Daniel" & Time == "Baseline", "None", Pharm)) 
-  
+# mutate(Pharm = ifelse(Source == "Daniel" & Time == "0h", "None", Pharm)) 
+
 mrna_b %>% skimr::skim()
 
 mrna_b %>% 
@@ -515,8 +550,8 @@ mrna_b <- mrna_b %>%
   unite(Group, Source, Pharm, Time)
 
 mrna_b <- mrna_b[, c("Group", "uid",
-                       names(mrna_b)[!(names(mrna_b) %in% c("Group", "uid"))])
-                   ]
+                     names(mrna_b)[!(names(mrna_b) %in% c("Group", "uid"))])
+]
 
 
 # Remove Outliers 
@@ -543,17 +578,22 @@ mrna_b_winxiqr_interp <- imputeMissings::impute(mrna_b_winxiqr, method = "median
 ### PCA
 
 All groups
-```{r}
+```{r eval=FALSE}
 vis_pca_3D_plotly(
   input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
   color.by = unlist(select(mrna_b_winxiqr_interp, Group)),
   use.colors = RColorBrewer::brewer.pal(9, "Paired"),
+  point.size = 3,
+  point.opacity = 1,
+  dropdowns = T,
+  dropdown.width = 1.5,
+  dropdown.opacity = 0.5,
   ellipse.opacity = 0#.02
-  )
+)
 ```
 
 Combine observation groups 
-```{r}
+```{r eval=FALSE}
 mrna_b_annotations <- mrna_b_winxiqr_interp %>%
   separate(Group, c("Source", "Pharm", "Time")) %>%
   select(Source, Pharm, Time)
@@ -563,8 +603,13 @@ vis_pca_3D_plotly(
   input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
   color.by = unlist(select(mrna_b_annotations, Pharm)),
   use.colors = RColorBrewer::brewer.pal(9, "Paired"),
+  point.size = 3,
+  point.opacity = 1,
+  dropdowns = T,
+  dropdown.width = 1.5,
+  dropdown.opacity = 0.5,
   ellipse.opacity = 0#.02
-  )
+)
 
 
 # Color by Time exposed
@@ -572,8 +617,13 @@ vis_pca_3D_plotly(
   input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
   color.by = unlist(select(mrna_b_annotations, Time)),
   use.colors = RColorBrewer::brewer.pal(9, "Paired"),
+  point.size = 3,
+  point.opacity = 1,
+  dropdowns = T,
+  dropdown.width = 1.5,
+  dropdown.opacity = 0.5,
   ellipse.opacity = 0#.02
-  )
+)
 ```
 
 ```{r}
@@ -587,7 +637,7 @@ cowplot::plot_grid(
     mrna_b_pca_plts$cont2, 
     mrna_b_pca_plts$cont1, 
     mrna_b_pca_plts$scree)
-  )
+)
 
 # ggsave(plot = last_plot(),         
 #        filename = here("officer_output", "mRNA_Brian_PCA.tiff"),        
@@ -627,12 +677,12 @@ mrna_b_umap_plts <- map(
 
 # plot_grid(plotlist = mrna_b_umap_plts)
 
-mrna_b_umap_plts[[1]] / mrna_b_umap_plts[[2]] / mrna_b_umap_plts[[3]]
+mrna_b_umap_plts[[1]] + patchwork::plot_spacer() + mrna_b_umap_plts[[2]] + mrna_b_umap_plts[[3]]
 ```
 
 ### Clustering
 
-```{r cache=TRUE}
+```{r cache=TRUE, eval=FALSE}
 # If a move to tidygraph/ggraph becomes desirable
 # https://rpubs.com/Roeland-KINDT/702542
 
@@ -640,35 +690,35 @@ set.seed(654684)
 cluster <- pvclust(
   t(select(mrna_b_winxiqr_interp, -Group, -uid)),
   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
+  method.dist = "correlation",
+  use.cor = "pairwise.complete.obs")
 ```
 
-```{r, layout="l-body-outset", fig.width = 8, fig.asp = .7}
+```{r, eval=FALSE, layout="l-body-outset", fig.width = 8, fig.asp = .7}
 # fig.width = 7, fig.asp = .607
 # 755/1243 # desired output height width
 
 # for bar with all groups
 my_colors <- case_when(
-  mrna_b_winxiqr$Group == "Brian_AP_Delayed" ~ "#8c2d04",
+  mrna_b_winxiqr$Group == "Brian_AP_24h" ~ "#8c2d04",
   
-  mrna_b_winxiqr$Group == "Brian_None_Baseline" ~ "#4292c6",
-  mrna_b_winxiqr$Group == "Brian_None_Delayed" ~ "#084594",
+  mrna_b_winxiqr$Group == "Brian_None_0h" ~ "#4292c6",
+  mrna_b_winxiqr$Group == "Brian_None_24h" ~ "#084594",
   
-  mrna_b_winxiqr$Group == "Brian_TEA_Compensated" ~ "#ef3b2c",
-  mrna_b_winxiqr$Group == "Brian_TEA_Delayed" ~ "#99000d",
+  mrna_b_winxiqr$Group == "Brian_TEA_1h" ~ "#ef3b2c",
+  mrna_b_winxiqr$Group == "Brian_TEA_24h" ~ "#99000d",
   
-  mrna_b_winxiqr$Group == "Brian_TTX_Delayed" ~ "#4a1486")
+  mrna_b_winxiqr$Group == "Brian_TTX_24h" ~ "#4a1486")
 
 # for bars with one group
-flag_ap_d <- ifelse(mrna_b_winxiqr$Group == "Brian_AP_Delayed" , "#8c2d04", NA)
-flag_none_b <- ifelse(mrna_b_winxiqr$Group == "Brian_None_Baseline" , "#4292c6", NA)
-flag_none_d <- ifelse(mrna_b_winxiqr$Group == "Brian_None_Delayed" , "#084594", NA)
-flag_tea_c <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_Compensated" , "#ef3b2c", NA)
-flag_tea_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_Delayed" , "#99000d", NA)
-flag_ttx_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TTX_Delayed" , "#4a1486", NA)
-  
-  
+flag_ap_d <- ifelse(mrna_b_winxiqr$Group == "Brian_AP_24h" , "#8c2d04", NA)
+flag_none_b <- ifelse(mrna_b_winxiqr$Group == "Brian_None_0h" , "#4292c6", NA)
+flag_none_d <- ifelse(mrna_b_winxiqr$Group == "Brian_None_24h" , "#084594", NA)
+flag_tea_c <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_1h" , "#ef3b2c", NA)
+flag_tea_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_24h" , "#99000d", NA)
+flag_ttx_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TTX_24h" , "#4a1486", NA)
+
+
 group_flag_list <- list(
   flag_ap_d,
   flag_none_b,
@@ -678,12 +728,12 @@ group_flag_list <- list(
   flag_ttx_d
 )  
 group_flag_name_list <- list(
-  "ap_d",
-  "none_b",
-  "none_d",
-  "tea_c",
-  "tea_d",
-  "ttx_d"
+  "ap_24h",
+  "none_0h",
+  "none_24h",
+  "tea_1h",
+  "tea_24h",
+  "ttx_24h"
 )  
 
 
@@ -699,13 +749,13 @@ dend <- cluster %>%
         "#e31a1c", 
         #"#fdbf6f", 
         "#ff7f00"
-        ),
-      k = 4)
-  # set("labels_col", 
-  #     value = c("#a6cee3", "#1f78b4", "#fb9a99", 
-  #               "#e31a1c", "#fdbf6f", "#ff7f00"),
-  #     k = 6) #%>%
-  
+      ),
+      k = 6)
+# set("labels_col", 
+#     value = c("#a6cee3", "#1f78b4", "#fb9a99", 
+#               "#e31a1c", "#fdbf6f", "#ff7f00"),
+#     k = 6) #%>%
+
 
 plot(dend)
 
@@ -719,9 +769,9 @@ bar_y_pos <- -0.15
 for (i in seq_along(group_flag_list)){
   bar_y_pos <- bar_y_pos-0.05
   colored_bars(colors = group_flag_list[[i]], 
-             dend = as.dendrogram(cluster), 
-             rowLabels = group_flag_name_list[[i]],
-             y_shift = bar_y_pos)
+               dend = as.dendrogram(cluster), 
+               rowLabels = group_flag_name_list[[i]],
+               y_shift = bar_y_pos)
 }
 
 
@@ -767,9 +817,13 @@ for (temp.group in c("Brian_All", unique(mrna_b_winxiqr$Group))){
   
 }
 
+cor_plt_list[[3]] + cor_plt_list[[5]] + plot_spacer() + plot_spacer() +
+  cor_plt_list[[4]] + cor_plt_list[[6]] + cor_plt_list[[2]]+ cor_plt_list[[7]] + 
+  plot_layout(ncol = 4)
+
 
 # cor_plt_list[[1]] +
-  cor_plt_list[[3]] + cor_plt_list[[4]] +
+cor_plt_list[[3]] + cor_plt_list[[4]] +
   cor_plt_list[[5]] + cor_plt_list[[6]] +
   # plot_spacer() +
   plot_spacer() + cor_plt_list[[2]] +
@@ -792,27 +846,28 @@ cor_list_df <- do.call(rbind, cor_list_df)
 # cor_list_df$Group %>% unique()
 
 ecdf_corr_list <- map(
-list(list("Brian_None_Baseline", "Brian_None_Delayed"),
-     list("Brian_None_Baseline", "Brian_TEA_Compensated"),
-     list("Brian_None_Delayed", "Brian_AP_Delayed"),
-     list("Brian_None_Delayed", "Brian_TEA_Delayed"),
-     list("Brian_None_Delayed", "Brian_TTX_Delayed")
-     ),
-
-function(group_comparison){
-  plot_ecdf_ks(
-  df = cor_list_df[cor_list_df$Group %in% group_comparison, ],
-  data.col = "Corr",
-  group.col = "Group",
-  group1 = group_comparison[1],
-  group2 = group_comparison[2],
-  colors = c("black", "red"))
-})
+  list(list("Brian_None_0h", "Brian_None_24h"),
+       list("Brian_TEA_1h", "Brian_TEA_24h"),
+       list("Brian_None_0h", "Brian_TEA_24h"),
+       list("Brian_None_0h", "Brian_TEA_1h"),
+       list("Brian_None_24h", "Brian_AP_24h"),
+       list("Brian_None_24h", "Brian_TEA_24h"),
+       list("Brian_None_24h", "Brian_TTX_24h")
+  ),
+  
+  function(group_comparison){
+    plot_ecdf_ks(
+      df = cor_list_df[cor_list_df$Group %in% group_comparison, ],
+      data.col = "Corr",
+      group.col = "Group",
+      group1 = group_comparison[1],
+      group2 = group_comparison[2],
+      colors = c("black", "red"))
+  })
 
 # cowplot::plot_grid(plotlist = ecdf_corr_list)
 
-ecdf_corr_list[[1]] + ecdf_corr_list[[2]] + plot_spacer()+ 
-  ecdf_corr_list[[3]] + ecdf_corr_list[[4]] + ecdf_corr_list[[5]]
+ecdf_corr_list[[1]] + ecdf_corr_list[[2]] + ecdf_corr_list[[3]] 
 
 
 # ggsave(plot = last_plot(),         
@@ -857,11 +912,11 @@ temp_p <- do.call(rbind, temp_fms) %>% filter(term != "(Intercept)")
 temp_p <- temp_p %>% select(y, term, estimate, std.error, statistic, p.value) %>% 
   mutate(p.adj = p.adjust(p.value, method = "holm")) %>% 
   mutate(stars = case_when(p.adj < 0.001 ~ "***",
-                       p.adj >= 0.001 & p.adj < 0.01 ~ "**",
-                       p.adj >= 0.01 & p.adj < 0.05 ~ "*",
-                       p.adj >= 0.05 & p.adj < 0.1 ~ ".",
-                       p.adj >= 0.1 ~ " "
-                       ))
+                           p.adj >= 0.001 & p.adj < 0.01 ~ "**",
+                           p.adj >= 0.01 & p.adj < 0.05 ~ "*",
+                           p.adj >= 0.05 & p.adj < 0.1 ~ ".",
+                           p.adj >= 0.1 ~ " "
+  ))
 
 temp_p
 ```
@@ -900,11 +955,11 @@ temp_p <- do.call(rbind, temp_fms) %>% filter(term != "(Intercept)")
 temp_p <- temp_p %>% select(y, term, estimate, std.error, statistic, p.value) %>% 
   mutate(p.adj = p.adjust(p.value, method = "holm")) %>% 
   mutate(stars = case_when(p.adj < 0.001 ~ "***",
-                       p.adj >= 0.001 & p.adj < 0.01 ~ "**",
-                       p.adj >= 0.01 & p.adj < 0.05 ~ "*",
-                       p.adj >= 0.05 & p.adj < 0.1 ~ ".",
-                       p.adj >= 0.1 ~ " "
-                       ))
+                           p.adj >= 0.001 & p.adj < 0.01 ~ "**",
+                           p.adj >= 0.01 & p.adj < 0.05 ~ "*",
+                           p.adj >= 0.05 & p.adj < 0.1 ~ ".",
+                           p.adj >= 0.1 ~ " "
+  ))
 
 temp_p
 ```
@@ -925,8 +980,8 @@ temp %>%
 ### How do blockers alter cells after all have been incubated?
 ```{r}
 # steady state differences?
-  # ap vs TEA vs ttx vs control
-temp <- mrna_b_winxiqr_to_test %>% filter(Time %in% c("Delayed"))
+# ap vs TEA vs ttx vs control
+temp <- mrna_b_winxiqr_to_test %>% filter(Time %in% c("24h"))
 temp %>% group_by(Pharm) %>% tally()
 
 temp_fms <- map(temp_ys, function(temp_y){
@@ -940,11 +995,11 @@ temp_p <- do.call(rbind, temp_fms) %>% filter(term != "(Intercept)")
 temp_p <- temp_p %>% select(y, term, estimate, std.error, statistic, p.value) %>% 
   mutate(p.adj = p.adjust(p.value, method = "holm")) %>% 
   mutate(stars = case_when(p.adj < 0.001 ~ "***",
-                       p.adj >= 0.001 & p.adj < 0.01 ~ "**",
-                       p.adj >= 0.01 & p.adj < 0.05 ~ "*",
-                       p.adj >= 0.05 & p.adj < 0.1 ~ ".",
-                       p.adj >= 0.1 ~ " "
-                       ))
+                           p.adj >= 0.001 & p.adj < 0.01 ~ "**",
+                           p.adj >= 0.01 & p.adj < 0.05 ~ "*",
+                           p.adj >= 0.05 & p.adj < 0.1 ~ ".",
+                           p.adj >= 0.1 ~ " "
+  ))
 
 temp_p
 ```
@@ -967,9 +1022,12 @@ temp %>%
 
 library(ggpubr)
 
-temp %>% 
+plot_grid(plotlist = 
+
+map(seq_along(unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))), function(i){
+  temp %>% 
   pivot_longer(temp_ys, names_to = "mRNA", values_to = "Count") %>% 
-  filter(mRNA %in% unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))[1] ) %>% 
+  filter(mRNA %in% unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))[i] ) %>% 
   mutate(Pharm = factor(Pharm, levels = c("None", "TEA", "AP", "TTX"))) %>% 
   ggboxplot(x = "Pharm", 
             y = "Count", 
@@ -986,7 +1044,13 @@ temp %>%
   ), 
   label = "p.signif")+ # Add significance levels
   stat_compare_means(label.y = 0)+
-  theme(legend.position = "")
+  theme(legend.position = "",
+        axis.title.y = element_text(face = "italic"))+
+    labs(x = "", 
+         y = as.character(unlist(distinct(select(filter(temp_p, p.adj < 0.05), y)))[i]))
+})
+)
+
 ```
 
 # 2 ############################################################################
@@ -1007,12 +1071,12 @@ mrna_rep <-select(mrna,
   filter(
     (Source == "Brian" & Pharm %in% c("None", "TEA")) |
       Source == "Daniel"
-         ) %>% 
-  filter(!(Source == "Brian" & Pharm %in% c("None") & Time == "Delayed")) %>% 
-  mutate(Pharm = ifelse(Source == "Daniel" & Time == "Baseline", "None", Pharm)) %>% 
+  ) %>% 
+  filter(!(Source == "Brian" & Pharm %in% c("None") & Time == "24h")) %>% 
+  mutate(Pharm = ifelse(Source == "Daniel" & Time == "0h", "None", Pharm)) %>% 
   select(-Pharm) %>% 
   distinct()
-  
+
 mrna_rep %>% skimr::skim()
 
 mrna_rep %>% 
@@ -1027,8 +1091,8 @@ mrna_rep <- mrna_rep %>%
   unite(Group, Source, Time)
 
 mrna_rep <- mrna_rep[, c("Group", "uid",
-                       names(mrna_rep)[!(names(mrna_rep) %in% c("Group", "uid"))])
-                   ]
+                         names(mrna_rep)[!(names(mrna_rep) %in% c("Group", "uid"))])
+]
 
 
 # Remove Outliers 
@@ -1053,7 +1117,7 @@ mrna_rep_winxiqr <- mrna_rep_winxiqr %>%
 ```{r}
 cor_groupings <- expand.grid(
   Source = c("Brian", "Daniel"),
-  Time = c("Baseline", "Compensated", "Delayed")
+  Time = c("0h", "1h", "24h")
 )
 
 cor_list <- map(seq(1, nrow(cor_groupings)), function(i){
@@ -1075,13 +1139,13 @@ cor_list <- map(seq(1, nrow(cor_groupings)), function(i){
                          cols = names(select(cor_df, -x)),
                          names_to = "y", 
                          values_to = "Corr") %>% 
-  mutate(
-  Source = cor_groupings[i, "Source"],
-  Time = cor_groupings[i, "Time"]  
-) %>% 
-  select(Source, Time, x, y, Corr)
+    mutate(
+      Source = cor_groupings[i, "Source"],
+      Time = cor_groupings[i, "Time"]  
+    ) %>% 
+    select(Source, Time, x, y, Corr)
   
- return(cor_df)
+  return(cor_df)
 })
 
 cor_comp_df <- do.call(rbind, cor_list) %>% 
@@ -1102,22 +1166,22 @@ cor_comp_df %>%
 
 # cor_comp_df
 
-ecdf_list_time <- map(c("Baseline", "Compensated", "Delayed"), function(Time){
-      plot_ecdf_ks(
-        df = cor_comp_df[cor_comp_df$Time == Time, ],
-        data.col = "Corr",
-        group.col = "Source",
-        group1 = "Brian",
-        group2 = "Daniel",
-        colors = c("black", "red"))})
+ecdf_list_time <- map(c("0h", "1h", "24h"), function(Time){
+  plot_ecdf_ks(
+    df = cor_comp_df[cor_comp_df$Time == Time, ],
+    data.col = "Corr",
+    group.col = "Source",
+    group1 = "Brian",
+    group2 = "Daniel",
+    colors = c("black", "red"))})
 
 
 ecdf_list_sourcetime <- map(
   c("Brian", "Daniel"), function(Source){
     map(
-      list(c("Baseline", "Compensated"),
-           c("Baseline", "Delayed"),
-           c("Compensated", "Delayed")), function(Time){
+      list(c("0h", "1h"),
+           c("0h", "24h"),
+           c("1h", "24h")), function(Time){
              plot_ecdf_ks(
                df = cor_comp_df[cor_comp_df$Source == Source & cor_comp_df$Time %in% Time, ],
                data.col = "Corr",
@@ -1130,12 +1194,119 @@ ecdf_list_sourcetime <- map(
 
 
 plot_grid(plotlist = ecdf_list_time, nrow = 1)/
-plot_grid(plotlist = ecdf_list_sourcetime[[1]], nrow = 1)/ # brian
-plot_grid(plotlist = ecdf_list_sourcetime[[2]], nrow = 1) # daniel
+  plot_grid(plotlist = ecdf_list_sourcetime[[1]], nrow = 1)/ # brian
+  plot_grid(plotlist = ecdf_list_sourcetime[[2]], nrow = 1) # daniel
 ```
 
+
+```{r}
+df_for_cor_of_cors <- do.call(rbind, cor_list) %>% filter(!is.na(Corr))%>% 
+  spread(Time, Corr)
+
+
+# df_for_cor_of_cors  %>% 
+#   ggplot(aes(x = `0h`, y=`1h`, group = Source, color = Source, fill = Source))+
+#   geom_segment(aes(x = -1, y = -1, xend = 1, yend = 1), color = "black", size = 1, linetype = "dashed")+
+#   geom_smooth(method = "lm", fullrange = T)+
+#   geom_point()+
+#   geom_point(shape = 1, color = "black")
+#   # geom_point(aes(x = `0h`, y=`24h`), color = "red")
+# 
+# df_for_cor_of_cors  %>% 
+#   ggplot(aes(x = `0h`, y=`24h`, group = Source, color = Source, fill = Source))+
+#   geom_segment(aes(x = -1, y = -1, xend = 1, yend = 1), color = "black", size = 1, linetype = "dashed")+
+#   geom_smooth(method = "lm", fullrange = T)+
+#   geom_point()+
+#   geom_point(shape = 1, color = "black")
+
+
+df_for_cor_of_cors %>% 
+  gather("Time", "Corr", c("0h", "1h", "24h")) %>% 
+  spread("Source", "Corr") %>% 
+  ggplot(aes(x = Brian, y = Daniel, group = Time, color = Time, fill = Time))+
+  geom_segment(aes(x = -1, y = -1, xend = 1, yend = 1), color = "black", size = 1, linetype = "dashed")+
+  geom_smooth(method = "lm", fullrange = T)+
+  geom_point()+
+  geom_point(shape = 1, color = "black")+
+  facet_grid(.~Time)+
+  coord_fixed()
+
+
+# correlation between us 
+df_for_cor_of_cors %>% 
+  gather("Time", "Corr", c("0h", "1h", "24h")) %>% 
+  spread("Source", "Corr") %>% 
+  group_by(Time) %>% 
+  summarise(CorrCorr = cor(Brian, Daniel, method = "spearman")) %>% 
+  ggplot(aes(x = Time, y = CorrCorr, color = CorrCorr))+
+  geom_hline(yintercept = 0)+
+  geom_segment(aes(xend = Time, yend = 0), size= 1)+
+  geom_point(size= 2)+
+  geom_point(size= 2, shape = 1, color = "black")+
+  scale_color_gradient2(
+    low = RColorBrewer::brewer.pal(9, "PuOr")[1],
+    high = RColorBrewer::brewer.pal(9, "PuOr")[9])+
+  lims(y = c(-1, 1))+
+  theme(legend.position = "")
+
+    
+set.seed(8978979)
+resample_cor_of_cor <- map(seq(1, 1001), function(i){
+  if (i == 1){
+    res <- df_for_cor_of_cors %>% 
+      ungroup() %>% 
+      gather("Time", "Corr", c("0h", "1h", "24h")) %>% 
+      spread("Source", "Corr") %>% 
+      group_by(Time) %>% 
+      summarise(CorrCorr = cor(Brian, Daniel, method = "spearman"))      
+  } else {
+    res <- df_for_cor_of_cors %>%
+      ungroup() %>% 
+      gather("Time", "Corr", c("0h", "1h", "24h")) %>% 
+      mutate(Corr = sample(Corr)) %>% 
+      spread("Source", "Corr") %>%
+      group_by(Time) %>%
+      summarise(CorrCorr = cor(Brian, Daniel, method = "spearman"))  
+  }
+  
+  res$i <- i
+  return(res)
+})
+
+resample_cor_of_cor <- do.call(rbind, resample_cor_of_cor)
+
+resample_cor_of_cor %>% 
+  mutate(obs = case_when(Time == "0h" ~  as.numeric(select(filter(resample_cor_of_cor, i == 1 & Time == "0h"), CorrCorr)),
+                         Time == "1h" ~  as.numeric(select(filter(resample_cor_of_cor, i == 1 & Time == "1h"), CorrCorr)),
+                         Time == "24h" ~ as.numeric(select(filter(resample_cor_of_cor, i == 1 & Time == "24h"), CorrCorr)))) %>% 
+  mutate(bool = CorrCorr >= obs) %>%
+  group_by(Time) %>% 
+  mutate(ep = mean(bool)) %>% 
+  ggplot(aes(x = CorrCorr, color = Time, fill = Time))+
+  geom_segment(aes(x = obs, xend = obs, y = 0, yend = 3))+
+  geom_density(alpha = 0.2)+
+  facet_grid(Time~.)
+
+ #   Time  CorrCorr     i   obs bool        ep
+ #   <chr>    <dbl> <int> <dbl> <lgl>    <dbl>
+ # 1 0h     0.176       1 0.176 TRUE  0.0549  
+ # 2 1h     0.380       1 0.380 TRUE  0.000999
+ # 3 24h    0.128       1 0.128 TRUE  0.124  
+  
+  
+
+  
+  
+  
+  # spread(Time, CorrCorr) %>% 
+  
+  
+
+```
+
+
 Contrast correlation thresholds -- did they fall in similar ranges?
-Bin correlations and examine with a jaccard index
+  Bin correlations and examine with a jaccard index
 ```{r}
 n_bins <- 5
 
@@ -1143,7 +1314,7 @@ library('clusteval') # for cluster_similarity(x, y, similarity="jaccard")
 
 
 set.seed(9080)
-cor_jaccard_list <- map(c("Baseline", "Compensated", "Delayed"), function(Time){
+cor_jaccard_list <- map(c("0h", "1h", "24h"), function(Time){
   temp <- cor_comp_df[cor_comp_df$Time == Time, ] %>% 
     mutate(Bins = cut(Corr, breaks = seq(-1, 1, length.out = n_bins))) %>% 
     select(-Corr) %>% 
@@ -1190,7 +1361,7 @@ mrna_rep_winxiqr <- mrna_rep_winxiqr %>%
 
 stats <- expand.grid(
   Source = c("Brian", "Daniel"),
-  # Time = c("Baseline", "Compensated", "Delayed"),
+  # Time = c("0h", "1h", "24h"),
   mRNA = unique(mrna_rep_winxiqr$mRNA),
   Main = NA,
   BvsC = NA,
@@ -1210,14 +1381,14 @@ for (i in 1:nrow(stats)){
   
   # i = 1
   dunn_res <- dunnTest(Count ~ Time, 
-           data = temp, 
-           method = "bonferroni") # bonferroni and hs produce the same result since it's within a single round of kruskal-wallis
+                       data = temp, 
+                       method = "bonferroni") # bonferroni and hs produce the same result since it's within a single round of kruskal-wallis
   #FIXME -- Is bonferroni ideal here or would we be better off with sidak, holm, or hs?
   dunn_res <- dunn_res$res
   
-  stats[i, "BvsC"] <- filter(dunn_res, Comparison == "Baseline - Compensated")$P.adj
-  stats[i, "BvsD"] <- filter(dunn_res, Comparison == "Baseline - Delayed")$P.adj
-  stats[i, "CvsD"] <- filter(dunn_res, Comparison == "Compensated - Delayed")$P.adj
+  stats[i, "BvsC"] <- filter(dunn_res, Comparison == "0h - 1h")$P.adj
+  stats[i, "BvsD"] <- filter(dunn_res, Comparison == "0h - 24h")$P.adj
+  stats[i, "CvsD"] <- filter(dunn_res, Comparison == "1h - 24h")$P.adj
 }
 
 # get medians and prepare to plot ####
@@ -1225,24 +1396,24 @@ mrna_rep_medians <- mrna_rep_winxiqr %>%
   group_by(Source, Time, mRNA) %>% 
   summarise(MedianCount = median(Count, na.rm =T)) %>% 
   arrange(Source, mRNA, Time)
-  
+
 
 mrna_rep_medians <- mrna_rep_medians %>% 
   mutate(
     MedianCount2 = MedianCount,
-    id = case_when(Time == "Baseline" ~ 1,
-                   Time == "Compensated" ~ 2,
-                   Time == "Delayed" ~ 3)) %>% 
+    id = case_when(Time == "0h" ~ 1,
+                   Time == "1h" ~ 2,
+                   Time == "24h" ~ 3)) %>% 
   pivot_wider(names_from = "Time", values_from = "MedianCount") %>% 
   rename(MedianCount = MedianCount2) %>% 
   group_by(Source, mRNA) %>% 
-  mutate(Baseline = median(Baseline, na.rm = T),
-         Compensated = median(Compensated, na.rm = T),
-         Delayed = median(Delayed, na.rm = T)) %>% 
+  mutate(`0h` = median(`0h`, na.rm = T),
+         `1h` = median(`1h`, na.rm = T),
+         `24h` = median(`24h`, na.rm = T)) %>% 
   ungroup() %>% 
-  mutate(updown12 = ifelse(Baseline < Compensated, "up", "down"), 
-         updown13 = ifelse(Baseline < Delayed, "up", "down"),
-         updown23 = ifelse(Compensated < Delayed, "up", "down"))
+  mutate(updown12 = ifelse(`0h` < `1h`, "up", "down"), 
+         updown13 = ifelse(`0h` < `24h`, "up", "down"),
+         updown23 = ifelse(`1h` < `24h`, "up", "down"))
 
 
 # combine stats and prepared plotting df####
@@ -1251,29 +1422,29 @@ mrna_rep_medians <- full_join(mrna_rep_medians, stats) %>%
          color2 = ifelse(Main < 0.05 & CvsD < 0.05, updown23, "none")) %>% 
   mutate(color1 = factor(color1, levels = c("down", "none", "up")),
          color2 = factor(color2, levels = c("down", "none", "up")))
-  
+
 # plot ####
 temp <- mrna_rep_winxiqr %>% spread("Time", "Count")
 
 ggplot(mrna_rep_medians)+
-  geom_point(data = temp, aes(x = 0.5, y = Baseline), shape = "-")+
-  geom_point(data = temp, aes(x = 1.5, y = Compensated), shape = "-")+
-  geom_point(data = temp, aes(x = 2.5, y = Delayed), shape = "-")+
-
-  geom_segment(aes(x = 0, xend = 1, y = Baseline, yend = Baseline), size = 1)+
-  geom_segment(aes(x = 1, xend = 2, y = Compensated, yend = Compensated, 
+  geom_point(data = temp, aes(x = 0.5, y = `0h`), shape = "-")+
+  geom_point(data = temp, aes(x = 1.5, y = `1h`), shape = "-")+
+  geom_point(data = temp, aes(x = 2.5, y = `24h`), shape = "-")+
+  
+  geom_segment(aes(x = 0, xend = 1, y = `0h`, yend = `0h`), size = 1)+
+  geom_segment(aes(x = 1, xend = 2, y = `1h`, yend = `1h`, 
                    color = color1), size = 1)+
-  geom_segment(aes(x = 2, xend = 3, y = Delayed, yend = Delayed, 
+  geom_segment(aes(x = 2, xend = 3, y = `24h`, yend = `24h`, 
                    color = color2), size = 1)+
   
-  geom_segment(aes(x = 1, xend = 1, y = Baseline, yend = Compensated, 
+  geom_segment(aes(x = 1, xend = 1, y = `0h`, yend = `1h`, 
                    color = color1), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
-  geom_segment(aes(x = 2, xend = 2, y = Compensated, yend = Delayed, 
+  geom_segment(aes(x = 2, xend = 2, y = `1h`, yend = `24h`, 
                    color = color2), arrow = arrow(length = unit(0.03, "npc")), size = 1)+
   scale_color_manual(values = c("red", "gray", "green"))+
   theme_clean()+
   theme(legend.position = "")+
-  facet_grid(Source ~ mRNA)
+  facet_wrap(Source ~ mRNA, scales = "free_y", nrow = 2)
 ```
 
 How similar are the results?
@@ -1307,7 +1478,7 @@ temp <- temp %>%
     CvsD = ifelse(is.na(CvsD), 'none', updown23 )
   ) %>% 
   select(Source, mRNA, BvsC, BvsD, CvsD )
-  
+
 
 
 temp <- temp %>% 
@@ -1351,6 +1522,14 @@ ggplot(data = temp, aes(x = x, y = y))+
   labs(subtitle = paste("    ep=", as.character(temp$ep[1])))
 
 # ggplot()+geom_histogram(aes(x = null_jaccard))
+
+```
+
+
+
+
+
+```{r}
 
 ```
 
@@ -1405,6 +1584,1696 @@ scatterplots
 
 # 3 ############################################################################
 # Primary Questions
+## set up data
+```{r }
+# Copied from above ----
+M_winxiqr_list <- map(c("0h", "1h", "24h"), function(condition){
+  temp <- M_all[M_all$Condition == condition, ]
+  
+  dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
+  
+  for (dv_col  in dvs){
+    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
+  }
+  
+  return(temp)
+})
+
+M_winxiqr <- do.call(rbind, M_winxiqr_list)
+M_winxiqr <- M_winxiqr %>% 
+  select(-Sweep) %>% 
+  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct()
+
+# Median imputation ----
+M_winxiqr <- M_winxiqr %>% 
+  select(-Channel, -Source, -Pharm, -Time, -Sample)
+
+M_winxiqr <- M_winxiqr %>% 
+  group_by(Condition, Experiment, Cell) %>%
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct()
+  
+library(imputeMissings)
+M_winxiqr <- imputeMissings::impute(M_winxiqr, method = "median/mode")
+
+
+for_label_Condition <- M_winxiqr$Condition
+rownames(M_winxiqr) <- paste(M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
+```
+
+set up groupings
+```{r}
+#TODO
+# mrna_cols
+
+memb_cols <- c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
+ 
+# epsp_cols
+```
+
+
+## Are the three time points separable in multidimensional space?
+### PCA
+
+```{r }
+list_for_pca <- list(
+  M_winxiqr[M_winxiqr$Condition == "0h", 
+            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
+  M_winxiqr[M_winxiqr$Condition == "1h", 
+            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
+  M_winxiqr[M_winxiqr$Condition == "24h", 
+            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]]
+)
+
+pca_summary_descriptions <- map(list_for_pca, function(df){
+  mk_pca_multi_plt(input.df = df,
+                   scree.max.y = 100)
+})
+
+pca_summary_descriptions <- map(list_for_pca, function(df){
+  mk_pca_multi_plt(input.df = df,
+                 scree.max.y = 100)
+})
+
+
+# {p4|p0}/{p1+p2+p3}
+
+{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}/
+{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[3]]$biplt}
+# {pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
+
+ggsave(plot = last_plot(), 
+       filename = here("officer_output", "PCA_Contrast.tiff"),        
+       width = 11.5, height = 4.76)
+
+```
+
+3d
+
+```{r}
+## mrna only ====
+vis_pca_3D_plotly(
+  input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c(
+    "Condition", "Cell", "Experiment",
+    "vrest", "r11", "r1", 
+    "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
+    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]],
+  color.by = unlist(select(M_winxiqr, Condition)),
+  use.colors = RColorBrewer::brewer.pal(3, "Set2"),#c("#cc4c02", "#e31a1c", "#800026"),
+  point.size = 3,
+  point.opacity = 1,
+  dropdowns = T,
+  dropdown.width = 1.5,
+  dropdown.opacity = 0.5,
+  ellipse.opacity = 0#.02
+)
+
+
+## membrane only ====
+vis_pca_3D_plotly(
+  input.df = M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
+    # "Condition", "Cell", "Experiment",
+    "vrest", "r11", "r1", 
+    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    # "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    # "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
+    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]],
+  color.by = unlist(select(M_winxiqr, Condition)),
+  use.colors = RColorBrewer::brewer.pal(3, "Set2"),#c("#cc4c02", "#e31a1c", "#800026"),
+  point.size = 3,
+  point.opacity = 1,
+  dropdowns = T,
+  dropdown.width = 1.5,
+  dropdown.opacity = 0.5,
+  ellipse.opacity = 0#.02
+)
+
+
+## excitability only ====
+vis_pca_3D_plotly(
+  input.df = M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
+    # "Condition", "Cell", "Experiment",
+    # "vrest", "r11", "r1", 
+    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta"#, 
+    # "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]],
+  color.by = unlist(select(M_winxiqr, Condition)),
+  use.colors = RColorBrewer::brewer.pal(3, "Set2"),#c("#cc4c02", "#e31a1c", "#800026"),
+  point.size = 3,
+  point.opacity = 1,
+  dropdowns = T,
+  dropdown.width = 1.5,
+  dropdown.opacity = 0.5,
+  ellipse.opacity = 0#.02
+)
+```
+
+### UMAP
+```{r}
+
+set.seed(16069)
+temp.umap = umap(select(M_winxiqr, 
+                        -Condition, -Cell, -Experiment, 
+                        -cc.3_4, -cc.3_5, -ig.3_4, -ig.3_5))
+
+temp <- temp.umap$layout %>% as.tibble()
+col_by_df <- M_winxiqr[, "Condition"] 
+
+# plot with convex hulls
+df <- temp
+df$Group <- col_by_df
+
+find_hull <- function(df) df[chull(df$V1, df$V2), ]
+hulls <- plyr::ddply(df, "Group", find_hull)
+
+ggplot(df, aes(V1, V2, color = Group, fill = Group))+
+  geom_polygon(data = hulls, alpha = 0.1) +
+  geom_point()+
+  scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  scale_fill_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  coord_fixed()
+
+
+
+
+
+
+## mrna only ====
+temp.umap = umap(
+  M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c(
+    "Condition", "Cell", "Experiment",
+    "vrest", "r11", "r1", 
+    "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
+    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]]
+  )
+
+temp <- temp.umap$layout %>% as.tibble()
+col_by_df <- M_winxiqr[, "Condition"] 
+
+# plot with convex hulls
+df <- temp
+df$Group <- col_by_df
+
+find_hull <- function(df) df[chull(df$V1, df$V2), ]
+hulls <- plyr::ddply(df, "Group", find_hull)
+
+umap_mrna <- ggplot(df, aes(V1, V2, color = Group, fill = Group))+
+  geom_polygon(data = hulls, alpha = 0.1) +
+  geom_point()+
+  scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  scale_fill_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  theme(legend.position = "bottom")
+  # coord_fixed()
+
+## membrane only ====
+temp.umap = umap(
+  M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
+    # "Condition", "Cell", "Experiment",
+    "vrest", "r11", "r1", 
+    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    # "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    # "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
+    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]]
+  )
+
+temp <- temp.umap$layout %>% as.tibble()
+col_by_df <- M_winxiqr[, "Condition"] 
+
+# plot with convex hulls
+df <- temp
+df$Group <- col_by_df
+
+find_hull <- function(df) df[chull(df$V1, df$V2), ]
+hulls <- plyr::ddply(df, "Group", find_hull)
+
+umap_membrane <- ggplot(df, aes(V1, V2, color = Group, fill = Group))+
+  geom_polygon(data = hulls, alpha = 0.1) +
+  geom_point()+
+  scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  scale_fill_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  theme(legend.position = "bottom")
+  # coord_fixed()
+
+## excitability only ====
+temp.umap = umap(
+  M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
+    # "Condition", "Cell", "Experiment",
+    # "vrest", "r11", "r1", 
+    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
+    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta"#, 
+    # "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
+  ))]]
+  )
+
+temp <- temp.umap$layout %>% as.tibble()
+col_by_df <- M_winxiqr[, "Condition"] 
+
+# plot with convex hulls
+df <- temp
+df$Group <- col_by_df
+
+find_hull <- function(df) df[chull(df$V1, df$V2), ]
+hulls <- plyr::ddply(df, "Group", find_hull)
+
+umap_excite <- ggplot(df, aes(V1, V2, color = Group, fill = Group))+
+  geom_polygon(data = hulls, alpha = 0.1) +
+  geom_point()+
+  scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  scale_fill_manual(values = RColorBrewer::brewer.pal(3, "Set2"))+
+  theme(legend.position = "bottom")
+  # coord_fixed()
+
+umap_mrna + umap_membrane + umap_excite 
+
+```
+
+### Clustering
+```{r}
+mk_hclust_plts <- function(
+  df = unite(M_winxiqr, uid, Experiment, Cell, sep = "-"),
+  cluster_by = c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"),
+  uid_col = "uid",
+  n_clusters = 3,
+  true_groups = "Condition",
+  true_colors = RColorBrewer::brewer.pal(3, "Set2"),
+  cluster_colors = RColorBrewer::brewer.pal(3, "Set1")
+){
+  df <- as.data.frame(df) 
+  
+  if (!exists("cluster_colors")){
+    cluster_colors = rainbow(n_clusters)
+  }
+  ## prep
+  # move uid to rowname
+  row.names(df) <- df[[uid_col]]
+  df_groups <- select(df, all_of(true_groups))
+  df <- df[, cluster_by]
+  
+  ## Cluster
+  cluster <- pvclust(t(df),
+                     method.hclust = "ward.D2",
+                     method.dist = "correlation",
+                     use.cor = "pairwise.complete.obs")
+  
+  
+  ## make dendrogram  ####
+  dend <- cluster$hclust %>% 
+    as.dendrogram() 
+  
+  # iteratively coloring the labels is a workaround to get the "true" groups shown
+  dend_labs <- rownames_to_column(df_groups, var = "rownames")[, ]
+  dend_labs <- full_join(data.frame(rownames = labels(dend)), dend_labs)
+  for(i in seq_along(unique(df_groups[[true_groups]]))){
+    true_group <- unique(df_groups[[true_groups]])[i]
+    true_color <- true_colors[i]
+    
+    dend <- dend %>% 
+      dendextend::color_labels(
+        col = true_color, 
+        labels = dend_labs[dend_labs[[true_groups]] == true_group, "rownames"]) 
+    
+    
+  }
+  
+  dend <- dend %>% 
+    set("branches_k_color", 
+        k = n_clusters, 
+        value = cluster_colors
+    ) %>% 
+    set("branches_lwd", 0.7) %>%
+    set("labels_cex", 0.6) 
+
+  dend_cluster_only <- dend %>% 
+    set("labels_colors",
+        k = n_clusters,
+        value = cluster_colors) %>%
+    as.ggdend()
+  
+  
+  dend <- dend %>% 
+    as.ggdend()
+  
+  
+  
+  plt_dend_cluster_only <- ggplot(dend_cluster_only)+
+    theme(axis.ticks.y = element_line(),
+          axis.text.y = element_text(),
+          axis.line.y = element_line())
+  
+  
+  plt_dend <- ggplot(dend)+
+    theme(axis.ticks.y = element_line(),
+          axis.text.y = element_text(),
+          axis.line.y = element_line())  
+  
+
+  ## Add reality ribbon with or without clustering result ####
+  groups_to_plt <- full_join(
+    as.data.frame(dend$labels),
+    rownames_to_column(var = "label", df_groups))
+  
+  plt_grouping <- groups_to_plt %>% 
+    ggplot(aes_string(x="x", y="0", fill = true_groups))+
+    geom_tile()+
+    scale_fill_manual(values = true_colors)+
+    theme_void()+
+    labs(x = "", y = "")+
+    theme(legend.position = "left")
+  
+  plt_grouping_contrast <- ggplot()+
+    geom_tile(data = groups_to_plt, aes_string(x="x", y="0.5", fill = true_groups))+
+    scale_fill_manual(values = true_colors)+
+    
+    ggnewscale::new_scale("fill") +
+    geom_tile(data = data.frame(x = seq_along(dend_cluster_only$labels$col),
+                                cluster_groups = as.character(as.numeric(as.factor(dend_cluster_only$labels$col)))
+    ),
+    aes_string(x="x", y= "-0.5", fill = "cluster_groups"),
+    )+
+    scale_fill_manual(values = cluster_colors)+
+    
+    theme_void()+
+    labs(x = "", y = "")+
+    theme(legend.position = "left")
+  
+  
+  ## Add heatmap  ####
+  data_to_plt <- full_join(
+    as.data.frame(dend$labels),
+    rownames_to_column(var = "label", df)) 
+  
+  data_to_plt <- 
+    data_to_plt %>% 
+    gather("key", "value", 
+           names(data_to_plt)[
+             !(names(data_to_plt) %in% c("x", "y", 
+                                         "label", "col", "cex", 
+                                         true_groups))
+           ])
+  
+  plt_heatmap_raw <- data_to_plt %>% 
+    ggplot(aes(x, 
+               y = key, 
+               fill = value))+
+    geom_tile()+
+    scale_fill_viridis_c()+
+    labs(x = "", y = "")+
+    theme(panel.background = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.text.x = element_blank(),
+          legend.position = "left")
+  
+  
+  plt_heatmap_z <- data_to_plt %>% 
+    group_by(key) %>% 
+    mutate(mean = mean(value, na.rm = T),
+           sd = sd(value, na.rm = T)) %>% 
+    mutate(value = ((value - mean)/sd)) %>% # Now Z scores
+    ggplot(aes(x, 
+               y = key, 
+               fill = value))+
+    geom_tile()+
+    scale_fill_viridis_c()+
+    labs(x = "", y = "")+
+    theme(panel.background = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.text.x = element_blank(),
+          legend.position = "left")
+  
+  
+  ## Return plots, manually tweak layout  ####
+  return(
+    list(
+      pvclust_out = cluster,
+      dendrogram_clusters = plt_dend_cluster_only,
+      dendrogram_both = plt_dend,
+      group_tile = plt_grouping,
+      group_compare_tile = plt_grouping_contrast,
+      heatmap_raw = plt_heatmap_raw,
+      heatmap_z = plt_heatmap_z
+    )
+  )
+}
+```
+
+
+```{r eval=FALSE}
+## mrna only ====
+o_mrna <- 
+  mk_hclust_plts(
+    df = rownames_to_column(M_winxiqr, "uid"),
+    cluster_by = mrna_cols,
+    uid_col = "uid",
+    n_clusters = 3,
+    true_groups = "Condition",
+    true_colors = RColorBrewer::brewer.pal(3, "Set2"), #c("#fdd49e", "#fc8d59", "#b30000"),
+    cluster_colors = RColorBrewer::brewer.pal(3, "Set1") 
+  )
+
+(o_mrna$dendrogram_both+
+  scale_y_continuous(limits = c(-1.51, 3), labels = scales::comma)
+  # theme(plot.margin=unit(c(1,1,1.5,1),"cm"))
+)/ 
+  (o_mrna$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  )+ 
+  patchwork::plot_layout(heights = c(2, .2))
+
+
+
+(o_mrna$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  ) / 
+  (o_mrna$heatmap_z + theme(legend.position = "below")) + 
+  patchwork::plot_layout(heights = c(.2, 5))
+
+
+
+(o_mrna$dendrogram_both+
+  scale_y_continuous(limits = c(-1.51, 3), labels = scales::comma)
+  # theme(plot.margin=unit(c(1,1,1.5,1),"cm"))
+)/ 
+  (o_mrna$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  ) / 
+  (o_mrna$heatmap_z + theme(legend.position = "below")) + 
+  patchwork::plot_layout(heights = c(2, .2, 5))
+
+## membrane only ====
+o_mem <- 
+  mk_hclust_plts(
+    df = rownames_to_column(M_winxiqr, "uid"),
+    cluster_by = c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"),
+    uid_col = "uid",
+    n_clusters = 3,
+    true_groups = "Condition",
+    true_colors = RColorBrewer::brewer.pal(3, "Set2"),
+    cluster_colors = RColorBrewer::brewer.pal(3, "Set1") 
+  )
+
+
+(o_mem$dendrogram_both+
+  scale_y_continuous(limits = c(-.251, 1.25), labels = scales::comma)
+  # theme(plot.margin=unit(c(1,1,1.5,1),"cm"))
+)/ 
+  (o_mem$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  )+ 
+  patchwork::plot_layout(heights = c(2, .2))
+
+
+
+(o_mem$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  ) / 
+  (o_mem$heatmap_z + theme(legend.position = "below")) + 
+  patchwork::plot_layout(heights = c(.2, 1))
+
+
+
+
+(o_mem$dendrogram_both+
+  scale_y_continuous(limits = c(-.251, 1.25), labels = scales::comma)
+  # theme(plot.margin=unit(c(1,1,1.5,1),"cm"))
+)/ 
+  (o_mem$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  ) / 
+  (o_mem$heatmap_z + theme(legend.position = "below")) + 
+  patchwork::plot_layout(heights = c(2, .2, 1))
+
+
+## excitability only ====
+o_exc <- 
+  mk_hclust_plts(
+    df = rownames_to_column(M_winxiqr, "uid"),
+    cluster_by = epsp_cols,
+    uid_col = "uid",
+    n_clusters = 3,
+    true_groups = "Condition",
+    true_colors = RColorBrewer::brewer.pal(3, "Set2"),
+    cluster_colors = RColorBrewer::brewer.pal(3, "Set1") 
+  )
+
+(o_exc$dendrogram_both+
+  scale_y_continuous(limits = c(-.15, .75), labels = scales::comma)
+  # theme(plot.margin=unit(c(1,1,1.5,1),"cm"))
+)/ 
+  (o_exc$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  )+ 
+  patchwork::plot_layout(heights = c(2, .2))
+
+
+
+
+(o_exc$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  ) / 
+  (o_exc$heatmap_z + theme(legend.position = "below")) + 
+  patchwork::plot_layout(heights = c(.2, 1))
+
+
+
+
+(o_exc$dendrogram_both+
+  scale_y_continuous(limits = c(-.15, .75), labels = scales::comma)
+  # theme(plot.margin=unit(c(1,1,1.5,1),"cm"))
+)/ 
+  (o_exc$group_compare_tile+
+     # lims(y =  c(2, -2))+ # y axis can be flipped like so
+     theme(legend.position = "")
+  ) / 
+  (o_exc$heatmap_z + theme(legend.position = "below")) + 
+  patchwork::plot_layout(heights = c(2, .2, 1))
+
+
+
+# (o_mrna$group_compare_tile+theme(legend.position = "")) /
+#   (o_mrna$heatmap_z + theme(legend.position = "below"))+
+#   patchwork::plot_layout(heights = c(.2, 1)) |
+# 
+# (o_exc$group_compare_tile+theme(legend.position = "")) /
+#   (o_exc$heatmap_z + theme(legend.position = "below"))+
+#   patchwork::plot_layout(heights = c(.2, 1)) |
+# 
+# (o_mem$group_compare_tile+theme(legend.position = "")) /
+#   (o_mem$heatmap_z + theme(legend.position = "below"))+
+#   patchwork::plot_layout(heights = c(.2, 1))
+
+
+
+((o_mrna$dendrogram_both+
+  scale_y_continuous(limits = c(-.52, 3), labels = scales::comma))+
+(o_mem$dendrogram_both+
+  scale_y_continuous(limits = c(-.251, 1.25), labels = scales::comma))+
+(o_exc$dendrogram_both+
+  scale_y_continuous(limits = c(-.15, .75), labels = scales::comma)))/
+
+  ((o_mrna$group_compare_tile+theme(legend.position = ""))+
+(o_mem$group_compare_tile+theme(legend.position = ""))+
+(o_exc$group_compare_tile+theme(legend.position = "")))+
+  patchwork::plot_layout(heights = c(1, .1))
+
+```
+
+
+
+Evaluating clustering quality
+```{r }
+# # if (!requireNamespace("BiocManager", quietly = TRUE))
+# #     install.packages("BiocManager")
+# # BiocManager::install("BiocGenerics")
+# library(BiocGenerics)
+# library(imputeMissings)
+# library(magrittr) # for %>% (this is part of tidyverse)
+# library(clues)
+# library(NMF)
+# 
+# ## Evaluate clustering performance ==========================================
+# get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
+#                                     generated.clustering) {
+#   if (length(reference.clustering) != length(generated.clustering)) {
+#     warning("Input vectors are not of the same length!")
+#   } else {
+#     # reference.clustering = mrna_raw$Cell
+#     # generated.clustering = kmeans.m$cluster
+#     output <- array(0, dim = 6)
+#     reference.clustering <- as.numeric(reference.clustering) %>% as.factor()
+#     generated.clustering <- as.numeric(generated.clustering) %>% as.factor()
+#     output <- NMF::purity(reference.clustering, generated.clustering)
+#     names(output) <- "Purity"
+#     # Get a lot of concurrance measures
+#     # https://davetang.org/muse/2017/09/21/adjusted-rand-index/
+#     output <- c(
+#       output,
+#       clues::adjustedRand(
+#         BiocGenerics::as.vector(reference.clustering),
+#         BiocGenerics::as.vector(generated.clustering)
+#       )
+#     )
+#     return(output)
+#   }
+# }
+
+
+
+```
+
+resampling based evaluation of jaccard
+```{r }
+# temp.clust <- as.dendrogram(cluster$hclust)
+# assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
+# 
+# # use names to get groupings
+# time_groups <- as.factor(unlist(transpose(stringr::str_split(names(assignment), pattern = "-"))[[1]]))
+# 
+# library(purrr)
+# set.seed(9348957)
+# resample.indices <- map(1:10001, function(i){
+#   if (i == 1){
+#     indices <- get_cluster_comparisons(reference.clustering = time_groups,
+#                                        assignment)
+#   }else{
+#     indices <- get_cluster_comparisons(reference.clustering = time_groups,
+#                                        sample(assignment, replace = F))
+#   }
+# })
+# resample.indices <- do.call(rbind, resample.indices)
+# resample.indices <- resample.indices %>% as.data.frame()
+# 
+# library(ggplot2)
+# resample.indices %>% 
+#   ggplot(aes(x = Jaccard))+
+#   geom_density()+
+#   geom_vline(xintercept = as.numeric(resample.indices[1, "Jaccard"]))+
+#   xlim(0,1)+
+#   theme_minimal()+
+#   labs(subtitle = paste0("ep = ", as.character(round(mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"]), digits = 4))))
+# # empirical p-value from 10,000 random samplings
+# ggsave(plot = last_plot(), 
+#        filename = here("officer_output", "hclust_jaccard_dist.tiff"),
+#        width = 11.5, height = 4.76)
+```
+
+## Correlations
+### Correlation Heatmaps
+
+
+```{r}
+# corr <- cor(M_winxiqr[, mrna_cols], use = "pairwise.complete.obs", method = "spearman")
+# p.mat <- cor_pmat(M_winxiqr[, mrna_cols], use = "pairwise.complete.obs", method = "spearman")
+#  
+# ggcorrplot(
+#   corr,
+#   p.mat = p.mat,
+#   hc.order = FALSE,
+#   # method = "circle",
+#   type = "lower",
+#   insig = "blank",
+#   colors = RColorBrewer::brewer.pal(9, "PuOr")[c(1, 5, 9)]
+# )
+
+# Time = "0h"
+cor_plt_list <- map(c("0h", "1h", "24h"), function(Time){
+  df = M_winxiqr[M_winxiqr$Condition == Time, c(mrna_cols, memb_cols, epsp_cols)]
+  
+  corr <- cor(df, use = "pairwise.complete.obs", method = "spearman")
+  p.mat <- cor_pmat(df, use = "pairwise.complete.obs", method = "spearman")
+  
+  cor_df_bin <- corr
+  cor_bins <- seq(-1, 1, length.out = 8)
+  for (i in 1:(length(cor_bins)-1)){
+    # use the more extreme value to shade with
+    cor_df_bin[cor_df_bin > cor_bins[i] & cor_df_bin < cor_bins[i+1]] <- cor_bins[c(i, (i+1))[which.max(abs(cor_bins[i:(i+1)]))]]
+  }
+  
+  
+  ggcorrplot(
+    cor_df_bin, 
+    p.mat = p.mat,
+    insig = "blank",
+    type = "upper",
+    outline.col = "white",
+    colors = RColorBrewer::brewer.pal(n = 9, name = "PuOr")[c(1,5,9)]
+  )+
+    labs(subtitle = Time)+
+    theme(legend.position = ""#,
+          # axis.text.x = element_text(angle = 90)
+          )
+})
+
+# plot_grid(plotlist = cor_plt_list)
+
+(cor_plt_list[[1]]+theme(
+    axis.text.x = element_text(angle = 90))) +
+(cor_plt_list[[2]]+theme(
+    axis.text.x = element_text(angle = 90),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))+
+(cor_plt_list[[3]]+theme(
+  axis.text.x = element_text(angle = 90),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))
+```
+
+
+try contrast
+```{r}
+
+
+
+# Time = "0h"
+cor_plt_list <- map(1:3, function(Step){
+  
+  comparison_list <- list(list(
+    c("0h"), c("1h"), c("0h vs 1h")
+  ),
+  list(
+    c("1h"), c("24h"), c("1h vs 24h")
+  ),
+  list(
+    c("0h"), c("24h"), c("0h vs24h")
+  ))
+  
+  
+  df = M_winxiqr[M_winxiqr$Condition == comparison_list[[Step]][[1]], 
+                 c(mrna_cols, memb_cols, epsp_cols)]
+  
+  corr <- cor(df, use = "pairwise.complete.obs", method = "spearman")
+  # p.mat <- cor_pmat(df, use = "pairwise.complete.obs", method = "spearman")
+  
+  df2 = M_winxiqr[M_winxiqr$Condition == comparison_list[[Step]][[2]], 
+                 c(mrna_cols, memb_cols, epsp_cols)]
+  
+  corr2 <- cor(df2, use = "pairwise.complete.obs", method = "spearman")
+  
+  
+  cor_df_bin <- corr2 - corr 
+  cor_bins <- seq(-1, 1, length.out = 8)
+  for (i in 1:(length(cor_bins)-1)){
+    # use the more extreme value to shade with
+    cor_df_bin[cor_df_bin > cor_bins[i] & cor_df_bin < cor_bins[i+1]] <- cor_bins[c(i, (i+1))[which.max(abs(cor_bins[i:(i+1)]))]]
+  }
+  
+  
+  ggcorrplot(
+    cor_df_bin, 
+    # p.mat = p.mat,
+    insig = "blank",
+    type = "upper",
+    outline.col = "white",
+    colors = RColorBrewer::brewer.pal(n = 9, name = "PuOr")[c(1,5,9)]
+  )+
+    labs(subtitle = comparison_list[[Step]][[3]])+
+    theme(legend.position = ""#,
+          # axis.text.x = element_text(angle = 90)
+          )
+})
+
+# plot_grid(plotlist = cor_plt_list)
+
+(cor_plt_list[[1]]+theme(
+    axis.text.x = element_text(angle = 90))) +
+(cor_plt_list[[2]]+theme(
+    axis.text.x = element_text(angle = 90),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))+
+(cor_plt_list[[3]]+theme(
+  axis.text.x = element_text(angle = 90),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))
+```
+
+
+
+looking for a different solution...
+```{r eval=FALSE, include=FALSE}
+# # M_winxiqr
+# # 
+# # mrna_cols
+# # 
+# # c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
+# # 
+# # epsp_cols
+# # 
+# # 
+# GGally::ggpairs()
+# # # library(ggcorrplot)
+# # 
+# 
+# 
+# 
+# # library(GGally)
+# ggcorr(M_winxiqr[, mrna_cols],
+#            # geom = "circle",
+#        hjust = 1,
+#        # layout.exp = 1,
+#            nbreaks = 5,#9,
+#            low = RColorBrewer::brewer.pal(9, "PuOr")[1],
+#            mid = RColorBrewer::brewer.pal(9, "PuOr")[5],
+#            high = RColorBrewer::brewer.pal(9, "PuOr")[9])
+# # 
+# # 
+# # 
+# # ggcorr(M_winxiqr[, mrna_cols], 
+# #        geom = "blank", label = F, hjust = 0.75) +
+# #   # geom_circle(aes(x0=x, y0=y, r=coefficient, 
+# #   #                 color = coefficient > 0, alpha = abs(coefficient) > 0.5))
+# #   geom_point(size = 1, aes(color = coefficient > 0, alpha = abs(coefficient) > 0.5)) +
+# #   scale_alpha_manual(values = c("TRUE" = 0.25, "FALSE" = 0)) +
+# #   guides(color = FALSE, alpha = FALSE)
+# # 
+# # geom_circle(aes(x0 = 0, y0 = 0, r = rad), color = plt_df$cor_col, fill = plt_df$cor_col)
+# #       
+# # 
+# # corr <- cor(M_winxiqr[, mrna_cols], use = "pairwise.complete.obs", method = "spearman")
+# # p.mat <- cor_pmat(M_winxiqr[, mrna_cols], use = "pairwise.complete.obs", method = "spearman")
+# # 
+# ggcorrplot(
+#   corr,
+#   p.mat = p.mat,
+#   hc.order = FALSE,
+#   # method = "circle",
+#   type = "lower",
+#   insig = "blank",
+#   colors = RColorBrewer::brewer.pal(9, "PuOr")[c(1, 5, 9)]
+# )
+# # 
+# # 
+# # 
+# # x <- datasets::mtcars %>%
+# #        correlate() %>%    # Create correlation data frame (cor_df)
+# #        focus(-cyl, -vs, mirror = TRUE) %>%  # Focus on cor_df without 'cyl' and 'vs'
+# #        rearrange() %>%  # rearrange by correlations
+# #        shave() # Shave off the upper triangle for a clean result
+# # 
+# # library(corrr)
+# # 
+# # plt <- M_winxiqr[, mrna_cols] %>% 
+# #   correlate(method = "spearman") %>% 
+# #   shave() %>% 
+# #   rplot()
+# # 
+# # plt
+# #   
+# #   
+# # M_winxiqr[, mrna_cols] %>% 
+# #   correlate(method = "spearman") %>% 
+# #   network_plot(min_cor = .6)
+# # 
+# # 
+# # # # ggcorr(nba[, 2:15], geom = "blank", label = TRUE, hjust = 0.75) +
+# # # #   geom_point(size = 10, aes(color = coefficient > 0, alpha = abs(coefficient) > 0.5)) +
+# # # #   scale_alpha_manual(values = c("TRUE" = 0.25, "FALSE" = 0)) +
+# # # #   guides(color = FALSE, alpha = FALSE)
+# # # 
+# # # ggpairs(M_winxiqr[, mrna_cols])
+# # # 
+# 
+# 
+# ## Describe one time point
+# ## THen describe chance between them
+# 
+# 
+# 
+# 
+# cor_list <- map(c("0h", "1h", "24h"), function(Group){
+#   df <- M_winxiqr[M_winxiqr$Condition == Group , mrna_cols] #FIXME
+#   cor_df <- cor(df, use = "pairwise.complete.obs", method = "spearman")
+#   
+#   
+#   n_bins = 9
+#   cor_color_df <- matrix(
+#     as.numeric(cut(cor_df, breaks = seq(-1, 1, length.out = n_bins))),
+#     nrow = nrow(cor_df),
+#     ncol = ncol(cor_df))
+#   
+#   cor_color_df <- matrix(
+#     RColorBrewer::brewer.pal(n_bins, "PuOr")[cor_color_df],
+#     nrow = nrow(cor_df),
+#     ncol = ncol(cor_df))
+#   
+#   return(list(cor_df = cor_df,
+#               cor_col =cor_color_df))
+#   
+# })
+# 
+# i=1
+# 
+# temp <- 
+# data.frame(`0h` = cor_list[[1]]$cor_df[i, ],
+#            `1h` = cor_list[[2]]$cor_df[i, ],
+#            `24h` = cor_list[[3]]$cor_df[i, ]) %>% 
+#   rownames_to_column(var = "rowname")  %>% 
+#   group_by(rowname) %>% 
+#   mutate(ave_cor = sum(X0h, X1h, X24h)/3) %>%
+#   ungroup()
+# 
+# #### 2d option
+# 
+# 
+# temp[2,] %>% 
+#   group_by(rowname) %>% 
+#   mutate(MAE = (sum(abs(X0h - ave_cor), 
+#                     abs(X1h - ave_cor), 
+#                     abs(X24h - ave_cor)
+#                     )/3
+#                 )
+#          ) %>% 
+#   ggplot()+
+#   geom_segment(aes(x = -1, xend = 1, y = -1, yend = 1), color = "black")+
+#   geom_point(aes(x = X0h, y = X1h), shape = 1)+
+#   # geom_segment(aes(x = X0h, xend = X0h, y = X0h, yend = X1h),
+#   #              arrow = arrow(length = unit(0.2,"cm")),
+#   #              size = 1,
+#   #              color = "orange")+
+#   
+#   geom_point(aes(x = X1h, y = X24h), shape = 1)+
+#   geom_segment(aes(x = X0h, xend = X1h, y = X1h, yend = X24h,
+#                    color = MAE), 
+#                arrow = arrow(length = unit(0.2,"cm")), 
+#                # color = "red",
+#                # size = 1)
+#                size = 0.1)+ 
+#   scale_color_viridis_c(option = "inferno", end = 0.75) 
+#   # "magma" (or "A"), "inferno" (or "B"), "plasma" (or "C"), "viridis" (or "D", the default option) and "cividis" (or "E").
+# 
+# 
+# 
+# 
+# 
+# temp %>% 
+#   group_by(rowname) %>% 
+#   mutate(MAE = (sum(abs(X0h - ave_cor), 
+#                     abs(X1h - ave_cor), 
+#                     abs(X24h - ave_cor)
+#                     )/3
+#                 )
+#          ) %>% 
+#   filter(X0h >= 0.6 | X1h >= 0.6 | X24h >= 0.6) %>% 
+#   ggplot()+
+#   geom_segment(aes(x = -1, xend = 1, y = -1, yend = 1), color = "black")+
+#   geom_point(aes(x = X0h, y = X1h), shape = 1)+
+#   # geom_segment(aes(x = X0h, xend = X0h, y = X0h, yend = X1h),
+#   #              arrow = arrow(length = unit(0.2,"cm")),
+#   #              size = 1,
+#   #              color = "orange")+
+#   
+#   geom_point(aes(x = X1h, y = X24h), shape = 1)+
+#   geom_segment(aes(x = X0h, xend = X1h, y = X1h, yend = X24h,
+#                    color = MAE), 
+#                arrow = arrow(length = unit(0.2,"cm")), 
+#                # color = "red",
+#                # size = 1)
+#                size = 0.1)+ 
+#   scale_color_viridis_c(option = "inferno", end = 0.75) 
+# 
+# 
+# 
+# 
+# #### 3d option
+# temp %>% 
+#   plot_ly() %>% 
+#   add_markers(x = temp$X0h,
+#               y = temp$X1h,
+#               z = temp$X24h, 
+#               color = temp$ave_cor) %>% 
+#   add_trace(x = c(0, 1),
+#             y = c(0, 1),
+#             z = c(0, 1),
+#             mode = "lines") 
+# 
+# 
+# plt <- plot_ly()  %>% 
+#   add_trace(x = c(-1, 1),
+#             y = c(-1, 1),
+#             z = c(-1, 1),
+#             mode = "lines")
+# 
+# for (j in 1:nrow(temp)){
+#   
+#   
+#   plt <- plt %>% 
+#     add_trace(x = c(temp$X0h[j], temp$ave_cor[j]),
+#               y = c(temp$X1h[j], temp$ave_cor[j]),
+#               z = c(temp$X24h[j], temp$ave_cor[j]),
+#               mode = "lines")
+#   
+#     
+# }
+# 
+# 
+# plt %>% 
+#   add_markers(x = temp$X0h,
+#               y = temp$X1h,
+#               z = temp$X24h, 
+#               color = temp$ave_cor) %>% 
+#   add_trace(x = c(0, 1), y = c(0, 0), z = c(0, 0), mode = "lines", color = "") %>% 
+#   add_trace(x = c(0, 0), y = c(0, 1), z = c(0, 0), mode = "lines", color = "") %>%   
+#   add_trace(x = c(0, 0), y = c(0, 0), z = c(0, 1), mode = "lines", color = "") 
+# ####
+# 
+# 
+# 
+# 
+# 
+# 
+# # cor_df[, ] %>% 
+# #   as.data.frame() %>% 
+# #   gather("key", "value") %>% 
+# #   ggplot(aes(x = value, y = 1, label = key))+
+# #   # geom_label()
+# # # ggrepel::geom_label_repel()
+# #   geom_point()
+# # 
+# # 
+# # # rw = 1
+# # # cl = 2
+# # library(ggforce)
+# # 
+# # # for (rw in 1:(p-1)){
+# # #   for (cl in (rw+1):p){
+# # 
+# # rw = 1
+# # cl = 2
+# # 
+# #     plt_df <- data.frame(
+# #       cor = round(cor_df[rw, cl], digits = 2),
+# #       rad = abs(round(cor_df[rw, cl], digits = 2)),
+# #       cor_col = cor_color_df[rw, cl]
+# #     )
+# #     
+# #     plt <- ggplot(plt_df)+
+# #       geom_circle(aes(x0 = 0, y0 = 0, r = rad), color = plt_df$cor_col, fill = plt_df$cor_col)+
+# #       geom_text(aes(x = 0, y = 1.25, label = cor))+
+# #       theme_void()+
+# #       lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
+# #       coord_fixed()
+# # 
+# #     plt
+# # #   }
+# # # }
+# # 
+# # 
+# # 
+# # for (rw in 1:(p-1)){
+# #   for (cl in (rw+1):p){
+# #     # print(c(rw, cl))
+# #     
+# #     plt_df <- data.frame(
+# #       cor = round(cor_df[rw, cl], digits = 2),
+# #       rad = abs(round(cor_df[rw, cl], digits = 2)),
+# #       cor_col = cor_color_df[rw, cl]
+# #     )
+# # 
+# #     plt <- ggplot(plt_df)+
+# #       geom_circle(aes(x0 = 0, y0 = 0, r = rad), color = plt_df$cor_col, fill = plt_df$cor_col)+
+# #       geom_text(aes(x = 0, y = 1.25, label = cor))+
+# #       theme_void()+
+# #       lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
+# #       coord_fixed()
+# #     
+# #     p1 <- putPlot(p1, plt,rw, cl)
+# #     
+# #   }
+# # }
+# # 
+# # 
+# # p1
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+
+# reference
+# https://stackoverflow.com/questions/45873483/ggpairs-plot-with-heatmap-of-correlation-values
+## setup ####
+sample_df <- M_winxiqr[M_winxiqr$Condition == "0h" , mrna_cols]
+
+# sample_df <- sample_df[, 1:2]
+# names(sample_df) <- c(
+#   "obs1",
+#   "obs2"
+# )
+# 
+# sample_df <- sample_df %>% mutate(syn1 = obs1*( 1.3+(obs2*0.01)),
+#                                   syn2 = obs2*(-1.3+(obs1*0.01))
+# )
+
+p <- ncol(sample_df)
+
+# Matrix of plots
+p1 <- ggpairs(sample_df, 
+              upper = list(continuous = GGally::wrap("cor", method= "spearman")),
+              lower = list(continuous = GGally::wrap("points", 
+                alpha = 0.25, size=0.051))
+)  
+
+# p1
+
+
+# Correlation matrix plot
+# p2 <- ggcorr(sample_df, 
+#              label = TRUE, label_round = 2, 
+#              geom = "circle",
+#              low = RColorBrewer::brewer.pal(9, "PuOr")[1], 
+#              high = RColorBrewer::brewer.pal(9, "PuOr")[9])
+# 
+# 
+# g2 <- ggplotGrob(p2)
+# colors <- g2$grobs[[6]]$children[[3]]$gp$fill
+
+# ## upper ####
+# color_index <- 1
+# for (rw in 1:(p-1)){
+#   for (cl in (rw+1):p){
+#     
+#     plt <- getPlot(p1, rw, cl) +
+#      theme(panel.background = element_rect(fill = colors[color_index], color="white"),
+#            panel.grid.major = element_line(color= colors[color_index]))
+#     
+#     color_index <- color_index + 1
+#     
+#     p1 <- putPlot(p1,plt,rw, cl)
+#   }
+# }
+# 
+
+## replace upper ####
+
+cor_df <- cor(sample_df, method = "spearman")
+
+n_bins = 9
+cor_color_df <- matrix(
+  as.numeric(cut(cor_df, breaks = seq(-1, 1, length.out = n_bins))),
+  nrow = nrow(cor_df),
+  ncol = ncol(cor_df))
+
+cor_color_df <- matrix(
+  RColorBrewer::brewer.pal(n_bins, "PuOr")[cor_color_df],
+  nrow = nrow(cor_df),
+  ncol = ncol(cor_df))
+
+# rw = 1
+# cl = 2
+library(ggforce)
+
+
+
+
+
+
+for (rw in 1:(p-1)){
+  for (cl in (rw+1):p){
+    # print(c(rw, cl))
+    
+    plt_df <- data.frame(
+      cor = round(cor_df[rw, cl], digits = 2),
+      rad = abs(round(cor_df[rw, cl], digits = 2)),
+      cor_col = cor_color_df[rw, cl]
+    )
+
+    
+    # print(
+    #   plt_df
+    # )
+
+    plt <- ggplot(plt_df)+
+      geom_circle(aes(x0 = 0, y0 = 0, r = rad), color = plt_df$cor_col, fill = plt_df$cor_col)+
+      geom_text(aes(x = 0, y = 1.25, label = cor))+
+      theme_void()+
+      lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
+      coord_fixed()
+    
+    # rw = 1
+    # cl = 1
+    # 
+    # plt <- ggplot()+
+    #   geom_circle(aes(x0 = 0, y0 = 0,
+    #                   r = abs(round(cor_df[rw, cl], digits = 2))),
+    #               fill = cor_color_df[rw, cl]) +
+    #   geom_text(aes(x = 0, y = 1.5, label = round(cor_df[rw, cl], digits = 2)))+
+    #   theme_void()+
+    #   lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
+    #   coord_fixed()
+    # 
+    # # plt
+    # # 
+    p1 <- putPlot(p1, plt,rw, cl)
+    
+  }
+}
+
+
+p1
+
+
+
+
+# for (rw in 1:(p-1)){
+#   for (cl in (rw+1):p){
+#     
+#     plt <- getPlot(p1, rw, cl) +
+#      theme(panel.background = element_rect(fill = colors[color_index], color="white"),
+#            panel.grid.major = element_line(color= colors[color_index]))
+#     
+#     color_index <- color_index + 1
+#     
+#     p1 <- putPlot(p1,plt,rw, cl)
+#   }
+# }
+
+
+# p1
+## on unity line no background ####
+for (rw in 1:p){
+  cl <- rw
+  plt <- getPlot(p1, rw, cl)+ theme(panel.background = element_rect(fill = NA), 
+                                    panel.grid.major = element_line(color = NA))
+  p1 <- putPlot(p1,plt,rw, cl)
+}
+
+## lower ####
+for (rw in 2:p){
+  for (cl in 1:(rw-1)){
+    
+    
+    plt <- getPlot(p1, rw, cl)+ 
+      theme(panel.background = element_rect(fill = cor_color_df[rw, cl], color="white"),
+            panel.grid.major = element_line(color= NA), 
+            panel.grid.minor = element_line(color = NA)
+            )
+      # theme(panel.background = element_rect(fill = NA), 
+      #     panel.grid.major = element_line(color = NA))
+    p1 <- putPlot(p1,plt,rw, cl)
+  }
+}
+
+
+p1
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+                                     "cc.4_5", "cc.5_3", "cc.5_4", 
+                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
+  
+  MCorr <- cor(temp, use = "pairwise.complete.obs")
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  MCorr$Condition = condition
+  return(MCorr)
+})
+
+cor_list_df <- do.call(rbind, cor_list)
+
+
+library(gganimate)
+cor_list_df %>% 
+ggplot(aes(col_names, row_names, fill = Corr))+
+  geom_tile()+
+  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                       midpoint = 0, 
+                       na.value = "#00000000")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+  labs(x = "", y = "", title = 'Condition: {closest_state}')+
+  # Here comes the gganimate specific bits
+
+  # transition_time(Condition)
+  # ease_aes('linear')
+  transition_states(
+    Condition,
+    transition_length = 0.5,
+    state_length = 1
+  ) +
+  enter_fade()
+```
+
+```{r}
+#FIXME What library did I use for "BaselineTEA.png" ? 
+```
+
+![](../plots/BaselineTEA.png)
+### Correlation ECDFs
+
+```{r}
+# FIXME
+```
+
+
+# Hide
+#### ECDFs
+```{r }
+ecdf_corr_list <- 
+map(list(
+  list(
+    cor_list_df[cor_list_df$Condition %in% c("0h", "1h"), ],
+    c("0h", "1h"),
+    c("#4d4d4d", 
+      "#67a9cf"#, 
+      #"#1c9099"
+      )
+  ),
+  list(
+    cor_list_df[cor_list_df$Condition %in% c("0h", "24h"), ],
+    c("0h", "24h"),
+    c("#4d4d4d", 
+      #"#67a9cf", 
+      "#1c9099")
+  ),
+  list(
+    cor_list_df[cor_list_df$Condition %in% c("1h", "24h"), ],
+    c("1h", "24h"),
+    c(#"#4d4d4d", 
+      "#67a9cf",
+      "#1c9099")
+  )
+), function(list.obj){
+  plot_ecdf_ks(
+  df = list.obj[[1]],
+  data.col = "Corr",
+  group.col = "Condition",
+  group1 = list.obj[[2]][1],
+  group2 = list.obj[[2]][2],
+  colors = list.obj[[3]])
+})
+
+
+
+ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
+       filename = here("officer_output", "DanielECDF.tiff"),
+       width = 11.5, height = 4.76)
+```
+
+
+
+ecdfs split by data type
+```{r }
+temp <- cor_list_df %>% 
+  mutate(Condition = case_when(Condition == "Baseline" ~ "0h",
+                               Condition == "Compensated" ~ "1h",
+                               Condition == "Delayed" ~ "24h"))
+
+
+temp$Group <- NA
+
+cor_mem_names <- c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
+cor_exc_names <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta") 
+cor_mrna_names <- c("ache", "bkkca", "cav1", "cav2", "ccapr", "chat", "d1ar", "d2ar", "glucl", "hiscl", "hisr1", "htr1a", "htr7", "inx1", "inx2", "inx3", "inx4", "inx5", "irk", "kainate1b", "kainate2a", "kainate2c", "kcnh1eag", "kcnh2", "kcnh3", "kcnq2", "kcnt1", "lcch3like", "machra", "mgabar1", "mgabar2", "mgabar3", "mglur1", "mglur2", "mglur5", "nalcn", "nav", "nmda1b", "nmda2a", "nmda2like", "shab", "shaker", "shal", "shaw1", "shaw2", "skkca", "trpa1", "trpalike", "trpm3", "trpmlike", "vacht", "vglut")
+
+
+temp[temp$row_names %in% cor_mem_names &
+       temp$col_names %in% cor_mem_names, "Group"] <- "mem"
+
+temp[temp$row_names %in% cor_exc_names &
+       temp$col_names %in% cor_exc_names, "Group"] <- "exc"
+
+temp[temp$row_names %in% cor_mrna_names &
+       temp$col_names %in% cor_mrna_names, "Group"] <- "mrna"
+
+## mrna only ====
+
+
+## membrane only ====
+
+
+
+## excitability only ====
+
+
+color_0h  <- "gray"#"#fdd49e"
+color_1h  <- "#fc8d59"
+color_24h <- "#b30000"
+  
+
+
+ecdf_corr_list <- 
+  map(list(
+    list(
+      temp[temp$Condition %in% c("0h", "1h") &
+             temp$Group == "mem", ],
+      c("0h", "1h"),
+      c(color_0h, 
+        color_1h#,
+        #color_24h
+      )), 
+    list(
+      temp[temp$Condition %in% c("1h", "24h") &
+             temp$Group == "mem", ],
+      c("1h", "24h"),
+      c(#color_0h, 
+        color_1h,
+        color_24h
+      )),
+    list(
+      temp[temp$Condition %in% c("0h", "24h") &
+             temp$Group == "mem", ],
+      c("0h", "24h"),
+      c(color_0h, 
+        # color_1h,
+        color_24h
+      )),
+    
+    ##
+    list(
+      temp[temp$Condition %in% c("0h", "1h") &
+             temp$Group == "exc", ],
+      c("0h", "1h"),
+      c(color_0h, 
+        color_1h#,
+        #color_24h
+      )), 
+    list(
+      temp[temp$Condition %in% c("1h", "24h") &
+             temp$Group == "exc", ],
+      c("1h", "24h"),
+      c(#color_0h, 
+        color_1h,
+        color_24h
+      )),
+    list(
+      temp[temp$Condition %in% c("0h", "24h") &
+             temp$Group == "exc", ],
+      c("0h", "24h"),
+      c(color_0h, 
+        # color_1h,
+        color_24h
+      )),
+    
+    ## 
+    list(
+      temp[temp$Condition %in% c("0h", "1h") &
+             temp$Group == "mrna", ],
+      c("0h", "1h"),
+      c(color_0h, 
+        color_1h#,
+        #color_24h
+      )), 
+    list(
+      temp[temp$Condition %in% c("1h", "24h") &
+             temp$Group == "mrna", ],
+      c("1h", "24h"),
+      c(#color_0h, 
+        color_1h,
+        color_24h
+      )),
+    list(
+      temp[temp$Condition %in% c("0h", "24h") &
+             temp$Group == "mrna", ],
+      c("0h", "24h"),
+      c(color_0h, 
+        # color_1h,
+        color_24h
+      ))
+    
+  ), function(list.obj){
+    plot_ecdf_ks(
+      df = list.obj[[1]],
+      data.col = "Corr",
+      group.col = "Condition",
+      group1 = list.obj[[2]][1],
+      group2 = list.obj[[2]][2],
+      colors = list.obj[[3]])
+  })
+
+cowplot::plot_grid(plotlist = ecdf_corr_list)
+
+
+# ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
+#        filename = here("officer_output", "DanielECDF_mrnaonly.tiff"),
+#        width = 11.5, height = 4.76)
+```
+
+
+
+
+####Repeat with only mrna
+```{r }
+M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_all[M_all$Condition == condition, ]
+  
+  dvs <- names(M_all)[(names(M_all) %in% mrna_cols)] # <---- THIS IS THE CHANGE 
+  
+  for (dv_col  in dvs){
+    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
+  }
+  
+  return(temp)
+})
+
+M_winxiqr <- do.call(rbind, M_winxiqr_list)
+M_winxiqr <- M_winxiqr %>% 
+  select(-Sweep) %>% 
+  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct()
+
+
+
+
+dvs <- names(M_all)[(names(M_all) %in% mrna_cols)] # <---- THIS IS THE CHANGE 
+
+temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+                  dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+                                   "cc.4_5", "cc.5_3", "cc.5_4", 
+                                   "ig.3_4", "ig.3_5", "ig.4_5"))]]
+
+cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+                                     "cc.4_5", "cc.5_3", "cc.5_4", 
+                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
+  
+  MCorr <- cor(temp, use = "pairwise.complete.obs")
+  
+  MCorr <- as.data.frame(MCorr) 
+  MCorr$row_names <- rownames(MCorr)
+  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+  
+  MCorr$Condition = condition
+  return(MCorr)
+})
+
+cor_list_df <- do.call(rbind, cor_list)
+
+
+library(gganimate)
+plt <- cor_list_df %>% 
+ggplot(aes(col_names, row_names, fill = Corr))+
+  geom_tile()+
+  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+                       midpoint = 0, 
+                       na.value = "#00000000")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+  labs(x = "", y = "", title = 'Condition: {closest_state}')+
+  # Here comes the gganimate specific bits
+
+  # transition_time(Condition)
+  # ease_aes('linear')
+  transition_states(
+    Condition,
+    transition_length = 0.5,
+    state_length = 1
+  ) +
+  enter_fade()
+
+
+anim_save(here("officer_output", "FullDVCorrChange_mrnaonly.gif"), plt)
+```
+
+```{r }
+ecdf_corr_list <- 
+map(list(
+  list(
+    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Compensated"), ],
+    c("Baseline", "Compensated"),
+    c("#4d4d4d", 
+      "#67a9cf"#, 
+      #"#1c9099"
+      )
+  ),
+  list(
+    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Delayed"), ],
+    c("Baseline", "Delayed"),
+    c("#4d4d4d", 
+      #"#67a9cf", 
+      "#1c9099")
+  ),
+  list(
+    cor_list_df[cor_list_df$Condition %in% c("Compensated", "Delayed"), ],
+    c("Compensated", "Delayed"),
+    c(#"#4d4d4d", 
+      "#67a9cf",
+      "#1c9099")
+  )
+), function(list.obj){
+  plot_ecdf_ks(
+  df = list.obj[[1]],
+  data.col = "Corr",
+  group.col = "Condition",
+  group1 = list.obj[[2]][1],
+  group2 = list.obj[[2]][2],
+  colors = list.obj[[3]])
+})
+
+ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
+       filename = here("officer_output", "DanielECDF_mrnaonly.tiff"),
+       width = 11.5, height = 4.76)
+```
+
+Combined fig corr/ecdf
+```{r }
+temp_list <- tea_plt_list
+
+temp_list[[4]] <- ecdf_corr_list[[1]]
+temp_list[[5]] <- ecdf_corr_list[[2]]
+temp_list[[6]] <- ecdf_corr_list[[3]]
+
+
+cowplot::plot_grid(plotlist = temp_list)
+#TODO how much of the difference in KS between compensated and baseline is noise? I guess we have to cut out the currents and redo it to figure out...
+```
+
+Contrast ecdfs with and without currents.
+```{r }
+temp_list2 <- ecdf_corr_list
+
+temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
+temp_list2[[5]] <- ecdf_corr_nocurrents_list[[2]]
+temp_list2[[6]] <- ecdf_corr_nocurrents_list[[3]]
+
+cowplot::plot_grid(plotlist = temp_list2)
+```
+
+
+### How do these relationships change for TEA over time?
+```{r }
+#TODO
+```
+
+# Hide End
+# What univariate changes occur?
+
+
 ## mk plots
 What happens at the individual cell level?
 
@@ -1416,11 +3285,11 @@ plt_membrane <- M_all %>%
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct() %>% 
-  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-                               Condition == "Compensated" ~ "1h", 
-                               Condition == "Delayed" ~ "24h"
-                               ))
+  distinct() #%>% 
+  # mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+  #                              Condition == "Compensated" ~ "1h", 
+  #                              Condition == "Delayed" ~ "24h"
+  #                              ))
   
 
 
@@ -1510,11 +3379,11 @@ plt_epsp <- M_all[, c("Condition", "Experiment", "Cell", epsp_cols)] %>%
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct() %>% 
-  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-                               Condition == "Compensated" ~ "1h", 
-                               Condition == "Delayed" ~ "24h"
-                               ))
+  distinct() #%>% 
+  # mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+  #                              Condition == "Compensated" ~ "1h", 
+  #                              Condition == "Delayed" ~ "24h"
+  #                              ))
 
 epsp_dvs_plt <- c("Cor", 
                   "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
@@ -1555,11 +3424,11 @@ plt_membrane <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>%
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct() %>% 
-  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-                               Condition == "Compensated" ~ "1h", 
-                               Condition == "Delayed" ~ "24h"
-                               ))
+  distinct()# %>% 
+  # mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
+  #                              Condition == "Compensated" ~ "1h", 
+  #                              Condition == "Delayed" ~ "24h"
+  #                              ))
 
 
 mrna_plts <- map(seq_along(mrna_cols), function(i){plot_univariate_decorated_0(
@@ -1587,8 +3456,8 @@ univariate change over time -- boxplots
 ```{r }
 # devtools::install_github("teunbrand/ggh4x")
 library(ggh4x)
-
-plt_mrna_long <- plt_mrna %>%
+# FIXME 
+plt_mrna_long <- plt_membrane %>%
   gather(mrna, count, mrna_cols) %>% 
   filter(!is.na(count))
   # filter(mrna %in% c("bkkca", "shal")) %>% 
@@ -1631,6 +3500,7 @@ return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))+scale_
 
 mrna -- spagetti plot
 ```{r }
+# FIXME
 plt_mrna_spagetti <- right_join(
   rename(
     select(mRNAInfo, Family, RGeneName), 
@@ -1670,18 +3540,13 @@ plt_mrna_spagetti %>%
 
 
 What happens at the network level?
-```{r }
+```{r eval=FALSE, include=FALSE}
 #FIXME
 plt_tevc <- M_all_outliers %>% 
   select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
   distinct() %>% 
   gather("ElectricalSynapse", "ig", c("ig.3_4", "ig.3_5", "ig.4_5")) %>% 
-  filter(!is.na(ig))  %>% 
-  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-                               Condition == "Compensated" ~ "1h", 
-                               Condition == "Delayed" ~ "24h"
-                               ))
-
+  filter(!is.na(ig)) 
 
 plt_1.1 <- plot_univariate_decorated_0(
   temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_4")), 
@@ -1732,11 +3597,7 @@ plt_tecc <- M_all_outliers %>%
   group_by(Condition, Experiment) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct()  %>% 
-  mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-                               Condition == "Compensated" ~ "1h", 
-                               Condition == "Delayed" ~ "24h"
-                               ))
+  distinct()
 
 cowplot::plot_grid(plotlist = list(
   plot_univariate_decorated_0(
@@ -1873,9 +3734,9 @@ temp_list <- map(
     temp <- M_all[, c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
     
     # Identify outliers for each group
-    temp_b <- temp[temp$Condition == "Baseline", ]
-    temp_c <- temp[temp$Condition == "Compensated", ]
-    temp_d <- temp[temp$Condition == "Delayed", ]
+    temp_b <- temp[temp$Condition == "0h", ]
+    temp_c <- temp[temp$Condition == "1h", ]
+    temp_d <- temp[temp$Condition == "24h", ]
     
     temp_b <- temp_b[win_x_iqr(temp_b[[temp_col]], multiplier = 1.5), ]
     temp_c <- temp_c[win_x_iqr(temp_c[[temp_col]], multiplier = 1.5), ]
@@ -1991,15 +3852,15 @@ fm_overview_table <- fm_overview_table %>%
 fm_overview_table$fdr <- p.adjust(fm_overview_table$ep, method = "fdr")
 
 fm_overview_table <- fm_overview_table %>% 
-  mutate(Estimate_Baseline = as.numeric(Estimate_Baseline),
-         Estimate_Compensated = as.numeric(Estimate_Compensated),
-         Estimate_Delayed = as.numeric(Estimate_Delayed)) %>% 
+  mutate(Estimate_0h = as.numeric(Estimate_0h),
+         Estimate_1h = as.numeric(Estimate_1h),
+         Estimate_24h = as.numeric(Estimate_24h)) %>% 
   mutate(p = round(p, digits = 4),
          ep = round(ep, digits = 4),
          fdr = round(fdr, digits = 4),
-         Estimate_Baseline = round(Estimate_Baseline, digits = 4),
-         Estimate_Compensated = round(Estimate_Compensated, digits = 4),
-         Estimate_Delayed = round(Estimate_Delayed, digits = 4)) %>% 
+         Estimate_0h = round(Estimate_0h, digits = 4),
+         Estimate_1h = round(Estimate_1h, digits = 4),
+         Estimate_24h = round(Estimate_24h, digits = 4)) %>% 
   mutate(stars = case_when(fdr > 0.10               ~ "",
                            fdr < 0.10 & fdr > 0.05  ~ ".",
                            fdr < 0.05 & fdr > 0.01  ~ "*",
@@ -2013,7 +3874,7 @@ library(flextable)
 M_ft <-flextable(fm_overview_table,
                  col_keys = c("Family", "dv", "p", "ep",
                               "fdr", 
-                              "stars", "Estimate_Baseline", "Estimate_Compensated", "Estimate_Delayed"))
+                              "stars", "Estimate_0h", "Estimate_1h", "Estimate_24h"))
 
 M_ft <- theme_vanilla(M_ft)
 M_ft <- merge_v(M_ft, j = c("Family") )
@@ -2031,30 +3892,30 @@ color_ab= "#feb24c"
 color_b = "#f03b20"
 color_c = "#2b8cbe"
 
-M_ft <- bg(M_ft, ~ groups_Baseline == "a", ~ Estimate_Baseline, bg = color_a)
-M_ft <- bg(M_ft, ~ groups_Baseline == "ab",~ Estimate_Baseline, bg = color_ab)
-M_ft <- bg(M_ft, ~ groups_Baseline == "b", ~ Estimate_Baseline, bg = color_b)
-M_ft <- bg(M_ft, ~ groups_Baseline == "c", ~ Estimate_Baseline, bg = color_c)
+M_ft <- bg(M_ft, ~ groups_0h == "a", ~ Estimate_0h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_0h == "ab",~ Estimate_0h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_0h == "b", ~ Estimate_0h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_0h == "c", ~ Estimate_0h, bg = color_c)
 
-M_ft <- bg(M_ft, ~ groups_Compensated == "a", ~ Estimate_Compensated, bg = color_a)
-M_ft <- bg(M_ft, ~ groups_Compensated == "ab",~ Estimate_Compensated, bg = color_ab)
-M_ft <- bg(M_ft, ~ groups_Compensated == "b", ~ Estimate_Compensated, bg = color_b)
-M_ft <- bg(M_ft, ~ groups_Compensated == "c", ~ Estimate_Compensated, bg = color_c)
+M_ft <- bg(M_ft, ~ groups_1h == "a", ~ Estimate_1h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_1h == "ab",~ Estimate_1h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_1h == "b", ~ Estimate_1h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_1h == "c", ~ Estimate_1h, bg = color_c)
 
-M_ft <- bg(M_ft, ~ groups_Delayed == "a", ~ Estimate_Delayed, bg = color_a)
-M_ft <- bg(M_ft, ~ groups_Delayed == "ab",~ Estimate_Delayed, bg = color_ab)
-M_ft <- bg(M_ft, ~ groups_Delayed == "b", ~ Estimate_Delayed, bg = color_b)
-M_ft <- bg(M_ft, ~ groups_Delayed == "c", ~ Estimate_Delayed, bg = color_c)
+M_ft <- bg(M_ft, ~ groups_24h == "a", ~ Estimate_24h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_24h == "ab",~ Estimate_24h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_24h == "b", ~ Estimate_24h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_24h == "c", ~ Estimate_24h, bg = color_c)
 
 
-M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Baseline, bg = "White")
-M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Compensated, bg = "White")
-M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_Delayed, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_0h, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_1h, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_24h, bg = "White")
 
 
 M_ft <- set_header_labels(M_ft, 
                           dv = "", stars = "",
-                          Estimate_Baseline = "Baseline", Estimate_Compensated = "Compensated", Estimate_Delayed = "Delayed" )
+                          Estimate_0h = "0h", Estimate_1h = "1h", Estimate_24h = "24h" )
 
 M_ft <- autofit(M_ft)
 M_ft
@@ -2075,7 +3936,7 @@ save_as_pptx("my table" = M_ft, path = pptx_file)
 ## Another take on excitability:
 ### binned Cor
 ```{r }
-
+# FIXME Column `AUC` doesn't exist
 # Goal: extract Absolute measures and differential measures for 
 # 1. Burst Amplitude (max mV)
 # 2. AUC 
@@ -2691,1094 +4552,9 @@ epsp_summary <- epsp_summary[, c("Experiment", "FileName", "Channel", "Sweep", "
 
 ```
 
-## Bivariate relationships
 
-### What relationships exist at baseline?
-#### Correlations
-```{r }
 
-# QC data by completion rate, having variance, and median mrna abundance
-M_all_skim <- M_all %>% skimr::skim()
-M_all_skim <- M_all_skim[M_all_skim$complete_rate >= 0.19 & 
-             M_all_skim$numeric.sd > 0, ]
 
-M_all_skim <- M_all_skim[!(M_all_skim$skim_variable %in% mrna_cols) |
-            ((M_all_skim$skim_variable %in% mrna_cols) & M_all_skim$numeric.p50 >= 50 ), ]
-
-M_all <- M_all[, names(M_all) %in% c(
-  "Condition", "Cell", "Experiment", "Channel", 
-  "Sweep", "Source", "Pharm", "Time", "Sample", 
-  M_all_skim$skim_variable[!is.na(M_all_skim$skim_variable)])
-  ]
-
-
-#TODO
-M_all$Condition %>% unique()
-
-M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_all[M_all$Condition == condition, ]
-  
-  dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
-  
-  for (dv_col  in dvs){
-    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
-  }
-  
-  return(temp)
-})
-
-M_winxiqr <- do.call(rbind, M_winxiqr_list)
-M_winxiqr <- M_winxiqr %>% 
-  select(-Sweep) %>% 
-  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
-  mutate_all(median, na.rm = T) %>% 
-  ungroup() %>% 
-  distinct()
-
-
-
-
-
-# cowplot::plot_grid(plotlist = tea_plt_list, labels = letters)
-
-
-
-
-  
-
-dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
-
-condition = "Baseline"
-condition = "Compensated"
-condition = "Delayed"
-
-# figure out the maximum set of dvs that we can use to have a consistent set across the three conditions
-# TODO
-# or median interpolate
-# non_passing_variables <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-#   temp <- M_winxiqr[M_winxiqr$Condition == condition, dvs]
-#   temp_cor <- cor(temp, use = "pairwise.complete.obs") %>% as.data.frame()
-#   temp_cor$row <- rownames(temp_cor)
-#   temp_cor <- temp_cor %>% gather("col", "cor", names(temp_cor)[names(temp_cor) != "row"]) %>% filter(is.na(cor))
-#   return(unique(temp_cor[, c("row", "col")]))
-# })
-# 
-# 
-# non_passing_variables <- full_join(non_passing_variables[[1]], non_passing_variables[[2]]) %>% full_join(non_passing_variables[[3]]) %>% distinct() %>% dim()
-
-
-
-temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-                  dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-                                   "cc.4_5", "cc.5_3", "cc.5_4", 
-                                   "ig.3_4", "ig.3_5", "ig.4_5"))]]
-
-
-
-  select(-kcnq1,
-         -d1br, -hisr3, -ih, -machrb, -hisr2, -htr1b, -htr2b, -kainate2b, -kainate2c, -kcnk1, 
-         -rdlr, -mglur4, #rm bc it's coming up as na vs max amp delta. 
-         -machra, -mglur7, -nmda1a, -nmda2b, -trpm1, -x18s) #FIXME mv to all
-
-MCorr <- cor(temp, use = "pairwise.complete.obs")
-
-# pMat <- ggcorrplot::cor_pmat(temp)
-
-MCorr <- as.data.frame(MCorr) 
-MCorr$row_names <- rownames(MCorr)
-MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-
-# pMat <- as.data.frame(pMat) 
-# pMat$row_names <- rownames(pMat)
-# pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
-
-ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
-  geom_tile()+
-  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-                       midpoint = 0, 
-                       na.value = "#00000000")+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-  labs(x = "", y = "")
-
-
-
-
-
-
-
-
-
-
-cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-                                     "cc.4_5", "cc.5_3", "cc.5_4", 
-                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
-  
-  MCorr <- cor(temp, use = "pairwise.complete.obs")
-  
-  MCorr <- as.data.frame(MCorr) 
-  MCorr$row_names <- rownames(MCorr)
-  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-  
-  MCorr$Condition = condition
-  return(MCorr)
-})
-
-cor_list_df <- do.call(rbind, cor_list)
-
-
-library(gganimate)
-cor_list_df %>% 
-ggplot(aes(col_names, row_names, fill = Corr))+
-  geom_tile()+
-  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-                       midpoint = 0, 
-                       na.value = "#00000000")+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-  labs(x = "", y = "", title = 'Condition: {closest_state}')+
-  # Here comes the gganimate specific bits
-
-  # transition_time(Condition)
-  # ease_aes('linear')
-  transition_states(
-    Condition,
-    transition_length = 0.5,
-    state_length = 1
-  ) +
-  enter_fade()
-
-```
-
-
-```{r }
-
-M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_all[M_all$Condition == condition, ]
-  
-  dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
-  
-  for (dv_col  in dvs){
-    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
-  }
-  
-  return(temp)
-})
-
-M_winxiqr <- do.call(rbind, M_winxiqr_list)
-M_winxiqr <- M_winxiqr %>% 
-  select(-Sweep) %>% 
-  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
-  mutate_all(median, na.rm = T) %>% 
-  ungroup() %>% 
-  distinct()
-
-
-
-
-
-# cowplot::plot_grid(plotlist = tea_plt_list, labels = letters)
-
-
-dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
-
-# condition = "Baseline"
-# condition = "Compensated"
-# condition = "Delayed"
-
-# figure out the maximum set of dvs that we can use to have a consistent set across the three conditions
-# TODO
-# or median interpolate
-# non_passing_variables <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-#   temp <- M_winxiqr[M_winxiqr$Condition == condition, dvs]
-#   temp_cor <- cor(temp, use = "pairwise.complete.obs") %>% as.data.frame()
-#   temp_cor$row <- rownames(temp_cor)
-#   temp_cor <- temp_cor %>% gather("col", "cor", names(temp_cor)[names(temp_cor) != "row"]) %>% filter(is.na(cor))
-#   return(unique(temp_cor[, c("row", "col")]))
-# })
-# 
-# 
-# non_passing_variables <- full_join(non_passing_variables[[1]], non_passing_variables[[2]]) %>% full_join(non_passing_variables[[3]]) %>% distinct() %>% dim()
-
-
-
-# temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-#                   dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-#                                    "cc.4_5", "cc.5_3", "cc.5_4", 
-#                                    "ig.3_4", "ig.3_5", "ig.4_5"))]]
-# 
-#   # select(-kcnq1,
-#   #        -d1br, -hisr3, -ih, -machrb, -hisr2, -htr1b, -htr2b, -kainate2b, -kainate2c, -kcnk1, 
-#   #        -rdlr, -mglur4, #rm bc it's coming up as na vs max amp delta. 
-#   #        -machra, -mglur7, -nmda1a, -nmda2b, -trpm1, -x18s) #FIXME mv to all
-# 
-# MCorr <- cor(temp, use = "pairwise.complete.obs")
-# 
-# #TODO find some way to get only the significant correlations. library Corrr? 
-# # pMat <- ggcorrplot::cor_pmat(temp) 
-# 
-# MCorr <- as.data.frame(MCorr) 
-# MCorr$row_names <- rownames(MCorr)
-# MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-# 
-# # pMat <- as.data.frame(pMat) 
-# # pMat$row_names <- rownames(pMat)
-# # pMat <- pMat %>% gather(col_names, p, names(pMat)[names(pMat) != "row_names"])
-# 
-# ggplot(MCorr, aes(col_names, row_names, fill = Corr))+
-#   geom_tile()+
-#   # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-#   scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-#                        mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-#                        high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-#                        midpoint = 0, 
-#                        na.value = "#00000000")+
-#   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-#   labs(x = "", y = "")
-
-
-
-
-
-
-
-
-
-
-cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-                                     "cc.4_5", "cc.5_3", "cc.5_4", 
-                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
-  
-  MCorr <- cor(temp, use = "pairwise.complete.obs")
-  
-  MCorr <- as.data.frame(MCorr) 
-  MCorr$row_names <- rownames(MCorr)
-  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-  
-  MCorr$Condition = condition
-  return(MCorr)
-})
-
-cor_list_df <- do.call(rbind, cor_list)
-
-
-library(gganimate)
-plt <- cor_list_df %>% 
-ggplot(aes(col_names, row_names, fill = Corr))+
-  geom_tile()+
-  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-                       midpoint = 0, 
-                       na.value = "#00000000")+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-  labs(x = "", y = "", title = 'Condition: {closest_state}')+
-  # Here comes the gganimate specific bits
-
-  # transition_time(Condition)
-  # ease_aes('linear')
-  transition_states(
-    Condition,
-    transition_length = 0.5,
-    state_length = 1
-  ) +
-  enter_fade()
-
-
-anim_save(here("officer_output", "FullDVCorrChange.gif"), plt)
-```
-
-![](../plots/BaselineTEA.png)
-
-#### ECDFs
-```{r }
-ecdf_corr_list <- 
-map(list(
-  list(
-    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Compensated"), ],
-    c("Baseline", "Compensated"),
-    c("#4d4d4d", 
-      "#67a9cf"#, 
-      #"#1c9099"
-      )
-  ),
-  list(
-    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Delayed"), ],
-    c("Baseline", "Delayed"),
-    c("#4d4d4d", 
-      #"#67a9cf", 
-      "#1c9099")
-  ),
-  list(
-    cor_list_df[cor_list_df$Condition %in% c("Compensated", "Delayed"), ],
-    c("Compensated", "Delayed"),
-    c(#"#4d4d4d", 
-      "#67a9cf",
-      "#1c9099")
-  )
-), function(list.obj){
-  plot_ecdf_ks(
-  df = list.obj[[1]],
-  data.col = "Corr",
-  group.col = "Condition",
-  group1 = list.obj[[2]][1],
-  group2 = list.obj[[2]][2],
-  colors = list.obj[[3]])
-})
-
-
-
-ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
-       filename = here("officer_output", "DanielECDF.tiff"),
-       width = 11.5, height = 4.76)
-```
-
-
-
-ecdfs split by data type
-```{r }
-temp <- cor_list_df %>% 
-  mutate(Condition = case_when(Condition == "Baseline" ~ "0h",
-                               Condition == "Compensated" ~ "1h",
-                               Condition == "Delayed" ~ "24h"))
-
-
-temp$Group <- NA
-
-cor_mem_names <- c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
-cor_exc_names <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta") 
-cor_mrna_names <- c("ache", "bkkca", "cav1", "cav2", "ccapr", "chat", "d1ar", "d2ar", "glucl", "hiscl", "hisr1", "htr1a", "htr7", "inx1", "inx2", "inx3", "inx4", "inx5", "irk", "kainate1b", "kainate2a", "kainate2c", "kcnh1eag", "kcnh2", "kcnh3", "kcnq2", "kcnt1", "lcch3like", "machra", "mgabar1", "mgabar2", "mgabar3", "mglur1", "mglur2", "mglur5", "nalcn", "nav", "nmda1b", "nmda2a", "nmda2like", "shab", "shaker", "shal", "shaw1", "shaw2", "skkca", "trpa1", "trpalike", "trpm3", "trpmlike", "vacht", "vglut")
-
-
-temp[temp$row_names %in% cor_mem_names &
-       temp$col_names %in% cor_mem_names, "Group"] <- "mem"
-
-temp[temp$row_names %in% cor_exc_names &
-       temp$col_names %in% cor_exc_names, "Group"] <- "exc"
-
-temp[temp$row_names %in% cor_mrna_names &
-       temp$col_names %in% cor_mrna_names, "Group"] <- "mrna"
-
-## mrna only ====
-
-
-## membrane only ====
-
-
-
-## excitability only ====
-
-
-color_0h  <- "gray"#"#fdd49e"
-color_1h  <- "#fc8d59"
-color_24h <- "#b30000"
-  
-
-
-ecdf_corr_list <- 
-  map(list(
-    list(
-      temp[temp$Condition %in% c("0h", "1h") &
-             temp$Group == "mem", ],
-      c("0h", "1h"),
-      c(color_0h, 
-        color_1h#,
-        #color_24h
-      )), 
-    list(
-      temp[temp$Condition %in% c("1h", "24h") &
-             temp$Group == "mem", ],
-      c("1h", "24h"),
-      c(#color_0h, 
-        color_1h,
-        color_24h
-      )),
-    list(
-      temp[temp$Condition %in% c("0h", "24h") &
-             temp$Group == "mem", ],
-      c("0h", "24h"),
-      c(color_0h, 
-        # color_1h,
-        color_24h
-      )),
-    
-    ##
-    list(
-      temp[temp$Condition %in% c("0h", "1h") &
-             temp$Group == "exc", ],
-      c("0h", "1h"),
-      c(color_0h, 
-        color_1h#,
-        #color_24h
-      )), 
-    list(
-      temp[temp$Condition %in% c("1h", "24h") &
-             temp$Group == "exc", ],
-      c("1h", "24h"),
-      c(#color_0h, 
-        color_1h,
-        color_24h
-      )),
-    list(
-      temp[temp$Condition %in% c("0h", "24h") &
-             temp$Group == "exc", ],
-      c("0h", "24h"),
-      c(color_0h, 
-        # color_1h,
-        color_24h
-      )),
-    
-    ## 
-    list(
-      temp[temp$Condition %in% c("0h", "1h") &
-             temp$Group == "mrna", ],
-      c("0h", "1h"),
-      c(color_0h, 
-        color_1h#,
-        #color_24h
-      )), 
-    list(
-      temp[temp$Condition %in% c("1h", "24h") &
-             temp$Group == "mrna", ],
-      c("1h", "24h"),
-      c(#color_0h, 
-        color_1h,
-        color_24h
-      )),
-    list(
-      temp[temp$Condition %in% c("0h", "24h") &
-             temp$Group == "mrna", ],
-      c("0h", "24h"),
-      c(color_0h, 
-        # color_1h,
-        color_24h
-      ))
-    
-  ), function(list.obj){
-    plot_ecdf_ks(
-      df = list.obj[[1]],
-      data.col = "Corr",
-      group.col = "Condition",
-      group1 = list.obj[[2]][1],
-      group2 = list.obj[[2]][2],
-      colors = list.obj[[3]])
-  })
-
-cowplot::plot_grid(plotlist = ecdf_corr_list)
-
-
-# ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
-#        filename = here("officer_output", "DanielECDF_mrnaonly.tiff"),
-#        width = 11.5, height = 4.76)
-```
-
-
-
-
-####Repeat with only mrna
-```{r }
-M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_all[M_all$Condition == condition, ]
-  
-  dvs <- names(M_all)[(names(M_all) %in% mrna_cols)] # <---- THIS IS THE CHANGE 
-  
-  for (dv_col  in dvs){
-    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
-  }
-  
-  return(temp)
-})
-
-M_winxiqr <- do.call(rbind, M_winxiqr_list)
-M_winxiqr <- M_winxiqr %>% 
-  select(-Sweep) %>% 
-  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
-  mutate_all(median, na.rm = T) %>% 
-  ungroup() %>% 
-  distinct()
-
-
-
-
-dvs <- names(M_all)[(names(M_all) %in% mrna_cols)] # <---- THIS IS THE CHANGE 
-
-temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-                  dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-                                   "cc.4_5", "cc.5_3", "cc.5_4", 
-                                   "ig.3_4", "ig.3_5", "ig.4_5"))]]
-
-cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-                                     "cc.4_5", "cc.5_3", "cc.5_4", 
-                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
-  
-  MCorr <- cor(temp, use = "pairwise.complete.obs")
-  
-  MCorr <- as.data.frame(MCorr) 
-  MCorr$row_names <- rownames(MCorr)
-  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-  
-  MCorr$Condition = condition
-  return(MCorr)
-})
-
-cor_list_df <- do.call(rbind, cor_list)
-
-
-library(gganimate)
-plt <- cor_list_df %>% 
-ggplot(aes(col_names, row_names, fill = Corr))+
-  geom_tile()+
-  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-                       midpoint = 0, 
-                       na.value = "#00000000")+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-  labs(x = "", y = "", title = 'Condition: {closest_state}')+
-  # Here comes the gganimate specific bits
-
-  # transition_time(Condition)
-  # ease_aes('linear')
-  transition_states(
-    Condition,
-    transition_length = 0.5,
-    state_length = 1
-  ) +
-  enter_fade()
-
-
-anim_save(here("officer_output", "FullDVCorrChange_mrnaonly.gif"), plt)
-```
-
-```{r }
-ecdf_corr_list <- 
-map(list(
-  list(
-    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Compensated"), ],
-    c("Baseline", "Compensated"),
-    c("#4d4d4d", 
-      "#67a9cf"#, 
-      #"#1c9099"
-      )
-  ),
-  list(
-    cor_list_df[cor_list_df$Condition %in% c("Baseline", "Delayed"), ],
-    c("Baseline", "Delayed"),
-    c("#4d4d4d", 
-      #"#67a9cf", 
-      "#1c9099")
-  ),
-  list(
-    cor_list_df[cor_list_df$Condition %in% c("Compensated", "Delayed"), ],
-    c("Compensated", "Delayed"),
-    c(#"#4d4d4d", 
-      "#67a9cf",
-      "#1c9099")
-  )
-), function(list.obj){
-  plot_ecdf_ks(
-  df = list.obj[[1]],
-  data.col = "Corr",
-  group.col = "Condition",
-  group1 = list.obj[[2]][1],
-  group2 = list.obj[[2]][2],
-  colors = list.obj[[3]])
-})
-
-ggsave(plot = cowplot::plot_grid(plotlist = ecdf_corr_list, nrow = 1), 
-       filename = here("officer_output", "DanielECDF_mrnaonly.tiff"),
-       width = 11.5, height = 4.76)
-```
-
-Combined fig corr/ecdf
-```{r }
-temp_list <- tea_plt_list
-
-temp_list[[4]] <- ecdf_corr_list[[1]]
-temp_list[[5]] <- ecdf_corr_list[[2]]
-temp_list[[6]] <- ecdf_corr_list[[3]]
-
-
-cowplot::plot_grid(plotlist = temp_list)
-#TODO how much of the difference in KS between compensated and baseline is noise? I guess we have to cut out the currents and redo it to figure out...
-```
-
-Contrast ecdfs with and without currents.
-```{r }
-temp_list2 <- ecdf_corr_list
-
-temp_list2[[4]] <- ecdf_corr_nocurrents_list[[1]]
-temp_list2[[5]] <- ecdf_corr_nocurrents_list[[2]]
-temp_list2[[6]] <- ecdf_corr_nocurrents_list[[3]]
-
-cowplot::plot_grid(plotlist = temp_list2)
-```
-
-
-### How do these relationships change for TEA over time?
-```{r }
-#TODO
-```
-
-
-
-## Multivariate relationships
-### globally, clustering etc
-set up data
-```{r }
-# Copied from above ----
-M_winxiqr_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_all[M_all$Condition == condition, ]
-  
-  dvs <- names(M_all)[!(names(M_all) %in% c("Condition", "Cell", "Experiment", "Channel", "Sweep", "Source", "Pharm", "Time", "Sample"))]
-  
-  for (dv_col  in dvs){
-    temp[[dv_col]] <- ifelse(win_x_iqr(temp[[dv_col]]), temp[[dv_col]], NA)
-  }
-  
-  return(temp)
-})
-
-M_winxiqr <- do.call(rbind, M_winxiqr_list)
-M_winxiqr <- M_winxiqr %>% 
-  select(-Sweep) %>% 
-  group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
-  mutate_all(median, na.rm = T) %>% 
-  ungroup() %>% 
-  distinct()
-
-# Median imputation ----
-M_winxiqr <- M_winxiqr %>% 
-  select(-Channel, -Source, -Pharm, -Time, -Sample)
-
-M_winxiqr <- M_winxiqr %>% 
-  group_by(Condition, Experiment, Cell) %>%
-  mutate_all(median, na.rm = T) %>% 
-  ungroup() %>% 
-  distinct()
-  
-library(imputeMissings)
-M_winxiqr <- imputeMissings::impute(M_winxiqr, method = "median/mode")
-
-
-for_label_Condition <- M_winxiqr$Condition
-rownames(M_winxiqr) <- paste(M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
-```
-
-#### Cluster
-dendrogram 
-```{r }
-library(pvclust)
-library(ggdendro)
-set.seed(654684)
-cluster <- pvclust(t(select(M_winxiqr, - Condition, -Experiment, -Cell)),
-                   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
-```
-
-dendrogram plot method 1
-```{r }
-library(dendextend)
-
-tiff(file=here("officer_output", "hclust.tiff"),
-     width=7.96, height=6.68, units="in", res=100)
-
-cluster %>% 
-  as.dendrogram() %>% 
-  set("branches_k_color", k = 3, value = RColorBrewer::brewer.pal(3, "Set1")) %>%
-  plot()
-
-
-dev.off()
-
-
-# tiff(file=here("officer_output", "ContrastSource_hclust.tiff"),      width=7.96, height=6.68, units="in", res=100) 
-
-par(mar=c(7,2,2,1))
-cluster %>% 
-  as.dendrogram() %>% 
-  set("labels_col", 
-      value = c("#1f78b4", "#e31a1c", "#ff7f00"), k = 3) %>%
-  set("branches_k_color", 
-      value = c("#1f78b4", "#e31a1c", "#ff7f00"), k = 3) %>% 
-plot()
-
-my_colors <- case_when(for_label_Condition == "Baseline" ~ "#fdd49e",
-                       for_label_Condition == "Compensated" ~ "#fc8d59",
-                       for_label_Condition == "Delayed" ~ "#b30000")
-
-colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Groups")
-
-# plot(cluster, hang = -1, main = "Cluster dendogram with AU/BP values (%) Raw Data")
-```
-
-dendrogram plot method 2
-```{r }
-plt <- ggdendro::ggdendrogram(cluster$hclust)
-
-cluster_dend <- ggdendro::dendro_data(as.dendrogram(cluster$hclust), type = "rectangle")
-cluster_dend_segments <- ggdendro::segment(cluster_dend)
-
-
-label_df <- data.frame(labels = M_winxiqr[, "Condition"],
-                       exps = M_winxiqr[, "Experiment"])
-label_df$orderby <- as.numeric(as.character(ggdendro::label(cluster_dend)$label))
-label_df <- arrange(label_df, orderby)
-
-
-# cluster_dend_labs <- data.frame(ggdendro::label(cluster_dend), Time = as.factor(no_outlier_tea_df[match(label(no_outlier_tea_df)$label, rownames(no_outlier_tea_df)), "Time"]))
-
-ggplot()+
-  geom_segment(data = cluster_dend_segments,
-               aes(x = x, y = y, xend = xend, yend = yend),
-               size = 1.25,
-               colour = "black",
-               lineend = "round")+ 
-  geom_text(data = data.frame(ggdendro::label(cluster_dend),
-                              Time = label_df$labels,
-                              exps = label_df$exps), 
-            aes(x = x, y = y, label = exps, colour = Time), 
-            nudge_y = 0, family = "boldserif", size = 5, angle = 90, hjust = 1)+ 
-  xlab("")+ 
-  ylab("Height")+
-  # lims(y = c(-0.1, 0.8))+
-  theme(axis.line.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        text = element_text(family = "serif"),
-        legend.position = "bottom")
-
-ggsave(plot = last_plot(), 
-       filename = here("officer_output", "hclust_ggplot.tiff"),
-       width = 11.5, height = 4.76)
-```
-
-have dendrogram on both sides
-```{r }
-# cluster_2 <- pvclust(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)],
-#                    method.hclust = "ward.D2",
-#                    method.dist = "correlation",
-#                    use.cor = "pairwise.complete.obs")
-# 
-# mrna_cluster_dend <- as.dendrogram(cluster)
-# cell_cluster_dend <- as.dendrogram(cluster_2)
-# 
-# 
-# mrna_cutree <- cutree(mrna_cluster_dend, k = 5)
-# cell_cutree <- cutree(cell_cluster_dend, k = 4)
-# 
-# 
-# library(RColorBrewer)
-# mypalette <- rev(brewer.pal(9, "PuOr")[-1])
-# 
-# 
-# matrix_for_heatmap <- as.matrix(no_outlier_tea_df[, c(MeasuredKCurrents, MeasuredmRNA)])
-# 
-# # Reference
-# # https://rpubs.com/Sammi/132435
-# heatmap(
-# matrix_for_heatmap,
-# Rowv = mrna_cluster_dend,
-# Colv = cell_cluster_dend,
-# 
-# RowSideColors = as.character(mrna_cutree),
-# ColSideColors = as.character(cell_cutree),
-# # scale = "col"
-# 
-# key = T, 
-# col = mypalette
-# )
-# 
-# 
-# library(gplots)
-# heatmap.2(
-# matrix_for_heatmap,
-# Rowv = mrna_cluster_dend,
-# Colv = cell_cluster_dend,
-# 
-# RowSideColors = as.character(mrna_cutree),
-# ColSideColors = as.character(cell_cutree),
-# # scale = "col"
-# 
-# trace = "none",
-# key = T
-# # col = mypalette
-# )
-# 
-# 
-# # source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/my.colorFct.R")
-# # heatmap(y, 
-# #         Rowv = as.dendrogram(hr), 
-# #         Colv = as.dendrogram(hc), 
-# #         col=my.colorFct(), 
-# #         scale="row")
-```
-
-
-Clustering with subsets of the data
-membrane properties
-```{r }
-set.seed(654684)
-cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% c(
-  "vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")] ]),
-                   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
-
-?hclust
-
-par(mar=c(7,2,2,1))
-cluster$hclust %>% 
-  as.dendrogram() %>% 
-  set("labels_col", 
-      value = c("#023858", "#737373", "#4d004b"), k = 3) %>%
-  set("branches_k_color", 
-      value = c("#023858", "#737373", "#4d004b"), k = 3) %>% 
-plot()
-
-my_colors <- case_when(for_label_Condition == "Baseline" ~ "#fdd49e",
-                       for_label_Condition == "Compensated" ~ "#fc8d59",
-                       for_label_Condition == "Delayed" ~ "#b30000")
-
-colored_bars(colors = my_colors, dend = as.dendrogram(cluster), rowLabels = " Groups")
-
-
-
-
-
-
-
-```
-
-Excitability
-```{r }
-set.seed(654684)
-cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% epsp_cols] ]),
-                   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
-```
-
-mRNA
-```{r }
-set.seed(654684)
-cluster <- pvclust(t(M_winxiqr[, names(M_winxiqr)[names(M_winxiqr) %in% mrna_cols] ]),
-                   method.hclust = "ward.D2",
-                   method.dist = "correlation",
-                   use.cor = "pairwise.complete.obs")
-```
-
-
-
-Evaluating clustering quality
-```{r }
-# if (!requireNamespace("BiocManager", quietly = TRUE))
-#     install.packages("BiocManager")
-# BiocManager::install("BiocGenerics")
-library(BiocGenerics)
-library(imputeMissings)
-library(magrittr) # for %>% (this is part of tidyverse)
-library(clues)
-library(NMF)
-
-## Evaluate clustering performance ==========================================
-get_cluster_comparisons <- function(reference.clustering = mrna_raw$Cell,
-                                    generated.clustering) {
-  if (length(reference.clustering) != length(generated.clustering)) {
-    warning("Input vectors are not of the same length!")
-  } else {
-    # reference.clustering = mrna_raw$Cell
-    # generated.clustering = kmeans.m$cluster
-    output <- array(0, dim = 6)
-    reference.clustering <- as.numeric(reference.clustering) %>% as.factor()
-    generated.clustering <- as.numeric(generated.clustering) %>% as.factor()
-    output <- NMF::purity(reference.clustering, generated.clustering)
-    names(output) <- "Purity"
-    # Get a lot of concurrance measures
-    # https://davetang.org/muse/2017/09/21/adjusted-rand-index/
-    output <- c(
-      output,
-      clues::adjustedRand(
-        BiocGenerics::as.vector(reference.clustering),
-        BiocGenerics::as.vector(generated.clustering)
-      )
-    )
-    return(output)
-  }
-}
-
-
-
-```
-
-resampling based evaluation of jaccard
-```{r }
-temp.clust <- as.dendrogram(cluster$hclust)
-assignment <- cutree(temp.clust, k = 3)[order.dendrogram(temp.clust)]
-
-# use names to get groupings
-time_groups <- as.factor(unlist(transpose(stringr::str_split(names(assignment), pattern = "-"))[[1]]))
-
-library(purrr)
-set.seed(9348957)
-resample.indices <- map(1:10001, function(i){
-  if (i == 1){
-    indices <- get_cluster_comparisons(reference.clustering = time_groups,
-                                       assignment)
-  }else{
-    indices <- get_cluster_comparisons(reference.clustering = time_groups,
-                                       sample(assignment, replace = F))
-  }
-})
-resample.indices <- do.call(rbind, resample.indices)
-resample.indices <- resample.indices %>% as.data.frame()
-
-library(ggplot2)
-resample.indices %>% 
-  ggplot(aes(x = Jaccard))+
-  geom_density()+
-  geom_vline(xintercept = as.numeric(resample.indices[1, "Jaccard"]))+
-  xlim(0,1)+
-  theme_minimal()+
-  labs(subtitle = paste0("ep = ", as.character(round(mean(resample.indices$Jaccard >= resample.indices[1, "Jaccard"]), digits = 4))))
-# empirical p-value from 10,000 random samplings
-ggsave(plot = last_plot(), 
-       filename = here("officer_output", "hclust_jaccard_dist.tiff"),
-       width = 11.5, height = 4.76)
-```
-
-#### PCA
-
-```{r }
-
-
-
-
-
-list_for_pca <- list(
-  M_winxiqr[M_winxiqr$Condition == "Baseline", 
-            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
-  M_winxiqr[M_winxiqr$Condition == "Compensated", 
-            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
-  M_winxiqr[M_winxiqr$Condition == "Delayed", 
-            names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]]
-)
-
-pca_summary_descriptions <- map(list_for_pca, function(df){
-  mk_pca_multi_plt(input.df = df,
-                   scree.max.y = 100)
-})
-
-pca_summary_descriptions <- map(list_for_pca, function(df){
-  mk_pca_multi_plt(input.df = df,
-                 scree.max.y = 100)
-})
-
-
-# {p4|p0}/{p1+p2+p3}
-
-{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}/
-{pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[3]]$biplt}
-# {pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
-
-ggsave(plot = last_plot(), 
-       filename = here("officer_output", "PCA_Contrast.tiff"),        
-       width = 11.5, height = 4.76)
-
-```
-
-3d
-```{r eval=FALSE}
-
-
-
-
-
-
-vis_pca_3D(input.df = M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c("Condition", "Cell", "Experiment"))]],
-           # color.by = M_winxiqr[, "Condition"],
-           color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
-                                M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
-                                M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
-           turn.x.times = 1,
-           # use.colors = c("#fdd49e", "#fc8d59", "#b30000")
-           use.colors = c("#cc4c02", "#e31a1c", "#800026")
-           #RColorBrewer::brewer.pal(3, "Set1")
-)
-```
-
-With subsets of the data
-```{r eval=FALSE}
-## mrna only ====
-vis_pca_3D(
-  input.df =  M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c(
-    "Condition", "Cell", "Experiment",
-    "vrest", "r11", "r1", 
-    "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
-    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
-    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
-    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
-  ))]],
-  color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
-                       M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
-                       M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
-  turn.x.times = 1,
-  use.colors = c("#cc4c02", "#e31a1c", "#800026")
-)
-
-
-
-## membrane only ====
-vis_pca_3D(
-  input.df =  M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
-    # "Condition", "Cell", "Experiment",
-    "vrest", "r11", "r1", 
-    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
-    # "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
-    # "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta", 
-    "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
-  ))]],
-  color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
-                       M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
-                       M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
-  turn.x.times = 1,
-  use.colors = c("#cc4c02", "#e31a1c", "#800026")
-)
-
-
-## excitability only ====
-
-
-vis_pca_3D(
-  input.df =  M_winxiqr[, names(M_winxiqr)[(names(M_winxiqr) %in% c(
-    # "Condition", "Cell", "Experiment",
-    # "vrest", "r11", "r1", 
-    # "cc.3_4", "cc.3_5", "ig.3_4", "ig.3_5", 
-    "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
-    "AUC_Obs", "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta"#, 
-    # "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
-  ))]],
-  color.by = case_when(M_winxiqr[, "Condition"] == "Baseline" ~ "0h",
-                       M_winxiqr[, "Condition"] == "Compensated" ~ "1h",
-                       M_winxiqr[, "Condition"] == "Delayed" ~ "24h"),
-  turn.x.times = 1,
-  use.colors = c("#cc4c02", "#e31a1c", "#800026")
-)
-
-```
 
 # ###############################################################################
 
@@ -3923,7 +4699,7 @@ MeasuredKCurrents <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope") # use in map 
 Ia ~ shal
 ```{r eval=FALSE}
 # TEXTING WITH DAVE
-scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
+scatter_w_wo_outliers(temp = filter(M, Time == "0h"), 
                   X = "shal", 
                   Y = "Ia.0")
 
@@ -3984,7 +4760,7 @@ ggplot(temp, aes(x = shal, y = Ia.0))+
 
 Ia ~ shaker
 ```{r eval=FALSE}
-scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
+scatter_w_wo_outliers(temp = filter(M, Time == "0h"), 
                   X = "shaker", 
                   Y = "Ia.0")
 ```
@@ -3992,7 +4768,7 @@ scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"),
 
 Model comparison *shal best predicts Ia*
 ```{r eval=FALSE}
-temp <- filter(M, Time == "Baseline") 
+temp <- filter(M, Time == "0h") 
 # What's the best model?
 library(AICcmodavg)
 # no rm points
@@ -4023,7 +4799,7 @@ aictab(cand.set = list(
 
 IHTK ~ bkkca
 ```{r eval=FALSE}
-scatter_w_wo_outliers(temp = filter(M, Time == "Baseline"), 
+scatter_w_wo_outliers(temp = filter(M, Time == "0h"), 
                   X = "bkkca", 
                   Y = "Ihtk.0")
 ```
@@ -4473,269 +5249,6 @@ corrplot(MCorr, method = "square", type = "upper", tl.col = "black", order = "hc
 
 
 
-# from untitled 2
 
 
 
-```{r eval=FALSE}
-#TODO read in ionic
-
-
-```
-
-Marginal plot
-```{r eval=FALSE}
-# p <- ionic %>% filter(!is.na(Ihtk.0) & !is.na(Ia.0)) %>% 
-#   ggplot(aes(Ihtk.0, Ia.0, group = Condition, color = Condition))+
-#   # geom_smooth(method = "lm", se = F)+
-#     geom_point(size = 2)+
-#     theme_minimal()+
-#   theme(legend.position = "bottom")
-# 
-# p <- ggExtra::ggMarginal(
-#   p,
-#   type = 'density',
-#   margins = 'both',
-#   size = 5,
-#   groupColour = TRUE, groupFill = TRUE
-# )
-# 
-# ggsave(plot = p, filename = "Ionic0M.tiff", path = here("data", "figures"))
-```
-
-
-```{r eval=FALSE}
-# p <- ionic %>% filter(!is.na(Ihtk.Slope) & !is.na(Ia.Slope)) %>% 
-#   ggplot(aes(Ihtk.Slope, Ia.Slope, group = Condition, color = Condition))+
-#   # geom_smooth(method = "lm", se = F)+
-#     geom_point(size = 2)+
-#     theme_minimal()+
-#   theme(legend.position = "bottom")
-# 
-# p <- ggExtra::ggMarginal(
-#   p,
-#   type = 'density',
-#   margins = 'both',
-#   size = 5,
-#   groupColour = TRUE, groupFill = TRUE
-# )
-# 
-# ggsave(plot = p, filename = "IonicDM.tiff", path = here("data", "figures"))
-```
-
-
-```{r eval=FALSE}
-# cowplot::plot_grid(plotlist = 
-# map(c("Ihtk.0", "Ia.0", "Ihtk.Slope", "Ia.Slope"), function(i){
-#     ggplot(ionic, aes(x = Condition, group = Condition, fill = Condition))+
-#   # geom_smooth(method = "lm", se = F)+
-#     geom_boxplot(aes_string(y = i), width = 0.1)+
-#     ggbeeswarm::geom_beeswarm(aes_string(y = i), shape = 1)+
-#     # geom_point(size = 2)+
-#     stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "line")+
-#     stat_summary(aes_string(y = i, group = "1"), fun.y = mean, geom = "point", size = 4, shape = 4)+
-#     theme_minimal()+
-#   theme(legend.position = "")+
-#   labs(x = "", y = "", title = i)
-# })
-# 
-# )
-# 
-# ggsave(plot = last_plot(), filename = "IonicDelta.tiff", path = here("data", "figures"))
-```
-
-
-```{r eval=FALSE}
-ionic %>% 
-  filter(!is.na(Cell)) %>% 
-  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
-  distinct() %>% 
-  group_by(Condition, Cell) %>% 
-  tally()
-
-
-ionic %>% 
-  filter(!is.na(Cell)) %>% 
-  select(-c(Ia.0, Ia.Slope)) %>%  
-  distinct() %>% 
-  group_by(Condition, Cell) %>% 
-  tally()
-
-ionic %>% 
-  filter(!is.na(Cell)) %>% 
-  select(-c(Ihtk.0, Ihtk.Slope)) %>%  
-  distinct() %>% 
-  group_by(Condition) %>% 
-  tally()
-
-ionic %>% 
-  filter(!is.na(Cell)) %>% 
-  select(-c(Ia.0, Ia.Slope)) %>%  
-  distinct() %>% 
-  group_by(Condition) %>% 
-  tally()
-
-
-
-```
-
-
-### from untitled2 assumes df = brians joined data
-
-
-
-
-
-```{r eval=FALSE}
-# x %>% 
-#   gather(mrna, cor, 2:ncol(.)) %>% 
-#   ggplot(aes(rowname, mrna, fill = cor))+
-#   geom_tile()+
-#   scale_fill_gradient2(low = "Red", mid = "White", high = "Blue")
-# 
-# library("corrplot")
-# 
-# x <- as.data.frame(x)
-# 
-# rownames(x) <- x$rowname
-# 
-# corrplot::corrplot(
-#   as.matrix(select(x, -rowname)), method = "color", order = "hclust", 
-#   addrect = 3,
-#   na.label = " "
-#   )
-# 
-# # corrplot.mixed(as.matrix(select(x, -rowname)), upper = "color")
-# 
-# cowplot::plot_grid(plotlist = list(pp, pp))
-# 
-# # install.packages("ggcorrplot")
-# library(ggcorrplot)
-# 
-# 
-# 
-# df <- df %>% mutate(Set = paste(Pharm, Condition))
-# 
-# 
-# Sets <- unique(df$Set)
-# 
-# baseline <- df %>% filter(Set == "none Baseline") %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
-#   baseline <- as.data.frame(baseline)
-#   rownames(baseline) <- baseline$rowname
-#   baseline <- baseline %>% select(-rowname)
-# 
-# 
-# cowplot::plot_grid(plotlist = 
-# map(Sets, function(i){
-#   temp <- df %>% filter(Set == i) %>% select(-c(Set, Pharm, Condition, UID)) %>% correlate()
-#   temp <- as.data.frame(temp)
-#   rownames(temp) <- temp$rowname
-#   temp <- temp %>% select(-rowname)
-#   
-#   # temp <- temp-baseline
-#   
-#   ggcorrplot(temp)+labs(title = i)
-# })
-# )
-
-
-
-```
-
-
-
-
-##Attempts at visualizing correlations
-```{r eval=FALSE}
-# treatments <- unique(M$TREATMENT)
-# mrnas <- c("CAV1", "CAV2", "SHAL", "BKKCa", "CbNaV", "Shab", "Shaker", "Shaw1", "Shaw2", "INX1", "INX2", "INX3", "INX4", "INX5")
-# 
-# 
-# cor.list <- map(treatments, function(i){
-#   temp <- M[M$TREATMENT == i, ]  
-#   cor(temp[, mrnas], temp[, mrnas], use = "pairwise.complete.obs", method = "spearman")
-# })
-# names(cor.list) <- treatments
-# 
-# library("corrplot")
-# walk(treatments, function(i){
-#   print(i)
-#   corrplot(cor.list[[i]], method = "color")
-# })
-# 
-# 
-# corrplot(cor.list$`24h-CONTROL`, method = "color")
-# 
-# #corrplot((cor.list$`4AP24h` - cor.list$Control), method = "color")
-# 
-# walk(treatments[-3], function(i){
-#   print(i)
-# gplots::heatmap.2((cor.list[[i]] - cor.list$`TEA-Acute`),
-#   cellnote = round((cor.list[[i]] - cor.list$`TEA-Acute`), digits = 2),  # same data set for cell labels
-#   #main = "Correlation", # heat map title
-#   notecol="black",      # change font color of cell labels to black
-#   density.info="none",  # turns off density plot inside color legend
-#   trace="none",         # turns off trace lines inside the heat map
-#   #margins =c(12,9),     # widens margins around plot
-#   #col=my_palette,       # use on color palette defined earlier
-#   #breaks=col_breaks,    # enable color transition at specified limits
-#   dendrogram="none",     # only draw a row dendrogram
-#   Colv="NA")            # turn off column clustering
-# })
-# 
-# library("PerformanceAnalytics")
-# chart.Correlation(temp[, mrnas], histogram=TRUE, pch=19)
-```
-
-
-### vis with line plot?
-```{r eval=FALSE}
-# N <- M[1, !(names(M) %in% c("CELL", "Pharm", "Time"))]
-# N$cor <- ""
-# 
-# walk(1:length(cor.list), function(i){
-#   temp <- as.data.frame(cor.list[[i]])
-#   temp$cor <- rownames(temp)
-#   temp$TREATMENT <- treatments[i]
-#   N <<- full_join(N, temp) 
-# })
-# N <- N[-1, ]
-# #N <- gather(N, )
-```
-
-```{r eval=FALSE}
-# ggplot(N, aes(x = TREATMENT, y = CAV1, color = cor, group = cor))+
-#   geom_point()+
-#   geom_line()
-```
-
-
-
-
-
-###
-
-
-
-# Deep dive on the effects of TEA
-## Electrophysiology
-
-## Molecular bio
-
-## Merging and processing
-
-### Quality control and outlier analysis
-
-### Characterizing the baselinem
-
-### 
-### Compare Brian's and My molecular data
-
-
-
-## What structure is there in the dataset?
-
-
-## What correspondence between ephys ~ mRNA is there?
-
-## How can we extend this to the data Brian Collected?
