@@ -532,7 +532,7 @@ M_all %>% select(Condition, Experiment) %>% distinct() %>% group_by(Condition) %
 mrna_b <-select(mrna, 
                 Source, Pharm, Time, Experiment, Cell, 
                 bkkca, cav1, cav2, 
-                inx1, inx2, inx3, inx4, inx5, 
+                inx1, inx2, inx3, #inx4, inx5, 
                 nav, 
                 shab, shaker, shal, shaw1, shaw2) %>% 
   filter(Source == "Brian")
@@ -831,12 +831,135 @@ cor_plt_list[[3]] + cor_plt_list[[4]] +
 ```
 
 
+```{r}
+
+cor_df_list <- map(c("Brian_None_0h", "Brian_TEA_1h", "Brian_TEA_24h"), function(temp.group){
+  cor_df <- select(filter(mrna_b_winxiqr, Group == temp.group), -Group, -uid)
+  cor_df <- cor(cor_df, use = "pairwise.complete.obs")
+  cor_df_bin <- cor_df
+  # bin the correlations so there are fewer colors used in the figure
+  cor_bins <- seq(-1, 1, length.out = 8)
+  for (i in 1:(length(cor_bins)-1)){
+    # use the more extreme value to shade with
+    cor_df_bin[cor_df_bin > cor_bins[i] & cor_df_bin < cor_bins[i+1]] <- cor_bins[c(i, (i+1))[which.max(abs(cor_bins[i:(i+1)]))]]
+  }
+
+  return(list(cor = cor_df,
+              cor_bin = cor_df_bin))
+})
+
+
+
+
+temp <- 
+map(seq_along(cor_df_list), function(i){
+  temp <- cor_df_list[[i]][[1]]
+  temp <- as.data.frame(temp) 
+  temp %>% 
+    rownames_to_column() %>% 
+    gather("colname", "Cor", names(temp)) %>% 
+    mutate(Group = c("Brian_None_0h", "Brian_TEA_1h", "Brian_TEA_24h")[i])
+})
+
+temp <- do.call(rbind, temp)
+
+
+temp_fill <- map(seq_along(cor_df_list), function(i){
+  temp <- cor_df_list[[i]][[2]]
+  temp <- as.data.frame(temp) 
+  temp %>% 
+    rownames_to_column() %>% 
+    gather("colname", "Cor", names(temp)) %>% 
+    mutate(Group = c("Brian_None_0h", "Brian_TEA_1h", "Brian_TEA_24h")[i])
+})
+
+temp_fill <- do.call(rbind, temp_fill) %>% rename(CorFill = Cor)
+
+cor_col_plt <- 
+full_join(temp, temp_fill) %>% 
+  # filter(rowname == "bkkca", colname == "cav1") %>%
+  mutate(x =  
+         case_when(Group == "Brian_None_0h" ~ "0 Hours",
+                       Group == "Brian_TEA_1h" ~ "1 Hour",
+                       Group == "Brian_TEA_24h" ~ "24 Hours")
+         ) %>% 
+  mutate(Cor = ifelse(rowname == colname, NA, Cor)) %>% 
+  ggplot(aes(x = x, y = Cor, fill = CorFill))+
+  geom_col()+
+  geom_hline(yintercept = 0)+
+  facet_grid(rowname ~ colname)+
+  scale_fill_distiller(palette = "PuOr", direction = 1)+
+  coord_cartesian(ylim = c(-1,1))+
+  labs(x = "")+
+  scale_y_continuous(breaks = c(-0.5, 0.5))+
+  theme(legend.position = "", 
+        # panel.grid.major.y = element_line() 
+        # axis.ticks.length.y.left = element_line(), 
+        axis.text.x = element_text(angle = 90))
+
+
+
+cor_bin_fill_ref_plot <- 
+ggplot(data.frame(Cor = seq(-1, 1, length.out = 8)),
+       aes(x = Cor, y = 0, fill = Cor))+
+  geom_tile(aes(height = 2/8))+
+  geom_text(aes(label = round(Cor, digits = 1), size = 1))+
+  scale_fill_distiller(palette = "PuOr", direction = 1)+
+  theme_void()+
+  theme(legend.position = "")+
+  coord_fixed()+
+    plot_spacer()
+
+correlogram_set <- (cor_plt_list[[3]]+labs(subtitle= "0 Hours") + 
+  cor_plt_list[[5]]+labs(subtitle= "1 Hours")  +
+  cor_plt_list[[6]]+labs(subtitle= "24 Hours"))
+  
+
+
+figure_w <- c(1)
+figure_h <- c(1/3,1,5)
+
+
+ # (cor_bin_fill_ref_plot + plot_spacer()+ plot_spacer() ) /
+cor_bin_fill_ref_plot /
+correlogram_set /
+cor_col_plt +  
+  plot_layout(widths = figure_w, heights = figure_h)
+
+# (cor_plt_list[[3]]+labs(subtitle= "0 Hours") + 
+#   cor_plt_list[[5]]+labs(subtitle= "1 Hours")  +
+#   cor_plt_list[[6]]+labs(subtitle= "24 Hours") +
+#   cor_bin_fill_ref_plot + plot_spacer() + plot_spacer() +
+#   plot_spacer() + plot_spacer()+ plot_spacer()) |
+#   cor_col_plt+
+#   plot_layout(widths = figure_w, heights = figure_h)
+
+
+# cm_multiplier = 15
+# ggsave("BrianCorMulti.svg", 
+#        width = sum(figure_w)*cm_multiplier,
+#        height = sum(figure_h)*cm_multiplier,
+#          
+#        units = "cm",
+#        limitsize = F)
+```
+
+
+
+
+
+
 ### Correlations ECDFs
 ```{r}
 cor_list_df <- map(unique(mrna_b_winxiqr$Group), function(group){
-  temp <- cor(select(mrna_b_winxiqr[mrna_b_winxiqr$Group == group, ], -Group, -uid), use = "pairwise.complete.obs") %>% as.data.frame()
+  # temp <- cor(select(mrna_b_winxiqr[mrna_b_winxiqr$Group == group, ], -Group, -uid), use = "pairwise.complete.obs") %>% as.data.frame() 
+  temp <- corrr::correlate(select(mrna_b_winxiqr[mrna_b_winxiqr$Group == group, ], -Group, -uid), use = "pairwise.complete.obs") %>%
+    
+    corrr::shave() %>% 
+    as.data.frame()
+  
   temp$row <- rownames(temp)
-  temp <- gather(temp, "col", "Corr", names(temp)[names(temp) != "row"])
+  temp <- gather(temp, "col", "Corr", names(temp)[!(names(temp) %in% c("term", "row"))])
   temp$Group <- group
   
   return(temp)  
@@ -846,13 +969,17 @@ cor_list_df <- do.call(rbind, cor_list_df)
 # cor_list_df$Group %>% unique()
 
 ecdf_corr_list <- map(
-  list(list("Brian_None_0h", "Brian_None_24h"),
-       list("Brian_TEA_1h", "Brian_TEA_24h"),
-       list("Brian_None_0h", "Brian_TEA_24h"),
-       list("Brian_None_0h", "Brian_TEA_1h"),
-       list("Brian_None_24h", "Brian_AP_24h"),
-       list("Brian_None_24h", "Brian_TEA_24h"),
-       list("Brian_None_24h", "Brian_TTX_24h")
+  list(
+    list("Brian_None_0h", "Brian_TEA_1h"),
+    list("Brian_TEA_1h", "Brian_TEA_24h"),
+    list("Brian_None_0h", "Brian_TEA_24h"),
+    
+    list("Brian_None_0h", "Brian_None_24h"),
+    list("Brian_None_0h", "Brian_TEA_24h"),
+    list("Brian_None_0h", "Brian_TEA_1h"),
+    list("Brian_None_24h", "Brian_AP_24h"),
+    list("Brian_None_24h", "Brian_TEA_24h"),
+    list("Brian_None_24h", "Brian_TTX_24h")
   ),
   
   function(group_comparison){
@@ -867,12 +994,88 @@ ecdf_corr_list <- map(
 
 # cowplot::plot_grid(plotlist = ecdf_corr_list)
 
-ecdf_corr_list[[1]] + ecdf_corr_list[[2]] + ecdf_corr_list[[3]] 
+ecdf_corr_list[[1]] + labs(subtitle = "", x = "") + 
+  ecdf_corr_list[[2]] + labs(subtitle = "", x = "") + theme(legend.position = "top")+
+  ecdf_corr_list[[3]] + labs(subtitle = "", x = "") 
 
 
 # ggsave(plot = last_plot(),         
 #        filename = here("officer_output", "ContrastSource_ecdfs.tiff"),        
 #        width = 11.5, height = 4.76)
+
+
+ # list("Brian_None_0h", "Brian_TEA_1h"),
+ #    list("Brian_TEA_1h", "Brian_TEA_24h"),
+ #    list("Brian_None_0h", "Brian_TEA_24h"),
+
+plot_ecdf_ks(
+  df = cor_list_df[cor_list_df$Group %in% list("Brian_None_0h", "Brian_TEA_1h"), ],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = "Brian_None_0h",
+  group2 = "Brian_TEA_1h",
+  colors = c("black", "orange"))+ 
+  labs(title = "0 Hours vs 1 Hour",
+       subtitle = "p = 0.44", x = "")+
+
+
+plot_ecdf_ks(
+  df = cor_list_df[cor_list_df$Group %in% list("Brian_TEA_1h", "Brian_TEA_24h"), ],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = "Brian_TEA_1h",
+  group2 = "Brian_TEA_24h",
+  colors = c("orange", "red"))+ 
+  labs(title = "1 Hour vs 24 Hours",
+       subtitle = "p < 0.01", x = "")+
+
+
+plot_ecdf_ks(
+  df = cor_list_df[cor_list_df$Group %in% list("Brian_None_0h", "Brian_TEA_24h"), ],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = "Brian_None_0h",
+  group2 = "Brian_TEA_24h",
+  colors = c("black", "red"))+ 
+  labs(title = "0 Hours vs 24 Hours",
+    subtitle = "p < 0.01", x = "")
+
+
+
+## what's happening in the high correlations at zero?
+temp <- cor_list_df[cor_list_df$Group %in% list("Brian_None_0h", "Brian_TEA_1h", "Brian_TEA_24h"), ] %>% 
+  spread(Group, Corr) %>% 
+  filter(Brian_None_0h >=0.66) %>% 
+  gather(Group, Corr, c("Brian_None_0h", "Brian_TEA_1h", "Brian_TEA_24h"))
+
+
+
+
+plot_ecdf_ks(
+  df = temp[temp$Group %in% list("Brian_None_0h", "Brian_TEA_1h"), ],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = "Brian_None_0h",
+  group2 = "Brian_TEA_1h",
+  colors = c("black", "orange"))+
+
+plot_ecdf_ks(
+  df = temp[temp$Group %in% list("Brian_TEA_1h", "Brian_TEA_24h"), ],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = "Brian_TEA_1h",
+  group2 = "Brian_TEA_24h",
+  colors = c("orange", "red"))+
+
+plot_ecdf_ks(
+  df = temp[temp$Group %in% list("Brian_None_0h", "Brian_TEA_24h"), ],
+  data.col = "Corr",
+  group.col = "Group",
+  group1 = "Brian_None_0h",
+  group2 = "Brian_TEA_24h",
+  colors = c("black", "red"))
+
+
 ```
 
 
@@ -1628,11 +1831,17 @@ rownames(M_winxiqr) <- paste(M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
 set up groupings
 ```{r}
 #TODO
-# mrna_cols
+mrna_cols <- c("bkkca", "cav1", "cav2", 
+               "inx1", "inx2", "inx3", #"inx4", "inx5", #<- inx5 is likely not expressed
+               "nav", 
+               "shab", "shaker", "shal", "shaw1", "shaw2")
 
 memb_cols <- c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
  
-# epsp_cols
+epsp_cols <- c("Cor", "Min.V_Obs", 
+               "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
+               "AUC_Obs", "AUC_Sim", 
+               "Max.Amplitude_Delta", "AUC_Delta")
 ```
 
 
@@ -2341,8 +2550,71 @@ cor_plt_list <- map(c("0h", "1h", "24h"), function(Time){
 ```
 
 
-try contrast
 ```{r}
+
+temp_list <- map(unique(M_winxiqr$Condition), function(condition){
+  temp <- filter(M_winxiqr, Condition == condition) %>% 
+    select(-Cell, -Experiment)
+  
+  temp <- temp[, c(mrna_cols, memb_cols, epsp_cols )] %>% correlate() #%>% shave()
+  temp$Condition <- condition
+  temp <- gather(temp, "term2", "Cor", names(temp)[!(names(temp) %in% c("term", "Condition"))])
+  
+  return(temp)
+})
+
+
+# cor breaks
+cor_br <- seq(-1, 1, length.out = 8)
+
+plt <- do.call(rbind, temp_list) %>% 
+  filter(term %in% mrna_cols) %>% 
+  filter(term2 %in% c(memb_cols, epsp_cols)) %>% 
+  # mutate(CorFill = case_when(
+  #   cor < cor_br[2] & cor >= cor_br[1] ~ cor_br[1],
+  #   cor < cor_br[3] & cor >= cor_br[2] ~ cor_br[2],
+  #   cor < cor_br[4] & cor >= cor_br[3] ~ cor_br[3],
+  #   cor < cor_br[5] & cor >= cor_br[4] ~ cor_br[4],
+  #   
+  #   
+  #                            )) %>% 
+  ggplot(aes(term, term2, fill = Cor))+
+  geom_tile()
+
+
+plt+scale_fill_stepsn(colors = RColorBrewer::brewer.pal(n = 9, name = "PuOr")[c(1,5,9)]  )
+  
+
+plt+scale_fill_gradientn(colors=RColorBrewer::brewer.pal(n = 9, name = "PuOr"),
+                         na.value = "transparent",
+                         breaks=seq(-1, 1, length.out = 8),
+                         # labels=c("Minimum",0,"Maximum"),
+                         limits=c(-1,1))
+
+
+library(corrr)
+library(ggtext)
+library(glue)
+do.call(rbind, temp_list) %>% 
+  filter(term %in% mrna_cols) %>% 
+  filter(term2 %in% c(memb_cols, epsp_cols)) %>% 
+  mutate(term = glue(("<i>{term}</i>"))) %>% 
+  ggplot(aes(term, term2, fill = Cor))+
+  geom_tile()+
+  labs(x= "mRNA", y = "")+
+  theme(axis.text.x = element_markdown(angle = 45))+
+  scale_fill_stepsn(
+    colors=RColorBrewer::brewer.pal(n = 8, name = "PuOr"),
+                         na.value = "transparent",
+                         breaks=round(seq(-1, 1, length.out = 9), digits = 2)[2:8],
+                         limits=c(-1,1)
+  )+
+  coord_fixed()
+```
+
+
+try contrast
+```{r eval=FALSE, include=FALSE}
 
 
 
@@ -2407,8 +2679,6 @@ cor_plt_list <- map(1:3, function(Step){
   # axis.text.x = element_blank(),
   axis.text.y = element_blank()))
 ```
-
-
 
 looking for a different solution...
 ```{r eval=FALSE, include=FALSE}
@@ -2707,221 +2977,220 @@ looking for a different solution...
 
 ```
 
-
 ```{r eval=FALSE, include=FALSE}
 
-# reference
-# https://stackoverflow.com/questions/45873483/ggpairs-plot-with-heatmap-of-correlation-values
-## setup ####
-sample_df <- M_winxiqr[M_winxiqr$Condition == "0h" , mrna_cols]
-
-# sample_df <- sample_df[, 1:2]
-# names(sample_df) <- c(
-#   "obs1",
-#   "obs2"
-# )
+# # reference
+# # https://stackoverflow.com/questions/45873483/ggpairs-plot-with-heatmap-of-correlation-values
+# ## setup ####
+# sample_df <- M_winxiqr[M_winxiqr$Condition == "0h" , mrna_cols]
 # 
-# sample_df <- sample_df %>% mutate(syn1 = obs1*( 1.3+(obs2*0.01)),
-#                                   syn2 = obs2*(-1.3+(obs1*0.01))
-# )
-
-p <- ncol(sample_df)
-
-# Matrix of plots
-p1 <- ggpairs(sample_df, 
-              upper = list(continuous = GGally::wrap("cor", method= "spearman")),
-              lower = list(continuous = GGally::wrap("points", 
-                alpha = 0.25, size=0.051))
-)  
-
-# p1
-
-
-# Correlation matrix plot
-# p2 <- ggcorr(sample_df, 
-#              label = TRUE, label_round = 2, 
-#              geom = "circle",
-#              low = RColorBrewer::brewer.pal(9, "PuOr")[1], 
-#              high = RColorBrewer::brewer.pal(9, "PuOr")[9])
+# # sample_df <- sample_df[, 1:2]
+# # names(sample_df) <- c(
+# #   "obs1",
+# #   "obs2"
+# # )
+# # 
+# # sample_df <- sample_df %>% mutate(syn1 = obs1*( 1.3+(obs2*0.01)),
+# #                                   syn2 = obs2*(-1.3+(obs1*0.01))
+# # )
+# 
+# p <- ncol(sample_df)
+# 
+# # Matrix of plots
+# p1 <- ggpairs(sample_df, 
+#               upper = list(continuous = GGally::wrap("cor", method= "spearman")),
+#               lower = list(continuous = GGally::wrap("points", 
+#                 alpha = 0.25, size=0.051))
+# )  
+# 
+# # p1
 # 
 # 
-# g2 <- ggplotGrob(p2)
-# colors <- g2$grobs[[6]]$children[[3]]$gp$fill
-
-# ## upper ####
-# color_index <- 1
+# # Correlation matrix plot
+# # p2 <- ggcorr(sample_df, 
+# #              label = TRUE, label_round = 2, 
+# #              geom = "circle",
+# #              low = RColorBrewer::brewer.pal(9, "PuOr")[1], 
+# #              high = RColorBrewer::brewer.pal(9, "PuOr")[9])
+# # 
+# # 
+# # g2 <- ggplotGrob(p2)
+# # colors <- g2$grobs[[6]]$children[[3]]$gp$fill
+# 
+# # ## upper ####
+# # color_index <- 1
+# # for (rw in 1:(p-1)){
+# #   for (cl in (rw+1):p){
+# #     
+# #     plt <- getPlot(p1, rw, cl) +
+# #      theme(panel.background = element_rect(fill = colors[color_index], color="white"),
+# #            panel.grid.major = element_line(color= colors[color_index]))
+# #     
+# #     color_index <- color_index + 1
+# #     
+# #     p1 <- putPlot(p1,plt,rw, cl)
+# #   }
+# # }
+# # 
+# 
+# ## replace upper ####
+# 
+# cor_df <- cor(sample_df, method = "spearman")
+# 
+# n_bins = 9
+# cor_color_df <- matrix(
+#   as.numeric(cut(cor_df, breaks = seq(-1, 1, length.out = n_bins))),
+#   nrow = nrow(cor_df),
+#   ncol = ncol(cor_df))
+# 
+# cor_color_df <- matrix(
+#   RColorBrewer::brewer.pal(n_bins, "PuOr")[cor_color_df],
+#   nrow = nrow(cor_df),
+#   ncol = ncol(cor_df))
+# 
+# # rw = 1
+# # cl = 2
+# library(ggforce)
+# 
+# 
+# 
+# 
+# 
+# 
 # for (rw in 1:(p-1)){
 #   for (cl in (rw+1):p){
+#     # print(c(rw, cl))
 #     
-#     plt <- getPlot(p1, rw, cl) +
-#      theme(panel.background = element_rect(fill = colors[color_index], color="white"),
-#            panel.grid.major = element_line(color= colors[color_index]))
+#     plt_df <- data.frame(
+#       cor = round(cor_df[rw, cl], digits = 2),
+#       rad = abs(round(cor_df[rw, cl], digits = 2)),
+#       cor_col = cor_color_df[rw, cl]
+#     )
+# 
 #     
-#     color_index <- color_index + 1
+#     # print(
+#     #   plt_df
+#     # )
+# 
+#     plt <- ggplot(plt_df)+
+#       geom_circle(aes(x0 = 0, y0 = 0, r = rad), color = plt_df$cor_col, fill = plt_df$cor_col)+
+#       geom_text(aes(x = 0, y = 1.25, label = cor))+
+#       theme_void()+
+#       lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
+#       coord_fixed()
 #     
+#     # rw = 1
+#     # cl = 1
+#     # 
+#     # plt <- ggplot()+
+#     #   geom_circle(aes(x0 = 0, y0 = 0,
+#     #                   r = abs(round(cor_df[rw, cl], digits = 2))),
+#     #               fill = cor_color_df[rw, cl]) +
+#     #   geom_text(aes(x = 0, y = 1.5, label = round(cor_df[rw, cl], digits = 2)))+
+#     #   theme_void()+
+#     #   lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
+#     #   coord_fixed()
+#     # 
+#     # # plt
+#     # # 
+#     p1 <- putPlot(p1, plt,rw, cl)
+#     
+#   }
+# }
+# 
+# 
+# p1
+# 
+# 
+# 
+# 
+# # for (rw in 1:(p-1)){
+# #   for (cl in (rw+1):p){
+# #     
+# #     plt <- getPlot(p1, rw, cl) +
+# #      theme(panel.background = element_rect(fill = colors[color_index], color="white"),
+# #            panel.grid.major = element_line(color= colors[color_index]))
+# #     
+# #     color_index <- color_index + 1
+# #     
+# #     p1 <- putPlot(p1,plt,rw, cl)
+# #   }
+# # }
+# 
+# 
+# # p1
+# ## on unity line no background ####
+# for (rw in 1:p){
+#   cl <- rw
+#   plt <- getPlot(p1, rw, cl)+ theme(panel.background = element_rect(fill = NA), 
+#                                     panel.grid.major = element_line(color = NA))
+#   p1 <- putPlot(p1,plt,rw, cl)
+# }
+# 
+# ## lower ####
+# for (rw in 2:p){
+#   for (cl in 1:(rw-1)){
+#     
+#     
+#     plt <- getPlot(p1, rw, cl)+ 
+#       theme(panel.background = element_rect(fill = cor_color_df[rw, cl], color="white"),
+#             panel.grid.major = element_line(color= NA), 
+#             panel.grid.minor = element_line(color = NA)
+#             )
+#       # theme(panel.background = element_rect(fill = NA), 
+#       #     panel.grid.major = element_line(color = NA))
 #     p1 <- putPlot(p1,plt,rw, cl)
 #   }
 # }
 # 
-
-## replace upper ####
-
-cor_df <- cor(sample_df, method = "spearman")
-
-n_bins = 9
-cor_color_df <- matrix(
-  as.numeric(cut(cor_df, breaks = seq(-1, 1, length.out = n_bins))),
-  nrow = nrow(cor_df),
-  ncol = ncol(cor_df))
-
-cor_color_df <- matrix(
-  RColorBrewer::brewer.pal(n_bins, "PuOr")[cor_color_df],
-  nrow = nrow(cor_df),
-  ncol = ncol(cor_df))
-
-# rw = 1
-# cl = 2
-library(ggforce)
-
-
-
-
-
-
-for (rw in 1:(p-1)){
-  for (cl in (rw+1):p){
-    # print(c(rw, cl))
-    
-    plt_df <- data.frame(
-      cor = round(cor_df[rw, cl], digits = 2),
-      rad = abs(round(cor_df[rw, cl], digits = 2)),
-      cor_col = cor_color_df[rw, cl]
-    )
-
-    
-    # print(
-    #   plt_df
-    # )
-
-    plt <- ggplot(plt_df)+
-      geom_circle(aes(x0 = 0, y0 = 0, r = rad), color = plt_df$cor_col, fill = plt_df$cor_col)+
-      geom_text(aes(x = 0, y = 1.25, label = cor))+
-      theme_void()+
-      lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
-      coord_fixed()
-    
-    # rw = 1
-    # cl = 1
-    # 
-    # plt <- ggplot()+
-    #   geom_circle(aes(x0 = 0, y0 = 0,
-    #                   r = abs(round(cor_df[rw, cl], digits = 2))),
-    #               fill = cor_color_df[rw, cl]) +
-    #   geom_text(aes(x = 0, y = 1.5, label = round(cor_df[rw, cl], digits = 2)))+
-    #   theme_void()+
-    #   lims(y = c(-1.5, 1.5), x = c(-1.5, 1.5))+
-    #   coord_fixed()
-    # 
-    # # plt
-    # # 
-    p1 <- putPlot(p1, plt,rw, cl)
-    
-  }
-}
-
-
-p1
-
-
-
-
-# for (rw in 1:(p-1)){
-#   for (cl in (rw+1):p){
-#     
-#     plt <- getPlot(p1, rw, cl) +
-#      theme(panel.background = element_rect(fill = colors[color_index], color="white"),
-#            panel.grid.major = element_line(color= colors[color_index]))
-#     
-#     color_index <- color_index + 1
-#     
-#     p1 <- putPlot(p1,plt,rw, cl)
-#   }
-# }
-
-
+# 
 # p1
-## on unity line no background ####
-for (rw in 1:p){
-  cl <- rw
-  plt <- getPlot(p1, rw, cl)+ theme(panel.background = element_rect(fill = NA), 
-                                    panel.grid.major = element_line(color = NA))
-  p1 <- putPlot(p1,plt,rw, cl)
-}
-
-## lower ####
-for (rw in 2:p){
-  for (cl in 1:(rw-1)){
-    
-    
-    plt <- getPlot(p1, rw, cl)+ 
-      theme(panel.background = element_rect(fill = cor_color_df[rw, cl], color="white"),
-            panel.grid.major = element_line(color= NA), 
-            panel.grid.minor = element_line(color = NA)
-            )
-      # theme(panel.background = element_rect(fill = NA), 
-      #     panel.grid.major = element_line(color = NA))
-    p1 <- putPlot(p1,plt,rw, cl)
-  }
-}
-
-
-p1
 
 ```
 
 ```{r eval=FALSE, include=FALSE}
 
-cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
-  temp <- M_winxiqr[M_winxiqr$Condition == condition, 
-                    dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
-                                     "cc.4_5", "cc.5_3", "cc.5_4", 
-                                     "ig.3_4", "ig.3_5", "ig.4_5"))]]
-  
-  MCorr <- cor(temp, use = "pairwise.complete.obs")
-  
-  MCorr <- as.data.frame(MCorr) 
-  MCorr$row_names <- rownames(MCorr)
-  MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
-  
-  MCorr$Condition = condition
-  return(MCorr)
-})
-
-cor_list_df <- do.call(rbind, cor_list)
-
-
-library(gganimate)
-cor_list_df %>% 
-ggplot(aes(col_names, row_names, fill = Corr))+
-  geom_tile()+
-  # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
-  scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
-                       mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
-                       high = RColorBrewer::brewer.pal(7, "PuOr")[7],
-                       midpoint = 0, 
-                       na.value = "#00000000")+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
-  labs(x = "", y = "", title = 'Condition: {closest_state}')+
-  # Here comes the gganimate specific bits
-
-  # transition_time(Condition)
-  # ease_aes('linear')
-  transition_states(
-    Condition,
-    transition_length = 0.5,
-    state_length = 1
-  ) +
-  enter_fade()
+# cor_list <- map(c("Baseline", "Compensated", "Delayed"), function(condition){
+#   temp <- M_winxiqr[M_winxiqr$Condition == condition, 
+#                     dvs[!(dvs %in% c("cc.3_4", "cc.3_5", "cc.4_3", 
+#                                      "cc.4_5", "cc.5_3", "cc.5_4", 
+#                                      "ig.3_4", "ig.3_5", "ig.4_5"))]]
+#   
+#   MCorr <- cor(temp, use = "pairwise.complete.obs")
+#   
+#   MCorr <- as.data.frame(MCorr) 
+#   MCorr$row_names <- rownames(MCorr)
+#   MCorr <- MCorr %>% gather(col_names, Corr, names(MCorr)[names(MCorr) != "row_names"])
+#   
+#   MCorr$Condition = condition
+#   return(MCorr)
+# })
+# 
+# cor_list_df <- do.call(rbind, cor_list)
+# 
+# 
+# library(gganimate)
+# cor_list_df %>% 
+# ggplot(aes(col_names, row_names, fill = Corr))+
+#   geom_tile()+
+#   # geom_tile(data = pMat[pMat$p > 0.05, ], aes(col_names, row_names, fill = p), fill = "white", color = "white")+
+#   scale_fill_gradient2(low = RColorBrewer::brewer.pal(7, "PuOr")[1],
+#                        mid = RColorBrewer::brewer.pal(7, "PuOr")[4],
+#                        high = RColorBrewer::brewer.pal(7, "PuOr")[7],
+#                        midpoint = 0, 
+#                        na.value = "#00000000")+
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0), legend.position = "")+
+#   labs(x = "", y = "", title = 'Condition: {closest_state}')+
+#   # Here comes the gganimate specific bits
+# 
+#   # transition_time(Condition)
+#   # ease_aes('linear')
+#   transition_states(
+#     Condition,
+#     transition_length = 0.5,
+#     state_length = 1
+#   ) +
+#   enter_fade()
 ```
 
 ```{r}
