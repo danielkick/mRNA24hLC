@@ -2804,45 +2804,6 @@ return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))
 return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))+scale_y_log10()
 ```
 
-mrna -- spagetti plot
-```{r }
-# FIXME
-plt_mrna_spagetti <- right_join(
-  rename(
-    select(mRNAInfo, Family, RGeneName), 
-    mrna = RGeneName), 
-  plt_mrna_long) %>% 
-  select(-Cell, -Experiment) %>% 
-  group_by(Condition, mrna) %>% 
-  mutate(count = median(count, na.rm = T)) %>% 
-  distinct() %>% 
-  ungroup() %>% 
-  mutate(Baseline = ifelse(Condition == "Baseline", count, NA))%>% 
-  group_by(mrna) %>% 
-  mutate(Baseline = median(Baseline, na.rm = T)) %>% 
-  ungroup() %>% 
-  mutate(Delta = Baseline - count)
-
-
-plt_mrna_spagetti %>% 
-  filter(mrna %in% c("inx1", "inx2", "inx3", "inx4", "inx5")) %>% 
-  ggplot(aes(x = Condition, y = count, group = mrna))+
-  geom_line()
-  
-plt_mrna_spagetti %>% 
-  filter(!(mrna %in% c("inx1", "inx2", "inx3", "inx4", "inx5"))) %>% 
-  ggplot(aes(x = Condition, y = count, group = mrna, color = Family))+
-  geom_line()+
-  facet_wrap(.~Family)
-  
-# deltas
-plt_mrna_spagetti %>% 
-  filter(!(mrna %in% c("inx1", "inx2", "inx3", "inx4", "inx5"))) %>% 
-  ggplot(aes(x = Condition, y = Delta, group = mrna, color = Family))+
-  geom_line()+
-  facet_wrap(.~Family)+
-  theme(legend.position = "")
-```
 
 
 What happens at the network level?
