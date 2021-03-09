@@ -2808,150 +2808,149 @@ return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))+scale_
 
 What happens at the network level?
 ```{r eval=FALSE, include=FALSE}
-#FIXME
-plt_tevc <- M_all_outliers %>% 
-  select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
-  distinct() %>% 
-  gather("ElectricalSynapse", "ig", c("ig.3_4", "ig.3_5", "ig.4_5")) %>% 
-  filter(!is.na(ig)) 
-
-plt_1.1 <- plot_univariate_decorated_0(
-  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_4")), 
-  yvar = "ig",
-  new.y = "nA/mV",
-  new.title = expression(I[g]~LC[3] %<->% LC[4]))+
-  coord_cartesian(ylim = c(0, 0.1))
-
-plt_1.2 <- plot_univariate_decorated_0(
-  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_5")), 
-  yvar = "ig",
-  new.y = "nA/mV",
-  new.title = expression(I[g]~LC[3] %<->% LC[5]))+
-  coord_cartesian(ylim = c(0, 0.1))
-
-plt_1.3 <- plot_univariate_decorated_0(
-  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.4_5")), 
-  yvar = "ig",
-  new.y = "nA/mV",
-  new.title = expression(I[g]~LC[4] %<->% LC[5]))+
-  coord_cartesian(ylim = c(0, 0.5))+
-  scale_y_continuous(position = "right")
-
-
-library(patchwork)
-plt_1.1 + plt_1.2 + plt_1.3+ plot_layout(widths = c(1, 1, 1) )
-
-
-ggsave(paste0("ig_lc34.tiff"), 
-         plot = plt_1.1, 
-         path = here("officer_output"), 
-         width = 11.5/4, height = 4.76)  
-ggsave(paste0("ig_lc35.tiff"), 
-         plot = plt_1.2, 
-         path = here("officer_output"), 
-         width = 11.5/4, height = 4.76)  
-ggsave(paste0("ig_lc45.tiff"), 
-         plot = plt_1.3, 
-         path = here("officer_output"), 
-         width = 11.5/4, height = 4.76)  
-
-
-
-#### ####
-
-plt_tecc <- M_all_outliers %>% 
-  select(Condition, Experiment, cc.3_4, cc.3_5, cc.4_3, cc.4_5, cc.5_3, cc.5_4) %>% 
-  group_by(Condition, Experiment) %>% 
-  mutate_all(median, na.rm = T) %>% 
-  ungroup() %>% 
-  distinct()
-
-cowplot::plot_grid(plotlist = list(
-  plot_univariate_decorated_0(
-    temp = plt_tecc, 
-    yvar = "cc.3_4",
-    new.y = "Coupling Coefficient",
-    new.title = expression(LC[3] %->% LC[4]))+
-    coord_cartesian(ylim = c(0, 1)),
-  
-  plot_univariate_decorated_0(
-    temp = plt_tecc, 
-    yvar = "cc.3_5",
-    new.y = "Coupling Coefficient",
-    new.title = expression(LC[3] %->% LC[5]))+
-    coord_cartesian(ylim = c(0, 1)),
-  
-  plot_univariate_decorated_0(
-    temp = plt_tecc, 
-    yvar = "cc.4_3",
-    new.y = "Coupling Coefficient",
-    new.title = expression(LC[4] %->% LC[3]))+
-    coord_cartesian(ylim = c(0, 1)),
-  
-  plot_univariate_decorated_0(
-    temp = plt_tecc, 
-    yvar = "cc.4_5",
-    new.y = "Coupling Coefficient",
-    new.title = expression(LC[4] %->% LC[5]))+
-    coord_cartesian(ylim = c(0, 1)),
-  
-  plot_univariate_decorated_0(
-    temp = plt_tecc, 
-    yvar = "cc.5_3",
-    new.y = "Coupling Coefficient",
-    new.title = expression(LC[5] %->% LC[4]))+
-    coord_cartesian(ylim = c(0, 1)),
-  
-  plot_univariate_decorated_0(
-    temp = plt_tecc, 
-    yvar = "cc.5_4",
-    new.y = "Coupling Coefficient",
-    new.title = expression(LC[5] %->% LC[4]))+
-    coord_cartesian(ylim = c(0, 1))
-))
-
-
-
-#### ####
-
-triangle_lower_df <- data.frame(
-  id    = c("b", "b", "b"),
-  value = c("2", "2", "2"),
-  x     = c(0, 1, 1),
-  y     = c(0, 1, 0)
-)
-
-triangle_upper_df <- data.frame(
-  id    = c("a", "a", "a"),
-  value = c("1", "1", "1"),
-  x     = c(0, 1, 0),
-  y     = c(0, 1, 1)
-)
-
-
-plt_2.1 <- plt_tecc %>% 
-  ggplot(aes(cc.3_4, cc.4_3))+
-  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
-  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed")+
-  geom_point()+
-  facet_grid(.~Condition)
-
-plt_2.2 <- plt_tecc %>% 
-  ggplot(aes(cc.3_5, cc.5_3))+
-  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
-  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
-  geom_point()+
-  facet_grid(.~Condition)
-
-plt_2.3 <- plt_tecc %>% 
-  ggplot(aes(cc.4_5, cc.5_4))+
-  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
-  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
-  geom_point()+
-  facet_grid(.~Condition)
-
-plt_2.1 / plt_2.2 / plt_2.3
+# plt_tevc <- M_all_outliers %>% 
+#   select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
+#   distinct() %>% 
+#   gather("ElectricalSynapse", "ig", c("ig.3_4", "ig.3_5", "ig.4_5")) %>% 
+#   filter(!is.na(ig)) 
+# 
+# plt_1.1 <- plot_univariate_decorated_0(
+#   temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_4")), 
+#   yvar = "ig",
+#   new.y = "nA/mV",
+#   new.title = expression(I[g]~LC[3] %<->% LC[4]))+
+#   coord_cartesian(ylim = c(0, 0.1))
+# 
+# plt_1.2 <- plot_univariate_decorated_0(
+#   temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_5")), 
+#   yvar = "ig",
+#   new.y = "nA/mV",
+#   new.title = expression(I[g]~LC[3] %<->% LC[5]))+
+#   coord_cartesian(ylim = c(0, 0.1))
+# 
+# plt_1.3 <- plot_univariate_decorated_0(
+#   temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.4_5")), 
+#   yvar = "ig",
+#   new.y = "nA/mV",
+#   new.title = expression(I[g]~LC[4] %<->% LC[5]))+
+#   coord_cartesian(ylim = c(0, 0.5))+
+#   scale_y_continuous(position = "right")
+# 
+# 
+# library(patchwork)
+# plt_1.1 + plt_1.2 + plt_1.3+ plot_layout(widths = c(1, 1, 1) )
+# 
+# 
+# ggsave(paste0("ig_lc34.tiff"), 
+#          plot = plt_1.1, 
+#          path = here("officer_output"), 
+#          width = 11.5/4, height = 4.76)  
+# ggsave(paste0("ig_lc35.tiff"), 
+#          plot = plt_1.2, 
+#          path = here("officer_output"), 
+#          width = 11.5/4, height = 4.76)  
+# ggsave(paste0("ig_lc45.tiff"), 
+#          plot = plt_1.3, 
+#          path = here("officer_output"), 
+#          width = 11.5/4, height = 4.76)  
+# 
+# 
+# 
+# #### ####
+# 
+# plt_tecc <- M_all_outliers %>% 
+#   select(Condition, Experiment, cc.3_4, cc.3_5, cc.4_3, cc.4_5, cc.5_3, cc.5_4) %>% 
+#   group_by(Condition, Experiment) %>% 
+#   mutate_all(median, na.rm = T) %>% 
+#   ungroup() %>% 
+#   distinct()
+# 
+# cowplot::plot_grid(plotlist = list(
+#   plot_univariate_decorated_0(
+#     temp = plt_tecc, 
+#     yvar = "cc.3_4",
+#     new.y = "Coupling Coefficient",
+#     new.title = expression(LC[3] %->% LC[4]))+
+#     coord_cartesian(ylim = c(0, 1)),
+#   
+#   plot_univariate_decorated_0(
+#     temp = plt_tecc, 
+#     yvar = "cc.3_5",
+#     new.y = "Coupling Coefficient",
+#     new.title = expression(LC[3] %->% LC[5]))+
+#     coord_cartesian(ylim = c(0, 1)),
+#   
+#   plot_univariate_decorated_0(
+#     temp = plt_tecc, 
+#     yvar = "cc.4_3",
+#     new.y = "Coupling Coefficient",
+#     new.title = expression(LC[4] %->% LC[3]))+
+#     coord_cartesian(ylim = c(0, 1)),
+#   
+#   plot_univariate_decorated_0(
+#     temp = plt_tecc, 
+#     yvar = "cc.4_5",
+#     new.y = "Coupling Coefficient",
+#     new.title = expression(LC[4] %->% LC[5]))+
+#     coord_cartesian(ylim = c(0, 1)),
+#   
+#   plot_univariate_decorated_0(
+#     temp = plt_tecc, 
+#     yvar = "cc.5_3",
+#     new.y = "Coupling Coefficient",
+#     new.title = expression(LC[5] %->% LC[4]))+
+#     coord_cartesian(ylim = c(0, 1)),
+#   
+#   plot_univariate_decorated_0(
+#     temp = plt_tecc, 
+#     yvar = "cc.5_4",
+#     new.y = "Coupling Coefficient",
+#     new.title = expression(LC[5] %->% LC[4]))+
+#     coord_cartesian(ylim = c(0, 1))
+# ))
+# 
+# 
+# 
+# #### ####
+# 
+# triangle_lower_df <- data.frame(
+#   id    = c("b", "b", "b"),
+#   value = c("2", "2", "2"),
+#   x     = c(0, 1, 1),
+#   y     = c(0, 1, 0)
+# )
+# 
+# triangle_upper_df <- data.frame(
+#   id    = c("a", "a", "a"),
+#   value = c("1", "1", "1"),
+#   x     = c(0, 1, 0),
+#   y     = c(0, 1, 1)
+# )
+# 
+# 
+# plt_2.1 <- plt_tecc %>% 
+#   ggplot(aes(cc.3_4, cc.4_3))+
+#   geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
+#   geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
+#   geom_abline(slope = 1, intercept = 0, linetype = "dashed")+
+#   geom_point()+
+#   facet_grid(.~Condition)
+# 
+# plt_2.2 <- plt_tecc %>% 
+#   ggplot(aes(cc.3_5, cc.5_3))+
+#   geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
+#   geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
+#   geom_point()+
+#   facet_grid(.~Condition)
+# 
+# plt_2.3 <- plt_tecc %>% 
+#   ggplot(aes(cc.4_5, cc.5_4))+
+#   geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
+#   geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
+#   geom_point()+
+#   facet_grid(.~Condition)
+# 
+# plt_2.1 / plt_2.2 / plt_2.3
 ```
 
 what happens at the level of output (excitability)? 
