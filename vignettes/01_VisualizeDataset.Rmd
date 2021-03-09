@@ -36,7 +36,7 @@ library(FactoMineR) #PCA
 library(umap) # for UMAP
 library(pvclust)
 library(dendextend) # for color_labels
-
+library(corrr)
 
 library(ggthemes)
 library(cowplot)
@@ -2211,7 +2211,7 @@ o_mrna <-
      # lims(y =  c(2, -2))+ # y axis can be flipped like so
      theme(legend.position = "")
   ) / 
-  (o_mrna$heatmap_z + theme(legend.position = "below")) + 
+  (o_mrna$heatmap_z + theme(legend.position = "bottom")) + 
   patchwork::plot_layout(heights = c(.2, 5))
 
 
@@ -2224,7 +2224,7 @@ o_mrna <-
      # lims(y =  c(2, -2))+ # y axis can be flipped like so
      theme(legend.position = "")
   ) / 
-  (o_mrna$heatmap_z + theme(legend.position = "below")) + 
+  (o_mrna$heatmap_z + theme(legend.position = "bottom")) + 
   patchwork::plot_layout(heights = c(2, .2, 5))
 
 ## membrane only ====
@@ -2256,7 +2256,7 @@ o_mem <-
      # lims(y =  c(2, -2))+ # y axis can be flipped like so
      theme(legend.position = "")
   ) / 
-  (o_mem$heatmap_z + theme(legend.position = "below")) + 
+  (o_mem$heatmap_z + theme(legend.position = "bottom")) + 
   patchwork::plot_layout(heights = c(.2, 1))
 
 
@@ -2270,7 +2270,7 @@ o_mem <-
      # lims(y =  c(2, -2))+ # y axis can be flipped like so
      theme(legend.position = "")
   ) / 
-  (o_mem$heatmap_z + theme(legend.position = "below")) + 
+  (o_mem$heatmap_z + theme(legend.position = "bottom")) + 
   patchwork::plot_layout(heights = c(2, .2, 1))
 
 
@@ -2303,7 +2303,7 @@ o_exc <-
      # lims(y =  c(2, -2))+ # y axis can be flipped like so
      theme(legend.position = "")
   ) / 
-  (o_exc$heatmap_z + theme(legend.position = "below")) + 
+  (o_exc$heatmap_z + theme(legend.position = "bottom")) + 
   patchwork::plot_layout(heights = c(.2, 1))
 
 
@@ -2317,21 +2317,21 @@ o_exc <-
      # lims(y =  c(2, -2))+ # y axis can be flipped like so
      theme(legend.position = "")
   ) / 
-  (o_exc$heatmap_z + theme(legend.position = "below")) + 
+  (o_exc$heatmap_z + theme(legend.position = "bottom")) + 
   patchwork::plot_layout(heights = c(2, .2, 1))
 
 
 
 # (o_mrna$group_compare_tile+theme(legend.position = "")) /
-#   (o_mrna$heatmap_z + theme(legend.position = "below"))+
+#   (o_mrna$heatmap_z + theme(legend.position = "bottom"))+
 #   patchwork::plot_layout(heights = c(.2, 1)) |
 # 
 # (o_exc$group_compare_tile+theme(legend.position = "")) /
-#   (o_exc$heatmap_z + theme(legend.position = "below"))+
+#   (o_exc$heatmap_z + theme(legend.position = "bottom"))+
 #   patchwork::plot_layout(heights = c(.2, 1)) |
 # 
 # (o_mem$group_compare_tile+theme(legend.position = "")) /
-#   (o_mem$heatmap_z + theme(legend.position = "below"))+
+#   (o_mem$heatmap_z + theme(legend.position = "bottom"))+
 #   patchwork::plot_layout(heights = c(.2, 1))
 
 
@@ -2506,29 +2506,32 @@ temp_list <- map(unique(M_winxiqr$Condition), function(condition){
 
 
 # cor breaks
-cor_br <- seq(-1, 1, length.out = 8)
-
-plt <- do.call(rbind, temp_list) %>% 
-  filter(term %in% mrna_cols) %>% 
-  filter(term2 %in% c(memb_cols, epsp_cols)) %>% 
-  ggplot(aes(term, term2, fill = Cor))+
-  geom_tile()
-
-
-plt+scale_fill_stepsn(colors = RColorBrewer::brewer.pal(n = 9, name = "PuOr")[c(1,5,9)]  )
-  
-
-plt+scale_fill_gradientn(colors=RColorBrewer::brewer.pal(n = 9, name = "PuOr"),
-                         na.value = "transparent",
-                         breaks=seq(-1, 1, length.out = 8),
-                         # labels=c("Minimum",0,"Maximum"),
-                         limits=c(-1,1))
+# cor_br <- seq(-1, 1, length.out = 8)
+# 
+# plt <- do.call(rbind, temp_list) %>% 
+#   filter(term %in% mrna_cols) %>% 
+#   filter(term2 %in% c(memb_cols, epsp_cols)) %>% 
+#   ggplot(aes(term, term2, fill = Cor))+
+#   geom_tile()
+# 
+# 
+# plt+scale_fill_stepsn(colors = RColorBrewer::brewer.pal(n = 9, name = "PuOr")[c(1,5,9)]  )
+#   
+# 
+# plt+scale_fill_gradientn(colors=RColorBrewer::brewer.pal(n = 9, name = "PuOr"),
+#                          na.value = "transparent",
+#                          breaks=seq(-1, 1, length.out = 8),
+#                          # labels=c("Minimum",0,"Maximum"),
+#                          limits=c(-1,1))
 
 
 library(corrr)
 library(ggtext)
 library(glue)
-do.call(rbind, temp_list) %>% 
+# do.call(rbind, temp_list) 
+corr_bt_mrna_phys <- map(1:3, function(i){
+  
+temp_list[[i]] %>% 
   filter(term %in% mrna_cols) %>% 
   filter(term2 %in% c(memb_cols, epsp_cols)) %>% 
   mutate(term = glue(("<i>{term}</i>"))) %>% 
@@ -2543,6 +2546,17 @@ do.call(rbind, temp_list) %>%
                          limits=c(-1,1)
   )+
   coord_fixed()
+  
+})
+
+plot_grid(plotlist = corr_bt_mrna_phys)
+
+
+corr_bt_mrna_phys[[1]]+theme(legend.position = "") + 
+  corr_bt_mrna_phys[[2]]+theme(legend.position = "") + 
+  corr_bt_mrna_phys[[3]]
+
+
 ```
 
 ```{r}
