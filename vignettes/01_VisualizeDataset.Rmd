@@ -1772,10 +1772,11 @@ rownames(M_winxiqr) <- paste(M_winxiqr$Experiment, M_winxiqr$Cell, sep = "-")
 
 set up groupings
 ```{r}
-mrna_cols <- c("bkkca", "cav1", "cav2", 
-               "inx1", "inx2", "inx3", #"inx4", "inx5", #<- inx5 is likely not expressed
-               "nav", 
-               "shab", "shaker", "shal", "shaw1", "shaw2")
+mrna_cols <- c(
+  "nav", "cav1", "cav2", "bkkca", 
+  "shaker", "shal", "shab", "shaw1", "shaw2",
+  "inx1", "inx2", "inx3" #"inx4", "inx5", #<- inx5 is likely not expressed
+)
 
 memb_cols <- c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
  
@@ -2580,33 +2581,19 @@ corr_bt_mrna_phys[[1]]+theme(legend.position = "") +
 # What univariate changes occur?
 
 
-## mk plots
-What happens at the individual cell level?
-
-plots for stg meeting
-membrane
-```{r }
-plt_membrane <- M_all %>% 
-  select(Condition, Experiment, Cell, r11, r1, Ihtk.0, Ia.0) %>% 
-  group_by(Condition, Experiment, Cell) %>% 
-  mutate_all(median, na.rm = T) %>% 
-  ungroup() %>% 
-  distinct() #%>% 
-  # mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-  #                              Condition == "Compensated" ~ "1h", 
-  #                              Condition == "Delayed" ~ "24h"
-  #                              ))
-  
-
+```{r}
+# mrna_cols, memb_cols, epsp_cols
 
 plot_univariate_decorated_0 <- function(temp = plt_membrane,
                                         yvar = "Ihtk.0",
                                         new.y = "",
                                         new.title = ""){
-  # allow for customizaiton of y axis
+  # allow for customization of y axis
   if (typeof(new.title) == "character"){
-    if(new.y == ""){
-      new.title <- yvar
+    if(typeof(new.y) == "character"){
+      if(new.y == ""){
+        new.title <- yvar
+      }
     } else if (typeof(new.y) == "character" | typeof(new.y) == "expression"){
       new.title <- new.title
     } else {
@@ -2642,67 +2629,78 @@ plot_univariate_decorated_0 <- function(temp = plt_membrane,
     geom_line(aes(x = Condition, y = outlier_up, group = 1), linetype = "dashed", color = "black")+
     geom_line(aes(x = Condition, y = outlier_down, group = 1), linetype = "dashed", color = "black")+
     
-    geom_point(aes(x = Condition, y = q50), color = "lightgray", size = 4)+
-    geom_point(aes(x = Condition, y = q50), color = "black", size = 4, shape = 1)+
+    geom_point(aes(x = Condition, y = q50), color = "blue", size = 4, shape = 19, alpha = 0.02)+
+    # geom_point(aes(x = Condition, y = q50), color = "blue", size = 4, shape = 1)+
     geom_point(alpha = 0.5)+
     labs(title = new.title, y=new.y, x = "")
   
   return(temp_plt)
 }
+```
 
+## membrane changes
+```{r }
+plt_membrane <- M_all %>% 
+  select(Condition, Experiment, Cell, all_of(memb_cols)) %>% 
+  group_by(Condition, Experiment, Cell) %>% 
+  mutate_all(median, na.rm = T) %>% 
+  ungroup() %>% 
+  distinct() 
 
-membrane_dvs_plt <- c("r11", "r1", "Ihtk.0", "Ia.0")
-new.y_vector <- c(expression(M~Omega), expression(M~Omega), "nA", "nA" )
+membrane_dvs_plt <- c("r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope", "vrest")
+new.y_vector <- c(expression(M~Omega), expression(M~Omega), "nA", expression(frac(nA, mV)), "nA", expression(frac(nA, mV)), "mV" )
 new.title_vector     <- c(expression(R[In]), 
                           expression(R[Membrane]), 
                           expression(I[HTK] ~ Intercept), 
-                          expression(I[A] ~ Intercept))
+                          expression(I[HTK] ~ Slope), 
+                          expression(I[A] ~ Intercept),
+                          expression(I[A] ~ Slope),
+                          expression(V[Rest]))
 membrane_plts <- map(seq_along(membrane_dvs_plt), function(i){plot_univariate_decorated_0(
   temp = ungroup(plt_membrane), 
   yvar = membrane_dvs_plt[i],
   new.y = new.y_vector[i],
   new.title = new.title_vector[i])})
 
-membrane_plts[[1]]
+(membrane_plts[[1]] / 
+    membrane_plts[[2]]) |
+  (membrane_plts[[3]] /
+     membrane_plts[[4]]) |
+  (membrane_plts[[5]] /
+     membrane_plts[[6]]) |
+  (membrane_plts[[7]] / 
+     patchwork::plot_spacer())
 
-membrane_plts[[2]]
-
-membrane_plts[[3]]
-
-membrane_plts[[4]]
-
-walk(seq_along(membrane_dvs_plt), function(i){
-  ggsave(paste0(membrane_dvs_plt[i],".tiff"), 
-         plot = membrane_plts[[i]], 
-         path = here("officer_output"), 
-         width = 11.5/4, height = 4.76)  
-})
+# walk(seq_along(membrane_dvs_plt), function(i){
+#   ggsave(paste0(membrane_dvs_plt[i],".tiff"), 
+#          plot = membrane_plts[[i]], 
+#          path = here("officer_output"), 
+#          width = 11.5/4, height = 4.76)  
+# })
 ```
 
-excitability
+## excitability
 ```{r }
 plt_epsp <- M_all[, c("Condition", "Experiment", "Cell", epsp_cols)] %>% 
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct() #%>% 
-  # mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-  #                              Condition == "Compensated" ~ "1h", 
-  #                              Condition == "Delayed" ~ "24h"
-  #                              ))
+  distinct() 
+
 
 epsp_dvs_plt <- c("Cor", 
-                  "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
-                  "AUC_Obs", "AUC_Sim", 
-                  "Max.Amplitude_Delta", "AUC_Delta")
-new.y_vector <- c(" ", #FIXME if empty then title doesn't update
+                  "Min.V_Obs", 
+                  "Max.Amplitude_Obs", "Max.Amplitude_Sim", "Max.Amplitude_Delta",
+                  "AUC_Obs", "AUC_Sim", "AUC_Delta")
+new.y_vector <- c(expression(rho),  #TODO confirm this was spearman's rho and not pearson
+                  "mV",
                   "mV", "mV", "mV", 
                   "mV/Sec", "mV/Sec",
-                  "mV", "mV/Sec")
+                  "mV/Sec")
 new.title_vector <- c("Correlation Coefficient", 
-                      "Observed Baseline", "Observed Amplitude", "Simulated Amplitude", 
-                      "Observed AUC", "Simulated AUC",
-                      "Difference Amplitude", "Difference AUC")
+                      "Observed Baseline", 
+                      "Observed Amplitude", "Simulated Amplitude", "Difference Amplitude",
+                      "Observed AUC", "Simulated AUC", "Difference AUC")
 
 epsp_plts <- map(seq_along(epsp_cols), function(i){plot_univariate_decorated_0(
   temp = ungroup(plt_epsp), 
@@ -2711,55 +2709,185 @@ epsp_plts <- map(seq_along(epsp_cols), function(i){plot_univariate_decorated_0(
   new.title = new.title_vector[i] )})
 
 
-epsp_plts[[1]]
+
+((epsp_plts[[1]]+ylim(c(0, 1))) / 
+    patchwork::plot_spacer()/ 
+    patchwork::plot_spacer()) |
+  (epsp_plts[[3]] /
+     epsp_plts[[4]]/
+     epsp_plts[[7]]) |
+  (epsp_plts[[6]] /
+     epsp_plts[[5]]/
+     epsp_plts[[8]]) 
 
 
-walk(seq_along(epsp_dvs_plt), function(i){
-  ggsave(paste0(epsp_dvs_plt[i],".tiff"), 
-         plot = epsp_plts[[i]], 
-         path = here("officer_output"), 
-         width = 11.5/4, height = 4.76)  
-})
+# walk(seq_along(epsp_dvs_plt), function(i){
+#   ggsave(paste0(epsp_dvs_plt[i],".tiff"), 
+#          plot = epsp_plts[[i]], 
+#          path = here("officer_output"), 
+#          width = 11.5/4, height = 4.76)  
+# })
 ```
 
 
-mrna
+## mrna
 univariate change over time -- bend quartile
 ```{r }
-plt_membrane <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>% 
+plt_mrna <- M_all[, c("Condition", "Experiment", "Cell", mrna_cols)] %>%
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
-  distinct()# %>% 
-  # mutate(Condition = case_when(Condition == "Baseline"    ~ "0h",
-  #                              Condition == "Compensated" ~ "1h", 
-  #                              Condition == "Delayed" ~ "24h"
-  #                              ))
+  distinct()
 
 
 mrna_plts <- map(seq_along(mrna_cols), function(i){plot_univariate_decorated_0(
-  temp = ungroup(plt_membrane), 
+  temp = ungroup(plt_mrna), 
   yvar = mrna_cols[i],
-  new.y = "Count",
-  new.title = mrna_cols[i] )})
+  new.y = "",
+  new.title = mrna_cols[i] )+theme(plot.title = element_text(face="italic"))})
+
+# TODO if desired, add in signifs like so
+# mrna_plts <- map(seq_along(mrna_plts), function(i){
+#   mrna_plts[[i]]+
+#   stat_compare_means(comparisons = list(
+#     c("0h", "1h"),
+#     c("1h", "24h"),
+#     c("0h", "24h")
+#   ), 
+#   label = "p.signif")+ # Add significance levels
+#   stat_compare_means(label.y = -100)
+#   
+# })
 
 
-mrna_plts[[1]]+theme(plot.title = element_text(face="italic"))
+na_y = c(0, 20000)
+ca_y = c(0, 7000)
+k_y  = c(0, 5000)
+inx_y <- c(0, 40000)
 
 
-walk(seq_along(mrna_cols), function(i){
-  ggsave(paste0(mrna_cols[i],".tiff"), 
-         plot = mrna_plts[[i]]+theme(plot.title = element_text(face="italic")), 
-         path = here("officer_output"), 
-         width = 11.5/4, height = 4.76)  
-})
+mrna_plts[[1]]+coord_cartesian(ylim = na_y)+
+  
+  mrna_plts[[2]]+coord_cartesian(ylim = ca_y) +
+  mrna_plts[[3]]+coord_cartesian(ylim = ca_y) +
+  mrna_plts[[4]]+coord_cartesian(ylim = ca_y) +
+  patchwork::plot_spacer()+
+  
+  mrna_plts[[5]]+coord_cartesian(ylim = k_y) +
+  mrna_plts[[6]]+coord_cartesian(ylim = k_y) +
+  mrna_plts[[7]]+coord_cartesian(ylim = k_y) +
+  mrna_plts[[8]]+coord_cartesian(ylim = k_y) +
+  mrna_plts[[9]]+coord_cartesian(ylim = k_y) +
+  
+  mrna_plts[[10]]+coord_cartesian(ylim = inx_y) +
+  mrna_plts[[11]]+coord_cartesian(ylim = inx_y) +
+  mrna_plts[[12]]+coord_cartesian(ylim = inx_y) +
+  patchwork::plot_spacer() +
+  patchwork::plot_spacer() + 
+  
+  patchwork::plot_layout(ncol = 5, nrow = 3)
+
+
+#TODO probably a more elegant way to do this using the following functions
+# patchwork::get_dim()
+# patchwork::set_dim()
+# mrna_plts[[1]]+ set_dim(mrna_plts[[2]], get_dim(mrna_plts[[1]]))
+# get_max_dim(mrna_plts[[1]], mrna_plts[[2]])
+
+
+# walk(seq_along(mrna_cols), function(i){
+#   ggsave(paste0(mrna_cols[i],".tiff"), 
+#          plot = mrna_plts[[i]]+theme(plot.title = element_text(face="italic")), 
+#          path = here("officer_output"), 
+#          width = 11.5/4, height = 4.76)  
+# })
 ```
 
+```{r}
+# plt_mrna_long <- plt_mrna %>% 
+#   gather(mrna, count, mrna_cols) %>% 
+#   filter(!is.na(count))
+# 
+# 
+# plt_mrna_long_bands <- plt_mrna_long %>% 
+#     group_by(Condition, mrna) %>% 
+#     summarise(
+#       q10 = quantile(count, probs = 0.1, na.rm = T),
+#       q25 = quantile(count, probs = 0.25, na.rm = T),
+#       q50 = quantile(count, probs = 0.5, na.rm = T),
+#       q75 = quantile(count, probs = 0.75, na.rm = T),
+#       q90 = quantile(count, probs = 0.9, na.rm = T),
+#     ) %>% 
+#     mutate(outlier_up = q50 + 1.5*(q75 - q25),
+#            outlier_down = q50 - 1.5*(q75 - q25))
+# 
+# temp <- full_join(plt_mrna_long, plt_mrna_long_bands)
+# 
+# 
+# 
+# # devtools::install_github("teunbrand/ggh4x")
+# library(ggh4x)
+# 
+# filter(temp, mrna %in% c("nav")) %>% 
+#   ggplot(aes(x = Condition, y = count))+
+#     geom_ribbon(aes(x = Condition, ymin = q25, ymax = q75, group = mrna), 
+#                 color = "darkgray", fill = "cornflowerblue", alpha = 0.3)+
+#     geom_line(aes(x = Condition, y = q50, group = 1), 
+#               linetype = "dashed", color = "blue")+
+#     geom_line(aes(x = Condition, y = outlier_up, group = 1), 
+#               linetype = "dashed", color = "black")+
+#     geom_line(aes(x = Condition, y = outlier_down, group = 1), 
+#               linetype = "dashed", color = "black")+
+#     
+#     geom_point(aes(x = Condition, y = q50), color = "blue", size = 4, shape = 19, alpha = 0.02)+
+# 
+#     geom_point(alpha = 0.5)+
+#   facet_wrap(~ mrna, strip.position = "bottom")
+# 
+# 
+# 
+# filter(temp, mrna %in% c("shaker", "shab", "shal", "shaw1", "shaw2", "bkkca", "cav1", "cav2")) %>% 
+#   ggplot(aes(x = Condition, y = count))+
+#     geom_ribbon(aes(x = Condition, ymin = q25, ymax = q75, group = mrna), 
+#                 color = "darkgray", fill = "cornflowerblue", alpha = 0.3)+
+#     geom_line(aes(x = Condition, y = q50, group = 1), 
+#               linetype = "dashed", color = "blue")+
+#     geom_line(aes(x = Condition, y = outlier_up, group = 1), 
+#               linetype = "dashed", color = "black")+
+#     geom_line(aes(x = Condition, y = outlier_down, group = 1), 
+#               linetype = "dashed", color = "black")+
+#     
+#     geom_point(aes(x = Condition, y = q50), color = "blue", size = 4, shape = 19, alpha = 0.02)+
+# 
+#     geom_point(alpha = 0.5)+
+#   facet_wrap(~ mrna, strip.position = "bottom")
+# 
+# 
+# 
+# filter(temp, mrna %in% c("inx1", "inx2", "inx3")) %>% 
+#   ggplot(aes(x = Condition, y = count))+
+#     geom_ribbon(aes(x = Condition, ymin = q25, ymax = q75, group = mrna), 
+#                 color = "darkgray", fill = "cornflowerblue", alpha = 0.3)+
+#     geom_line(aes(x = Condition, y = q50, group = 1), 
+#               linetype = "dashed", color = "blue")+
+#     geom_line(aes(x = Condition, y = outlier_up, group = 1), 
+#               linetype = "dashed", color = "black")+
+#     geom_line(aes(x = Condition, y = outlier_down, group = 1), 
+#               linetype = "dashed", color = "black")+
+#     
+#     geom_point(aes(x = Condition, y = q50), color = "blue", size = 4, shape = 19, alpha = 0.02)+
+# 
+#     geom_point(alpha = 0.5)+
+#   facet_wrap(~ mrna, strip.position = "bottom")
+
+
+
+```
 
 
 
 univariate change over time -- boxplots
-```{r }
+```{r eval=FALSE, include=FALSE}
 # devtools::install_github("teunbrand/ggh4x")
 library(ggh4x)
 # FIXME 
