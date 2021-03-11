@@ -2557,6 +2557,17 @@ corr_bt_mrna_phys[[1]]+theme(legend.position = "") +
   corr_bt_mrna_phys[[2]]+theme(legend.position = "") + 
   corr_bt_mrna_phys[[3]]
 
+library(GGally)
+ggpairs(select(filter(M_winxiqr),#, Condition == "0h"), 
+               all_of(c("Condition", 
+                        mrna_cols, "r1", "Ihtk.0", "Ia.0"))),#memb_cols, "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "AUC_Obs"))),
+        mapping = ggplot2::aes(color = Condition),
+        lower = list(continuous = wrap("smooth", se = F, alpha = 0.8, size=1)))
+
+
+        # ggplot2::aes(colour=Condition, aes = 0.1))
+
+
 
 ```
 
@@ -2936,152 +2947,362 @@ return_nested_mrna_plt(temp = filter(plt_mrna_long, mrna %in% c("inx5")))+scale_
 
 What happens at the network level?
 ```{r eval=FALSE, include=FALSE}
-# plt_tevc <- M_all_outliers %>% 
-#   select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>% 
-#   distinct() %>% 
-#   gather("ElectricalSynapse", "ig", c("ig.3_4", "ig.3_5", "ig.4_5")) %>% 
-#   filter(!is.na(ig)) 
-# 
-# plt_1.1 <- plot_univariate_decorated_0(
-#   temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_4")), 
-#   yvar = "ig",
-#   new.y = "nA/mV",
-#   new.title = expression(I[g]~LC[3] %<->% LC[4]))+
-#   coord_cartesian(ylim = c(0, 0.1))
-# 
-# plt_1.2 <- plot_univariate_decorated_0(
-#   temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_5")), 
-#   yvar = "ig",
-#   new.y = "nA/mV",
-#   new.title = expression(I[g]~LC[3] %<->% LC[5]))+
-#   coord_cartesian(ylim = c(0, 0.1))
-# 
-# plt_1.3 <- plot_univariate_decorated_0(
-#   temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.4_5")), 
-#   yvar = "ig",
-#   new.y = "nA/mV",
-#   new.title = expression(I[g]~LC[4] %<->% LC[5]))+
-#   coord_cartesian(ylim = c(0, 0.5))+
-#   scale_y_continuous(position = "right")
-# 
-# 
-# library(patchwork)
-# plt_1.1 + plt_1.2 + plt_1.3+ plot_layout(widths = c(1, 1, 1) )
-# 
-# 
-# ggsave(paste0("ig_lc34.tiff"), 
-#          plot = plt_1.1, 
-#          path = here("officer_output"), 
-#          width = 11.5/4, height = 4.76)  
-# ggsave(paste0("ig_lc35.tiff"), 
-#          plot = plt_1.2, 
-#          path = here("officer_output"), 
-#          width = 11.5/4, height = 4.76)  
-# ggsave(paste0("ig_lc45.tiff"), 
-#          plot = plt_1.3, 
-#          path = here("officer_output"), 
-#          width = 11.5/4, height = 4.76)  
-# 
-# 
-# 
-# #### ####
-# 
-# plt_tecc <- M_all_outliers %>% 
-#   select(Condition, Experiment, cc.3_4, cc.3_5, cc.4_3, cc.4_5, cc.5_3, cc.5_4) %>% 
-#   group_by(Condition, Experiment) %>% 
-#   mutate_all(median, na.rm = T) %>% 
-#   ungroup() %>% 
-#   distinct()
-# 
-# cowplot::plot_grid(plotlist = list(
-#   plot_univariate_decorated_0(
-#     temp = plt_tecc, 
-#     yvar = "cc.3_4",
-#     new.y = "Coupling Coefficient",
-#     new.title = expression(LC[3] %->% LC[4]))+
-#     coord_cartesian(ylim = c(0, 1)),
-#   
-#   plot_univariate_decorated_0(
-#     temp = plt_tecc, 
-#     yvar = "cc.3_5",
-#     new.y = "Coupling Coefficient",
-#     new.title = expression(LC[3] %->% LC[5]))+
-#     coord_cartesian(ylim = c(0, 1)),
-#   
-#   plot_univariate_decorated_0(
-#     temp = plt_tecc, 
-#     yvar = "cc.4_3",
-#     new.y = "Coupling Coefficient",
-#     new.title = expression(LC[4] %->% LC[3]))+
-#     coord_cartesian(ylim = c(0, 1)),
-#   
-#   plot_univariate_decorated_0(
-#     temp = plt_tecc, 
-#     yvar = "cc.4_5",
-#     new.y = "Coupling Coefficient",
-#     new.title = expression(LC[4] %->% LC[5]))+
-#     coord_cartesian(ylim = c(0, 1)),
-#   
-#   plot_univariate_decorated_0(
-#     temp = plt_tecc, 
-#     yvar = "cc.5_3",
-#     new.y = "Coupling Coefficient",
-#     new.title = expression(LC[5] %->% LC[4]))+
-#     coord_cartesian(ylim = c(0, 1)),
-#   
-#   plot_univariate_decorated_0(
-#     temp = plt_tecc, 
-#     yvar = "cc.5_4",
-#     new.y = "Coupling Coefficient",
-#     new.title = expression(LC[5] %->% LC[4]))+
-#     coord_cartesian(ylim = c(0, 1))
-# ))
-# 
-# 
-# 
-# #### ####
-# 
-# triangle_lower_df <- data.frame(
-#   id    = c("b", "b", "b"),
-#   value = c("2", "2", "2"),
-#   x     = c(0, 1, 1),
-#   y     = c(0, 1, 0)
-# )
-# 
-# triangle_upper_df <- data.frame(
-#   id    = c("a", "a", "a"),
-#   value = c("1", "1", "1"),
-#   x     = c(0, 1, 0),
-#   y     = c(0, 1, 1)
-# )
-# 
-# 
-# plt_2.1 <- plt_tecc %>% 
-#   ggplot(aes(cc.3_4, cc.4_3))+
-#   geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
-#   geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
-#   geom_abline(slope = 1, intercept = 0, linetype = "dashed")+
-#   geom_point()+
-#   facet_grid(.~Condition)
-# 
-# plt_2.2 <- plt_tecc %>% 
-#   ggplot(aes(cc.3_5, cc.5_3))+
-#   geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
-#   geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
-#   geom_point()+
-#   facet_grid(.~Condition)
-# 
-# plt_2.3 <- plt_tecc %>% 
-#   ggplot(aes(cc.4_5, cc.5_4))+
-#   geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
-#   geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
-#   geom_point()+
-#   facet_grid(.~Condition)
-# 
-# plt_2.1 / plt_2.2 / plt_2.3
+plt_tevc <- M_all_outliers %>%
+  select(Condition, Experiment, ig.3_4, ig.3_5, ig.4_5) %>%
+  distinct() %>%
+  gather("ElectricalSynapse", "ig", c("ig.3_4", "ig.3_5", "ig.4_5")) %>%
+  filter(!is.na(ig))
+
+plt_1.1 <- plot_univariate_decorated_0(
+  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_4")),
+  yvar = "ig",
+  new.y = "nA/mV",
+  new.title = expression(I[g]~LC[3] %<->% LC[4]))+
+  coord_cartesian(ylim = c(0, 0.1))
+
+plt_1.2 <- plot_univariate_decorated_0(
+  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.3_5")),
+  yvar = "ig",
+  new.y = "nA/mV",
+  new.title = expression(I[g]~LC[3] %<->% LC[5]))+
+  coord_cartesian(ylim = c(0, 0.1))
+
+plt_1.3 <- plot_univariate_decorated_0(
+  temp = ungroup(filter(plt_tevc, ElectricalSynapse == "ig.4_5")),
+  yvar = "ig",
+  new.y = "nA/mV",
+  new.title = expression(I[g]~LC[4] %<->% LC[5]))+
+  coord_cartesian(ylim = c(0, 0.5))+
+  scale_y_continuous(position = "right")
+
+
+library(patchwork)
+plt_1.1 + plt_1.2 + plt_1.3+ plot_layout(widths = c(1, 1, 1) )
+
+
+ggsave(paste0("ig_lc34.tiff"),
+         plot = plt_1.1,
+         path = here("officer_output"),
+         width = 11.5/4, height = 4.76)
+ggsave(paste0("ig_lc35.tiff"),
+         plot = plt_1.2,
+         path = here("officer_output"),
+         width = 11.5/4, height = 4.76)
+ggsave(paste0("ig_lc45.tiff"),
+         plot = plt_1.3,
+         path = here("officer_output"),
+         width = 11.5/4, height = 4.76)
+
+
+
+#### ####
+
+plt_tecc <- M_all_outliers %>%
+  select(Condition, Experiment, cc.3_4, cc.3_5, cc.4_3, cc.4_5, cc.5_3, cc.5_4) %>%
+  group_by(Condition, Experiment) %>%
+  mutate_all(median, na.rm = T) %>%
+  ungroup() %>%
+  distinct()
+
+cowplot::plot_grid(plotlist = list(
+  plot_univariate_decorated_0(
+    temp = plt_tecc,
+    yvar = "cc.3_4",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[3] %->% LC[4]))+
+    coord_cartesian(ylim = c(0, 1)),
+
+  plot_univariate_decorated_0(
+    temp = plt_tecc,
+    yvar = "cc.3_5",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[3] %->% LC[5]))+
+    coord_cartesian(ylim = c(0, 1)),
+
+  plot_univariate_decorated_0(
+    temp = plt_tecc,
+    yvar = "cc.4_3",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[4] %->% LC[3]))+
+    coord_cartesian(ylim = c(0, 1)),
+
+  plot_univariate_decorated_0(
+    temp = plt_tecc,
+    yvar = "cc.4_5",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[4] %->% LC[5]))+
+    coord_cartesian(ylim = c(0, 1)),
+
+  plot_univariate_decorated_0(
+    temp = plt_tecc,
+    yvar = "cc.5_3",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[5] %->% LC[4]))+
+    coord_cartesian(ylim = c(0, 1)),
+
+  plot_univariate_decorated_0(
+    temp = plt_tecc,
+    yvar = "cc.5_4",
+    new.y = "Coupling Coefficient",
+    new.title = expression(LC[5] %->% LC[4]))+
+    coord_cartesian(ylim = c(0, 1))
+))
+
+
+
+#### ####
+
+triangle_lower_df <- data.frame(
+  id    = c("b", "b", "b"),
+  value = c("2", "2", "2"),
+  x     = c(0, 1, 1),
+  y     = c(0, 1, 0)
+)
+
+triangle_upper_df <- data.frame(
+  id    = c("a", "a", "a"),
+  value = c("1", "1", "1"),
+  x     = c(0, 1, 0),
+  y     = c(0, 1, 1)
+)
+
+
+plt_2.1 <- plt_tecc %>%
+  ggplot(aes(cc.3_4, cc.4_3))+
+  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
+  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed")+
+  geom_point()+
+  facet_grid(.~Condition)
+
+plt_2.2 <- plt_tecc %>%
+  ggplot(aes(cc.3_5, cc.5_3))+
+  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#e41a1c")+
+  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
+  geom_point()+
+  facet_grid(.~Condition)
+
+plt_2.3 <- plt_tecc %>%
+  ggplot(aes(cc.4_5, cc.5_4))+
+  geom_polygon(data = triangle_upper_df, aes(x = x, y = y, group = id), fill = "#377eb8")+
+  geom_polygon(data = triangle_lower_df, aes(x = x, y = y, group = id), fill = "#4daf4a")+
+  geom_point()+
+  facet_grid(.~Condition)
+
+plt_2.1 / plt_2.2 / plt_2.3
 ```
 
 what happens at the level of output (excitability)? 
+
+## Produce univariate tables
+### Run anovas
+```{r}
+tictoc::tic()
+temp_list <- map(
+  c(mrna_cols, memb_cols, epsp_cols),
+  # c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols), 
+  function(temp_col){
+    print(temp_col)
+    
+    temp <- M_all[M_all$Source == "Daniel", c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
+    
+    # Identify outliers for each group
+    temp_b <- temp[temp$Condition == "0h", ]
+    temp_c <- temp[temp$Condition == "1h", ]
+    temp_d <- temp[temp$Condition == "24h", ]
+    
+    temp_b <- temp_b[win_x_iqr(temp_b[[temp_col]], multiplier = 1.5), ]
+    temp_c <- temp_c[win_x_iqr(temp_c[[temp_col]], multiplier = 1.5), ]
+    temp_d <- temp_d[win_x_iqr(temp_d[[temp_col]], multiplier = 1.5), ]
+    
+    temp <- rbind(temp_b, temp_c) %>% rbind(temp_d)
+    
+    # temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
+    temp <- temp[!is.na(temp[[temp_col]]), ]
+    
+    # make sure we don't have pseudoreplicates for network measurements
+    if (temp_col %in% c("ig.3_4", "ig.3_5", "ig.4_5")){
+      temp <- temp %>% 
+        select(-Cell) %>% 
+        group_by(Condition, Experiment) %>% 
+        mutate_all(median, na.rm = T) %>% 
+        distinct()
+    }
+    
+    
+    if(nrow(temp) < 10){
+      
+      return(list(
+        dv = temp_col,
+        p = NA,
+        ep = NA,
+        hsd_groups = data.frame(dv = c(NA, NA, NA), 
+                                groups = c(NA, NA, NA), 
+                                Condition = c(NA, NA, NA)
+        ),
+        fm = NA))
+      
+    } else {
+      
+      
+      temp_shuffle <- temp
+      resample_array <- map(1:1000, function(i){
+        temp_shuffle$Condition <- sample(temp_shuffle$Condition, replace = F)
+        fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp_shuffle)      
+        return(car::Anova(fm)[1,3])
+      }) %>% unlist()
+
+      
+      fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp)
+      
+      fm_hsd <- agricolae::HSD.test(fm, trt = "Condition") 
+      fm_hsd <- fm_hsd$group
+      
+      fm_hsd$Condition <- rownames(fm_hsd)
+      
+      
+      
+      return(list(
+        dv = temp_col,
+        p = car::Anova(fm)[1,4],
+        ep = mean(resample_array >= car::Anova(fm)[1,3]),
+        hsd_groups = fm_hsd,
+        fm = fm))
+    }
+  })
+tictoc::toc()
+
+
+temp_list <- temp_list %>% transpose()
+fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
+                                p  = unlist(temp_list[[2]]),
+                                ep = unlist(temp_list[[3]]))
+
+
+# work up post hoc stats
+temp_list_hsd <- map(seq_along(temp_list[[4]]), function(i){
+  if (!is.na(unique(temp_list[[4]][[i]]$groups))){
+    temp_list[[4]][[i]] %>% 
+      gather("dv", "Estimate", names(temp_list[[4]][[i]])[1]) %>% 
+      pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
+      mutate_all(as.character)
+  }
+})  
+
+fm_overview_hsd <- do.call(rbind, temp_list_hsd)
+
+
+fm_overview_table <- full_join(fm_overview_table, fm_overview_hsd)
+```
+
+###Format table
+```{r}
+# add groupings
+fm_overview_table <- fm_overview_table %>% mutate(Family = case_when(
+  dv %in% c("vrest") ~ "Resting Voltage",
+  dv %in% c("r11", "r1") ~ "Membrane Resistance",
+  dv %in% ionic_cols ~ "Outward Currents",
+  dv %in% epsp_cols ~ "Excitability",
+  dv %in% c("r12", "rc", "ig", "cc", "ig.3_4", "ig.3_5", "ig.4_5") ~ "Coupling Measures"
+))
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Family = factor(fm_overview_table$Family, levels = c("Membrane Resistance", "Resting Voltage", "Coupling Measures", "Outward Currents", "Excitability"))) %>% 
+  arrange(Family) %>% 
+  mutate(Family = as.character(Family))
+
+# temp <- rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName)
+fm_overview_table <- full_join(fm_overview_table, 
+                               rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName, Family2 = Family))
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Family = ifelse(is.na(Family) & !is.na(Family2), Family2, Family)) %>% 
+  select(-Family2) %>% 
+  filter(!is.na(p))
+
+
+# add additional cols
+fm_overview_table$fdr <- p.adjust(fm_overview_table$ep, method = "fdr")
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Estimate_0h = as.numeric(Estimate_0h),
+         Estimate_1h = as.numeric(Estimate_1h),
+         Estimate_24h = as.numeric(Estimate_24h)) %>% 
+  mutate(p = round(p, digits = 4),
+         ep = round(ep, digits = 4),
+         fdr = round(fdr, digits = 4),
+         Estimate_0h = round(Estimate_0h, digits = 4),
+         Estimate_1h = round(Estimate_1h, digits = 4),
+         Estimate_24h = round(Estimate_24h, digits = 4)) %>% 
+  mutate(stars = case_when(fdr > 0.10               ~ "",
+                           fdr < 0.10 & fdr > 0.05  ~ ".",
+                           fdr < 0.05 & fdr > 0.01  ~ "*",
+                           fdr < 0.01 & fdr > 0.001 ~ "**",
+                           fdr < 0.001              ~ "***"
+  ))
+
+
+# library(officer)
+library(flextable)
+M_ft <-flextable(fm_overview_table,
+                 col_keys = c("Family", "dv", "p", "ep",
+                              "fdr", 
+                              "stars", "Estimate_0h", "Estimate_1h", "Estimate_24h"))
+
+M_ft <- theme_vanilla(M_ft)
+M_ft <- merge_v(M_ft, j = c("Family") )
+# M_ft <- color(M_ft, ~ fdr < 0.05, ~ stars, color = "red")
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ dv, bold = TRUE)
+M_ft <- bold(M_ft, ~ p   <= 0.05, ~ p, bold = TRUE)
+M_ft <- bold(M_ft, ~ ep  <= 0.05, ~ ep, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ fdr, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ stars, bold = TRUE)
+
+# get the groupings without showing the columns. 
+
+color_a = "#ffeda0"
+color_ab= "#feb24c"
+color_b = "#f03b20"
+color_c = "#2b8cbe"
+
+M_ft <- bg(M_ft, ~ groups_0h == "a", ~ Estimate_0h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_0h == "ab",~ Estimate_0h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_0h == "b", ~ Estimate_0h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_0h == "c", ~ Estimate_0h, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_1h == "a", ~ Estimate_1h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_1h == "ab",~ Estimate_1h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_1h == "b", ~ Estimate_1h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_1h == "c", ~ Estimate_1h, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_24h == "a", ~ Estimate_24h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_24h == "ab",~ Estimate_24h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_24h == "b", ~ Estimate_24h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_24h == "c", ~ Estimate_24h, bg = color_c)
+
+
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_0h, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_1h, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_24h, bg = "White")
+
+
+M_ft <- set_header_labels(M_ft, 
+                          dv = "", stars = "",
+                          Estimate_0h = "0h", Estimate_1h = "1h", Estimate_24h = "24h" )
+
+M_ft <- autofit(M_ft)
+M_ft
+
+pptx_file <- "./officer_output/DanielAnova.pptx"
+save_as_pptx("my table" = M_ft, path = pptx_file)
+
+docx_file <- "./officer_output/DanielAnova.docx"
+save_as_docx("my table" = M_ft, path = docx_file)
+
+
+```
+
+
 
 ## mk table
 run anovas
