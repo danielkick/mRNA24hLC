@@ -531,10 +531,10 @@ M_all %>% select(Condition, Experiment) %>% distinct() %>% group_by(Condition) %
 # select the mRNAs present in both Brian's data and mine. 
 mrna_b <-select(mrna, 
                 Source, Pharm, Time, Experiment, Cell, 
-                bkkca, cav1, cav2, 
-                inx1, inx2, inx3, #inx4, inx5, 
-                nav, 
-                shab, shaker, shal, shaw1, shaw2) %>% 
+                nav, cav1, cav2, bkkca, 
+                shaker, shal, shab, shaw1, shaw2,
+                inx1, inx2, inx3 #inx4, inx5, #<- inx5 is likely not expressed
+) %>% 
   filter(Source == "Brian")
 # mutate(Pharm = ifelse(Source == "Daniel" & Time == "0h", "None", Pharm)) 
 
@@ -942,6 +942,59 @@ cor_col_plt +
 #          
 #        units = "cm",
 #        limitsize = F)
+```
+
+
+```{r}
+cor_plt_list <- map(c("0h", "1h", "24h"), function(Time){
+  df = mrna_b_winxiqr %>% 
+    mutate(Condition = Group) %>% 
+    mutate(Condition = case_when(Condition == "Brian_None_0h" ~ "0h",
+                                 Condition == "Brian_TEA_1h"  ~ "1h",
+                                 Condition == "Brian_TEA_24h" ~ "24h"))
+  
+  df = df[df$Condition == Time, c(mrna_cols)]
+  
+  corr <- cor(df, use = "pairwise.complete.obs", method = "spearman")
+  p.mat <- cor_pmat(df, use = "pairwise.complete.obs", method = "spearman")
+  
+  cor_df_bin <- corr
+  cor_bins <- seq(-1, 1, length.out = 8)
+  for (i in 1:(length(cor_bins)-1)){
+    # use the more extreme value to shade with
+    cor_df_bin[cor_df_bin > cor_bins[i] & cor_df_bin < cor_bins[i+1]] <- cor_bins[c(i, (i+1))[which.max(abs(cor_bins[i:(i+1)]))]]
+  }
+  
+  
+  ggcorrplot(
+    cor_df_bin, 
+    p.mat = p.mat,
+    insig = "blank",
+    type = "upper",
+    outline.col = "white",
+    colors = RColorBrewer::brewer.pal(n = 9, name = "PuOr")[c(1,5,9)]
+  )+
+    labs(subtitle = Time)+
+    theme(legend.position = ""#,
+          # axis.text.x = element_text(angle = 90)
+          )
+})
+
+
+
+
+# plot_grid(plotlist = cor_plt_list)
+
+(cor_plt_list[[1]]+theme(
+    axis.text.x = element_text(angle = 90, vjust = 0))) +
+(cor_plt_list[[2]]+theme(
+    axis.text.x = element_text(angle = 90, vjust = 0),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))+
+(cor_plt_list[[3]]+theme(
+  axis.text.x = element_text(angle = 90, vjust = 0),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))
 ```
 
 
@@ -2222,15 +2275,19 @@ o_mrna <-
 
 
 (o_mrna$dendrogram_both+
-  scale_y_continuous(limits = c(-1.51, 3), labels = scales::comma)
+  scale_y_continuous(limits = c(-1.51, 1.51), labels = scales::comma)#c(-1.51, 3), labels = scales::comma)
   # theme(plot.margin=unit(c(1,1,1.5,1),"cm"))
 )/ 
   (o_mrna$group_compare_tile+
      # lims(y =  c(2, -2))+ # y axis can be flipped like so
      theme(legend.position = "")
   ) / 
-  (o_mrna$heatmap_z + theme(legend.position = "bottom")) + 
-  patchwork::plot_layout(heights = c(2, .2, 5))
+  (o_mrna$heatmap_z + theme(legend.position = "right", axis.text.y = element_text(face = "italic")) /
+  (o_mrna$heatmap_raw+ylim()+theme(legend.position = "right", axis.text.y = element_text(face = "italic")))+ 
+  patchwork::plot_layout(heights = c(5, .5, 5, 5))
+
+
+
 
 ## membrane only ====
 o_mem <- 
@@ -2497,6 +2554,52 @@ cor_plt_list <- map(c("0h", "1h", "24h"), function(Time){
 
 
 ```{r}
+cor_plt_list <- map(c("0h", "1h", "24h"), function(Time){
+  df = M_winxiqr[M_winxiqr$Condition == Time, c(mrna_cols)]
+  
+  corr <- cor(df, use = "pairwise.complete.obs", method = "spearman")
+  p.mat <- cor_pmat(df, use = "pairwise.complete.obs", method = "spearman")
+  
+  cor_df_bin <- corr
+  cor_bins <- seq(-1, 1, length.out = 8)
+  for (i in 1:(length(cor_bins)-1)){
+    # use the more extreme value to shade with
+    cor_df_bin[cor_df_bin > cor_bins[i] & cor_df_bin < cor_bins[i+1]] <- cor_bins[c(i, (i+1))[which.max(abs(cor_bins[i:(i+1)]))]]
+  }
+  
+  
+  ggcorrplot(
+    cor_df_bin, 
+    p.mat = p.mat,
+    insig = "blank",
+    type = "upper",
+    outline.col = "white",
+    colors = RColorBrewer::brewer.pal(n = 9, name = "PuOr")[c(1,5,9)]
+  )+
+    labs(subtitle = Time)+
+    theme(legend.position = ""#,
+          # axis.text.x = element_text(angle = 90)
+          )
+})
+
+# plot_grid(plotlist = cor_plt_list)
+
+(cor_plt_list[[1]]+theme(
+    axis.text.x = element_text(angle = 90))) +
+(cor_plt_list[[2]]+theme(
+    axis.text.x = element_text(angle = 90),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))+
+(cor_plt_list[[3]]+theme(
+  axis.text.x = element_text(angle = 90),
+  # axis.text.x = element_blank(),
+  axis.text.y = element_blank()))
+```
+
+
+
+
+```{r}
 
 temp_list <- map(unique(M_winxiqr$Condition), function(condition){
   temp <- filter(M_winxiqr, Condition == condition) %>% 
@@ -2699,11 +2802,33 @@ membrane_plts <- map(seq_along(membrane_dvs_plt), function(i){plot_univariate_de
 
 ## excitability
 ```{r }
+# Columns: 8
+# $ Cor                 <dbl> 0.5569679, 0.5569679, 0.5569679, 0.5569679, 0.556967~
+# $ Min.V_Obs           <dbl> -53.92456, -53.92456, -53.92456, -53.92456, -53.9245~
+# $ Max.Amplitude_Obs   <dbl> -16.6320804, -16.6320804, -16.6320804, -16.6320804, ~
+# $ Max.Amplitude_Sim   <dbl> -25.5070750, -25.5070750, -25.5070750, -25.5070750, ~
+# $ AUC_Obs             <dbl> 55976.54, 55976.54, 55976.54, 55976.54, 55976.54, 55~
+# $ AUC_Sim             <dbl> 32069.58, 32069.58, 32069.58, 32069.58, 32069.58, 32~
+# $ Max.Amplitude_Delta <dbl> 8.981806, 8.981806, 8.981806, 8.981806, 8.981806, 8.~
+# $ AUC_Delta           <dbl> 18563.238, 18563.238, 18563.238, 18563.238, 18563.23~
+
 plt_epsp <- M_all[, c("Condition", "Experiment", "Cell", epsp_cols)] %>% 
   group_by(Condition, Experiment, Cell) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
   distinct() 
+
+# $ Condition           <chr> "1h", "1h", "1h", "24h", "1h", "24h", "24h", "24h", ~
+# $ Experiment          <chr> "190808a", "190808a", "190830", "190903", "190904", ~
+# $ Cell                <chr> "4", "5", "4", "3", "5", "4", "5", "4", "5", "5", "4~
+# $ Cor                 <dbl> 0.5569679, 0.6112679, NA, 0.9774225, 0.8716307, 0.94~
+# $ Min.V_Obs           <dbl> -53.924562, -57.052614, NA, -61.050416, -51.895143, ~
+# $ Max.Amplitude_Obs   <dbl> -16.6320804, -24.1851812, NA, -0.9613037, -45.288086~
+# $ Max.Amplitude_Sim   <dbl> -25.5070750, -33.6612173, NA, -0.4841494, -37.848033~
+# $ AUC_Obs             <dbl> 55976.539, 35180.643, NA, 61242.214, 8488.885, 36081~
+# $ AUC_Sim             <dbl> 32069.584, 38518.177, NA, 59193.615, 3901.010, 29769~
+# $ Max.Amplitude_Delta <dbl> 8.981806, 6.438339, NA, 0.308876, 2.380225, 28.70748~
+# $ AUC_Delta           <dbl> 18563.23796, -251.67701, NA, 2050.58898, 5702.37419,~
 
 
 epsp_dvs_plt <- c("Cor", 
@@ -2715,17 +2840,17 @@ new.y_vector <- c(expression(rho),  #TODO confirm this was spearman's rho and no
                   "mV", "mV", "mV", 
                   "mV/Sec", "mV/Sec",
                   "mV/Sec")
-new.title_vector <- c("Correlation Coefficient", 
-                      "Observed Baseline", 
+
+new.title_vector <- c("Correlation Coefficient",
+                      "Observed Baseline",
                       "Observed Amplitude", "Simulated Amplitude", "Difference Amplitude",
                       "Observed AUC", "Simulated AUC", "Difference AUC")
 
 epsp_plts <- map(seq_along(epsp_cols), function(i){plot_univariate_decorated_0(
   temp = ungroup(plt_epsp), 
-  yvar = epsp_cols[i],
+  yvar = epsp_dvs_plt[i],
   new.y = new.y_vector[i],
   new.title = new.title_vector[i] )})
-
 
 
 ((epsp_plts[[1]]+ylim(c(0, 1))) / 
@@ -2733,9 +2858,9 @@ epsp_plts <- map(seq_along(epsp_cols), function(i){plot_univariate_decorated_0(
     patchwork::plot_spacer()) |
   (epsp_plts[[3]] /
      epsp_plts[[4]]/
-     epsp_plts[[7]]) |
+     epsp_plts[[5]]) |
   (epsp_plts[[6]] /
-     epsp_plts[[5]]/
+     epsp_plts[[7]]/
      epsp_plts[[8]]) 
 
 
