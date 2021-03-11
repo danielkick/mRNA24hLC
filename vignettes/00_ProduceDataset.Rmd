@@ -1745,10 +1745,11 @@ walk(1:length(iter.over), function(i){
 ```{r}
 temp1 <- ihtk %>% 
   select(#Pharm, 
-         Condition, Cell, Experiment, intercept, slope) %>% 
+         Condition, Cell, Experiment, intercept, slope, intercept_s, slope_s) %>% 
   filter(!duplicated(.)) %>% 
   rename(Ihtk.0 = intercept) %>% 
-  rename(Ihtk.Slope = slope)
+  rename(Ihtk.Slope = slope) %>% 
+  rename(Ihtk.0.s = intercept_s) %>% rename(Ihtk.Slope.s = slope_s)
 temp2 <- ia %>% select(#Pharm, 
   Condition, Cell, Experiment, intercept, slope, intercept_s, slope_s) %>% 
   filter(!duplicated(.)) %>% 
