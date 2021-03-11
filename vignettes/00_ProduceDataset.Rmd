@@ -1556,6 +1556,34 @@ walk(1:length(iter.over), function(i){
 #   theme_minimal()
 ```
 
+Repeat for the sustained portion of the current.
+```{r}
+ia$intercept_s <- NA %>% as.numeric() 
+ia$slope_s <- NA %>% as.numeric()
+
+ia <- ia %>% mutate(iter.var = paste(Experiment, Cell, Condition, sep =  "_"))
+iter.over <- ia$iter.var %>% unique()
+
+walk(1:length(iter.over), function(i){
+  print(i)
+  temp.df <- ia[ia$iter.var == iter.over[i], ]
+  # temp <- select(temp, -c(leak, leak.sub))
+  if(length(na.omit(temp.df$S2Mean)) >1 &
+     length(na.omit(temp.df$S1Mean)) >1){
+    
+    temp.fm <- iv_linear(input.df = temp.df,
+                         min.mV = -35,
+                         max.mV = 5,
+                         ch.i = "S2Mean",
+                         ch.v = "S1Mean")
+    if (length(temp.fm) > 0 ){
+      ia[ia$iter.var == iter.over[i], "intercept_s"] <<- temp.fm$intercept
+      ia[ia$iter.var == iter.over[i], "slope_s"] <<- temp.fm$slope
+    }}
+})
+```
+
+
 ## IHTK data (not leak substracted)
 ```{r}
 # ihtk <- ihtk %>% filter(Condition %in% c("Baseline", "Compensated", "Delayed") &
@@ -1629,6 +1657,7 @@ walk(1:length(iter.over), function(i){
 ihtk <- ihtk %>% mutate(leak = as.numeric(leak)) 
 ihtk$leak.sub <- ihtk$S2Max - ihtk$leak
 
+ihtk$leak.sub_s <- ihtk$S2Mean - ihtk$leak
 
 # ihtk %>% ggplot()+
 #    geom_line(aes(x = S1Max, y = leak, color = Cell), linetype = "dashed")+
@@ -1685,6 +1714,33 @@ walk(1:length(iter.over), function(i){
 #   theme_minimal()
 ```
 
+Repeat for the sustained portion of the current.
+```{r}
+# leak.sub_s
+
+ihtk$intercept_s <- NA %>% as.numeric() 
+ihtk$slope_s <- NA %>% as.numeric()
+
+walk(1:length(iter.over), function(i){
+  print(i)
+  temp.df <- ihtk[ihtk$iter.var == iter.over[i], ]
+  # temp <- select(temp, -c(leak, leak.sub))
+  if(nrow(temp.df) > 1){
+    temp.fm <- iv_linear(input.df = temp.df,
+                         min.mV = -35,
+                         max.mV = 5,
+                         ch.i = "S2Mean",
+                         ch.v = "S1Mean")
+    if (length(temp.fm) > 0 ){
+      ihtk[ihtk$iter.var == iter.over[i], "intercept_s"] <<- temp.fm$intercept
+      ihtk[ihtk$iter.var == iter.over[i], "slope_s"] <<- temp.fm$slope    
+    }}
+})
+
+```
+
+
+
 ## Join ephys into combined df
 ```{r}
 temp1 <- ihtk %>% 
@@ -1694,9 +1750,10 @@ temp1 <- ihtk %>%
   rename(Ihtk.0 = intercept) %>% 
   rename(Ihtk.Slope = slope)
 temp2 <- ia %>% select(#Pharm, 
-  Condition, Cell, Experiment, intercept, slope) %>% 
+  Condition, Cell, Experiment, intercept, slope, intercept_s, slope_s) %>% 
   filter(!duplicated(.)) %>% 
-  rename(Ia.0 = intercept) %>% rename(Ia.Slope = slope)
+  rename(Ia.0 = intercept) %>% rename(Ia.Slope = slope) %>% 
+  rename(Ia.0.s = intercept_s) %>% rename(Ia.Slope.s = slope_s)
 
 ionic <- full_join(temp1, temp2) %>% 
   filter(Condition %in% c("Baseline", "Compensated", "Delayed")) %>% 
