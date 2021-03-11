@@ -447,7 +447,7 @@ M_mrna <- left_join(mrna[mrna$Source == "Daniel", ], small_metadata) %>% select(
 
 
 #Set up data cols to help organize full dataset
-ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
+ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ihtk.0.s", "Ihtk.Slope.s", "Ia.0", "Ia.Slope", "Ia.0.s", "Ia.Slope.s")
 tecc_cols <- c("vrest", "r11", "r1", "cc.3_4", "cc.3_5", "cc.4_3", "cc.4_5", "cc.5_3", "cc.5_4")#, "r12", "rc.ig") # ignore rc, ig is a more direct measure
 tevc_cols <- c("ig.3_4", "ig.3_5", "ig.4_5")
 epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AUC_Obs", "AUC_Sim", 
@@ -487,7 +487,7 @@ M_all <- M_all[, names(M_all) %in% c(
 ]
 
 # update cols now that data is QCed
-ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")[ionic_cols %in% names(M_all)]
+ionic_cols <- c("Ihtk.0", "Ihtk.Slope", "Ihtk.0.s", "Ihtk.Slope.s", "Ia.0", "Ia.Slope", "Ia.0.s", "Ia.Slope.s")[ionic_cols %in% names(M_all)]
 tecc_cols <- c("vrest", "r11", "r1", "cc.3_4", "cc.3_5", "cc.4_3", "cc.4_5", "cc.5_3", "cc.5_4")[tecc_cols %in% names(M_all)]
 #, "r12", "rc.ig") # ignore rc, ig is a more direct measure
 tevc_cols <- c("ig.3_4", "ig.3_5", "ig.4_5")[tevc_cols %in% names(M_all)]
@@ -495,7 +495,7 @@ epsp_cols <- c("Cor", "Min.V_Obs", "Max.Amplitude_Obs", "Max.Amplitude_Sim", "AU
                "Max.Amplitude_Delta", "AUC_Delta")[epsp_cols %in% names(M_all)]
 mrna_cols <- mrna_cols[mrna_cols %in% names(M_all)]
 ```
-
+"Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
 
 # About the data
 ## What conditions exist in both datasets?
@@ -1778,7 +1778,11 @@ mrna_cols <- c(
   "inx1", "inx2", "inx3" #"inx4", "inx5", #<- inx5 is likely not expressed
 )
 
-memb_cols <- c("vrest", "r11", "r1", "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope")
+memb_cols <- c("vrest", "r11", "r1", 
+               "Ihtk.0", "Ihtk.Slope", 
+               "Ihtk.0.s", "Ihtk.Slope.s", 
+               "Ia.0", "Ia.Slope", 
+               "Ia.0.s", "Ia.Slope.s")
  
 epsp_cols <- c("Cor", "Min.V_Obs", 
                "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
@@ -2560,7 +2564,10 @@ corr_bt_mrna_phys[[1]]+theme(legend.position = "") +
 library(GGally)
 ggpairs(select(filter(M_winxiqr),#, Condition == "0h"), 
                all_of(c("Condition", 
-                        mrna_cols, "r1", "Ihtk.0", "Ia.0"))),#memb_cols, "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "AUC_Obs"))),
+                        mrna_cols, "r1", 
+                        "Ihtk.0", "Ihtk.0.s", 
+                        "Ia.0", "Ia.0.s"
+                        ))),#memb_cols, "Cor", "Min.V_Obs", "Max.Amplitude_Obs", "AUC_Obs"))),
         mapping = ggplot2::aes(color = Condition),
         lower = list(continuous = wrap("smooth", se = F, alpha = 0.8, size=1)))
 
