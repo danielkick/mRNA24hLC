@@ -1548,39 +1548,110 @@ compare_cor_scatter_plt <- cor_comp_df_for_points %>%
 
 ### Compare ECDFs across time ####
 
+# current_Source = "Brian"
+# time1 = "0h"
+# time2 = "1h"
+
+ecdf_list <- map(list(
+  list(current_Source = "Brian", time1 = "0h", time2 = "24h"),
+  list(current_Source = "Brian", time1 = "0h", time2 = "1h"),
+  list(current_Source = "Brian", time1 = "1h", time2 = "24h"),
+  
+  list(current_Source = "Daniel", time1 = "0h", time2 = "24h"),
+  list(current_Source = "Daniel", time1 = "0h", time2 = "1h"),
+  list(current_Source = "Daniel", time1 = "1h", time2 = "24h")
+  ), function(input_list){
+           
+    
+    # input_list = list(current_Source = "Brian", time1 = "0h", time2 = "24h")
+    
+           current_Source = input_list$current_Source
+           time1 = input_list$time1
+           time2 = input_list$time2
+
+           
+           
+           data1 <- filter(cor_comp_df, 
+                           Source == current_Source & 
+                             Time == time1
+           ) %>% 
+             select(Corr) %>% 
+             unlist()
+           
+           data2 <- filter(cor_comp_df, 
+                           Source == current_Source & 
+                             Time == time2
+           ) %>% 
+             select(Corr) %>% 
+             unlist()
+           
+           
+           ecdf1 <- ecdf(data1)
+           ecdf2 <- ecdf(data2)
+           
+           # used to get the most extreme difference between the two samples
+           MostExtremeDiff <- seq(min(data1, data2, na.rm = T), max(data1, data2, na.rm = T), length.out = length(data1))
+           x0 <- MostExtremeDiff[which(abs(ecdf1(MostExtremeDiff) - ecdf2(MostExtremeDiff)) ==
+                                         max(abs(ecdf1(MostExtremeDiff) - ecdf2(MostExtremeDiff))))]
+           y0 <- ecdf1(x0)
+           y1 <- ecdf2(x0)
+           
+           # Run two sided KS test on data
+           test.res <- ks.test(data1, data2)
+           
+           # Make output df
+           graph.df <- 
+             data.frame(data1, data2) %>% 
+             gather(Condition, Value, 1:2) %>% 
+             mutate(Condition = case_when(Condition == "data1" ~ time1, 
+                                          Condition == "data2" ~ time2),
+                    x0_extreme = x0[1],
+                    y0_extreme = y0[1],
+                    y1_extreme = y1[1],
+                    Source = current_Source,
+                    Contrast = paste0(time1 , " vs ", time2)
+             )
+           
+           return(graph.df)
+         })
+
+ecdf_list_df <- do.call(rbind, ecdf_list)
+
+
+compare_cor_ecdf_plt <-
+ecdf_list_df %>% 
+  ggplot()+
+    geom_segment(aes(x = x0_extreme, y = y0_extreme, xend = x0_extreme, yend = y1_extreme),
+                 linetype = "dashed", color = "black", size = 1)+
+    geom_point(aes(x = x0_extreme , y= y0_extreme), color="black", size=2) +
+    geom_point(aes(x = x0_extreme , y= y1_extreme), color="black", size=2) +
+    stat_ecdf(aes(x = Value, group = Condition, color = Condition))+
+    labs(x = "Sample",
+         y = "ECDF"#,
+         # subtitle = paste("K-S Test", as.character(group1), "vs", as.character(group2),
+         #               "\np-value:", as.character(round(test.res$p.value, digits = 4)))
+         )+
+  scale_color_brewer(palette = "Set2" )+
+    theme_minimal()+
+    theme(legend.position = "bottom")+
+  facet_grid(Source~Contrast)+
+  coord_fixed()
+
+    # scale_color_manual(values = colors)#+
+  # theme(text=element_text(family="Calibri Light", size=14))
+  
+  
+
 compare_corgrams_plt +
 
-compare_cor_scatter_plt
+compare_cor_scatter_plt +
+  
+patchwork::plot_spacer()+
 
+compare_cor_ecdf_plt
+  
+  
 
-
-# cor_comp_df
-
-ecdf_list_time <- map(c("0h", "1h", "24h"), function(Time){
-  plot_ecdf_ks(
-    df = cor_comp_df[cor_comp_df$Time == Time, ],
-    data.col = "Corr",
-    group.col = "Source",
-    group1 = "Brian",
-    group2 = "Daniel",
-    colors = c("black", "red"))})
-
-
-ecdf_list_sourcetime <- map(
-  c("Brian", "Daniel"), function(Source){
-    map(
-      list(c("0h", "1h"),
-           c("0h", "24h"),
-           c("1h", "24h")), function(Time){
-             plot_ecdf_ks(
-               df = cor_comp_df[cor_comp_df$Source == Source & cor_comp_df$Time %in% Time, ],
-               data.col = "Corr",
-               group.col = "Time",
-               group1 = Time[1],
-               group2 = Time[2],
-               colors = c("black", "red"))
-           })
-  })
 
 
 # plot_grid(plotlist = ecdf_list_time, nrow = 1)/
