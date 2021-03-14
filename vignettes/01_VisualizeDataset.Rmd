@@ -1479,11 +1479,12 @@ compare_corgrams_plt <- cor_comp_df %>%
   theme(
     panel.grid.major = element_line(size = 0.5, linetype = 'solid',
                                     colour = NA),
-    axis.text.x = element_text(hjust = 0.5, 
-                               vjust = -1, 
+    axis.text.x = element_text(angle = 45,
+                               hjust = -0., 
+                               vjust = .5, 
                                face = "italic"),
     axis.text.y = element_text(face = "italic"),
-    legend.position = "bottom",
+    legend.position = "right",
     strip.placement = "outside")+
   coord_fixed()
 
@@ -1531,8 +1532,8 @@ library(ggpubr) # for stat_cor and stat_regline
 compare_cor_scatter_plt <- cor_comp_df_for_points %>% 
   ggplot(aes(x = x_time, y = y_time, color = Source))+
   geom_abline(intercept = 0, slope = 1)+
-  geom_hline(yintercept = 0)+
-  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0, color = "darkgray")+
+  geom_vline(xintercept = 0, color = "darkgray")+
   geom_smooth(method = "lm", se = F, fullrange = T)+
   geom_point(alpha = 0.4)+
   scale_color_aaas()+
@@ -1540,8 +1541,8 @@ compare_cor_scatter_plt <- cor_comp_df_for_points %>%
   xlim( c(-1, 1))+
   ylim( c(-1, 1))+
   facet_grid(Source~facet_x)+
-  stat_cor(label.x = .1, label.y = -.8) +
-  stat_regline_equation(label.x = .1, label.y = -1)+
+  stat_cor(label.x = -.61, label.y = -.8, size = 2.5) +
+  stat_regline_equation(label.x = -.61, label.y = -1, size = 2.5)+
   theme(legend.position = "")+
   coord_fixed()
 
@@ -1617,14 +1618,16 @@ ecdf_list <- map(list(
 
 ecdf_list_df <- do.call(rbind, ecdf_list)
 
+ecdf_list_df <- ecdf_list_df %>% mutate(Contrast = factor(Contrast, levels = c("0h vs 24h", "0h vs 1h", "1h vs 24h")))
 
 compare_cor_ecdf_plt <-
 ecdf_list_df %>% 
   ggplot()+
     geom_segment(aes(x = x0_extreme, y = y0_extreme, xend = x0_extreme, yend = y1_extreme),
-                 linetype = "dashed", color = "black", size = 1)+
-    geom_point(aes(x = x0_extreme , y= y0_extreme), color="black", size=2) +
-    geom_point(aes(x = x0_extreme , y= y1_extreme), color="black", size=2) +
+                 # linetype = "dashed", 
+                 color = "darkgray", size = 1)+
+    geom_point(aes(x = x0_extreme , y= y0_extreme), color="darkgray", size=2) +
+    geom_point(aes(x = x0_extreme , y= y1_extreme), color="darkgray", size=2) +
     stat_ecdf(aes(x = Value, group = Condition, color = Condition))+
     labs(x = "Sample",
          y = "ECDF"#,
@@ -1632,8 +1635,10 @@ ecdf_list_df %>%
          #               "\np-value:", as.character(round(test.res$p.value, digits = 4)))
          )+
   scale_color_brewer(palette = "Set2" )+
+  xlim( c(-1, 1))+
+  ylim( c(-1, 1))+
     theme_minimal()+
-    theme(legend.position = "bottom")+
+    theme(legend.position = "right")+
   facet_grid(Source~Contrast)+
   coord_fixed()
 
@@ -1641,22 +1646,37 @@ ecdf_list_df %>%
   # theme(text=element_text(family="Calibri Light", size=14))
   
   
-
-compare_corgrams_plt +
-
-compare_cor_scatter_plt +
-  
-patchwork::plot_spacer()+
-
-compare_cor_ecdf_plt
-  
-  
-
+### Corr Table ####
+compare_cor_table <- cor_comp_df %>% 
+  spread(Source, Corr) %>% 
+  filter(Brian >= 0.7 & Daniel >= 0.7) %>% 
+  gather(Source, Corr, c("Brian", "Daniel")) %>% 
+  # spread(Time, Corr) %>% 
+  pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
+  select(-x.num, -y.num) %>% 
+  select(x, y, Brian_0h, Daniel_0h, Brian_1h, Daniel_1h, Brian_24h, Daniel_24h)
 
 
-# plot_grid(plotlist = ecdf_list_time, nrow = 1)/
-  plot_grid(plotlist = ecdf_list_sourcetime[[1]], nrow = 1)/ # brian
-  plot_grid(plotlist = ecdf_list_sourcetime[[2]], nrow = 1) # daniel
+
+library(gridExtra)
+
+
+### ####
+compare_corgrams_plt /
+  compare_cor_scatter_plt /
+  # gridExtra::tableGrob(compare_cor_table, 
+  #                      theme = gridExtra::ttheme_default(
+  #                        core = list(fg_params=list(cex = .40)),
+  #                        colhead = list(fg_params=list(cex = .40))#,
+  #                        # rowhead = list(fg_params=list(cex = .20))
+  #                        )
+  #                      ) + 
+  compare_cor_ecdf_plt 
+  # patchwork::plot_layout(nrow = 2, ncol = 2, 
+  #                        widths = c(1, 1, .25, 1))
+
+ 
+ 
 ```
 
 
