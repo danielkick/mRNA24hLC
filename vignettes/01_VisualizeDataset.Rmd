@@ -1459,9 +1459,9 @@ cor_comp_df <- cor_comp_df %>%
 
 
 ## Plotting ====
+### Correlogram ####
 library(ggforce) # for geom_circle
 # Corrgram, but in ggplot
-
 compare_corgrams_plt <- cor_comp_df %>% 
   ggplot()+
   geom_circle(aes(x0 = x.num, y0 = y.num, r = abs(Corr)/2, fill = Corr))+
@@ -1488,100 +1488,69 @@ compare_corgrams_plt <- cor_comp_df %>%
   coord_fixed()
 
 
+### Compare correlations across time ####
 
-cor_comp_df %>% 
-  # filter(Time == "0h") %>% 
-  # filter(Time == "1h") %>%
-  filter(Time == "24h") %>%
-  spread(Source, Corr) %>% 
-  ggplot(aes(x = Brian, y = Daniel, group = Time, color = Time))+
+# make dataset amenable to faceting
+cor_comp_df_for_points <- cor_comp_df %>% 
+  spread(Time, Corr)
+
+temp_1 <-
+cor_comp_df_for_points %>%
+  select(Source, x, y, x.num, y.num, `0h`, `24h`) %>%
+  rename(x_time = `0h`,
+         y_time = `24h`) %>%
+  mutate(facet_x = "0 vs 24")
+
+temp_2 <-
+cor_comp_df_for_points %>%
+  select(Source, x, y, x.num, y.num, `0h`, `1h`) %>%
+  rename(x_time = `0h`,
+         y_time = `1h`) %>%
+  mutate(facet_x = "0 vs 1")
+
+temp_3 <-
+cor_comp_df_for_points %>%
+  select(Source, x, y, x.num, y.num, `1h`, `24h`) %>%
+  rename(x_time = `1h`,
+         y_time = `24h`) %>%
+  mutate(facet_x = "1 vs 24")
+
+cor_comp_df_for_points <- rbind(rbind(temp_1, temp_2), temp_3)
+cor_comp_df_for_points <- cor_comp_df_for_points %>% 
+  mutate(facet_x = factor(facet_x, 
+                          levels = c(
+                            "0 vs 24",
+                            "0 vs 1",
+                            "1 vs 24"
+                          )))
+
+# plot
+library(ggsci) # for scale_color_aaas
+library(ggpubr) # for stat_cor and stat_regline
+
+compare_cor_scatter_plt <- cor_comp_df_for_points %>% 
+  ggplot(aes(x = x_time, y = y_time, color = Source))+
   geom_abline(intercept = 0, slope = 1)+
-  geom_point()+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
   geom_smooth(method = "lm", se = F, fullrange = T)+
+  geom_point(alpha = 0.4)+
+  scale_color_aaas()+
+  labs(title = "", x = "", y = "")+
+  xlim( c(-1, 1))+
+  ylim( c(-1, 1))+
+  facet_grid(Source~facet_x)+
+  stat_cor(label.x = .1, label.y = -.8) +
+  stat_regline_equation(label.x = .1, label.y = -1)+
+  theme(legend.position = "")+
   coord_fixed()
-  
-cor_comp_df %>% 
-  filter(Time == "24h") %>% 
-  spread(Source, Corr) %>% 
-  filter(Brian > 0.5 & Daniel > 0.5)
 
 
-p1 <- 
-cor_comp_df %>% 
-  spread(Time, Corr) %>% 
-  ggplot(aes(x = `0h`, y = `1h`, group = Source, color = Source))+
-  geom_abline(intercept = 0, slope = 1)+
-  geom_point()+
-  geom_smooth(method = "lm", se = F, fullrange = T)+
-  coord_fixed()+
-  facet_wrap(.~Source)
+### Compare ECDFs across time ####
 
-p2 <- 
-cor_comp_df %>% 
-  spread(Time, Corr) %>% 
-  ggplot(aes(x = `0h`, y = `24h`, group = Source, color = Source))+
-  geom_abline(intercept = 0, slope = 1)+
-  geom_point()+
-  geom_smooth(method = "lm", se = F, fullrange = T)+
-  coord_fixed()+
-  facet_wrap(.~Source)
+compare_corgrams_plt +
 
-p3 <- 
-cor_comp_df %>% 
-  spread(Time, Corr) %>% 
-  ggplot(aes(x = `1h`, y = `24h`, group = Source, color = Source))+
-  geom_abline(intercept = 0, slope = 1)+
-  geom_point()+
-  geom_smooth(method = "lm", se = F, fullrange = T)+
-  coord_fixed()+
-  facet_wrap(.~Source)
-
-
-p1/p2/p3
-
-# cor barbell
-
-cor_comp_df %>% 
-  spread(Source, Corr) %>% 
-  filter(Time == "0h") %>% 
-  # filter(x == "bkkca") %>% 
-  ggplot(aes(y))+
-  # geom_rect(aes(xmin = "cav1", xmax= "shaw2", ymin= -1, ymax = 0))+
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed")+
-  geom_segment(aes(x = y, xend = y, y = Brian, yend = Daniel), size = 2)+
-  geom_point(aes(y = Brian), size = 10, color = "darkgray")+
-  geom_point(aes(y = Brian), size = 10, shape = 1)+
-  geom_point(aes(y = Daniel), size = 10)+
-  geom_text(aes(y = Brian, label = round(Brian, digits = 2)),  
-            color = "white", fontface = "bold", size = 3)+
-  geom_text(aes(y = Daniel, label = round(Daniel, digits = 2)), 
-            color = "white", fontface = "bold", size = 3)+
-  coord_cartesian(ylim = c(-1, 1))+
-  facet_grid(x ~ .)+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
-
-
-cor_comp_df %>% 
-  spread(Source, Corr) %>% 
-  filter(Time == "0h") %>% 
-  # filter(x == "bkkca") %>% 
-  ggplot(aes(y))+
-  # geom_rect(aes(xmin = "cav1", xmax= "shaw2", ymin= -1, ymax = 0))+
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed")+
-  geom_segment(aes(x = y, xend = y, y = Brian, yend = Daniel), size = 2)+
-  geom_point(aes(y = Brian), size = 2, color = "darkgray")+
-  geom_point(aes(y = Brian), size = 2, shape = 1)+
-  geom_point(aes(y = Daniel), size = 2)+
-  # geom_text(aes(y = Brian, label = round(Brian, digits = 2)),  
-  #           color = "white", fontface = "bold", size = 3)+
-  # geom_text(aes(y = Daniel, label = round(Daniel, digits = 2)), 
-  #           color = "white", fontface = "bold", size = 3)+
-  coord_cartesian(ylim = c(-1, 1))+
-  facet_grid(x ~ .)+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
-
+compare_cor_scatter_plt
 
 
 
@@ -1614,7 +1583,7 @@ ecdf_list_sourcetime <- map(
   })
 
 
-plot_grid(plotlist = ecdf_list_time, nrow = 1)/
+# plot_grid(plotlist = ecdf_list_time, nrow = 1)/
   plot_grid(plotlist = ecdf_list_sourcetime[[1]], nrow = 1)/ # brian
   plot_grid(plotlist = ecdf_list_sourcetime[[2]], nrow = 1) # daniel
 ```
