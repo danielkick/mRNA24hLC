@@ -235,10 +235,34 @@ epsp <- left_join(epsp, small_metadata2)
 
 # TODO How do we best caputre variace? find range between max/min across all sweeps when calculating auc? 
 # note that there are plenty of replicates here
-epsp %>% group_by(Experiment, Cell, Type) %>% filter(Sweep == 1 & Key == "predicted") %>% tally()
-# epsp %>% filter(Experiment == "190808a" & Cell == 3 & Sweep == 1)
+# and that there are not epsp_50's for each experiment. These are likely sufficiently close to -50. To be on the safe side, we'll only consider epsp not epsp_50
+epsp %>% 
+  group_by(Experiment, Cell, Type) %>% 
+  filter(Key != "predicted") %>% 
+  # filter(Sweep == 1 & Key == "predicted") %>% 
+  tally() %>% 
+  spread(Type, n) %>%
+  mutate(epsp = ifelse(is.na(epsp), NA, T),
+         epsp_50 = ifelse(is.na(epsp_50), NA, T))
 
-##
+epsp %>% 
+  group_by(Experiment, Cell, Key) %>% 
+  filter(Type == "epsp") %>% 
+  mutate(
+    Cor.IQR = IQR(Cor, na.rm = T),
+    Min.V.IQR = IQR(Min.V, na.rm = T),
+    Max.Amplitude.IQR = IQR(Max.Amplitude, na.rm = T),
+    AUC.IQR = IQR(AUC, na.rm = T)
+  ) %>% 
+  mutate(
+    Cor = median(Cor, na.rm = T),
+    Min.V = median(Min.V, na.rm = T),
+    Max.Amplitude = median(Max.Amplitude, na.rm = T),
+    AUC = median(AUC, na.rm = T)
+  )
+
+
+
 ```
 
 ## Update labeling on Brian's cells
@@ -423,7 +447,26 @@ M_tecc <- M_tecc %>% mutate(
 #vrest     cc   r11    r12    r1    rc 
 M_tevc <- left_join(tevc, small_metadata) %>% select(-FileName) %>% mutate(Cell = as.character(Cell)) 
 #ig
+# M_epsp <- left_join(epsp, small_metadata) %>% 
+#   select(-FileName, -Type) %>% 
+#   mutate(Cell = as.character(Cell))  %>% 
+#   mutate(Key = case_when(Key %in% c("In4", "In9") ~ "Obs",
+#                          Key %in% c("predicted")  ~ "Sim")) %>% 
+#   pivot_wider(names_from = "Key", values_from  = c("Min.V", "Max.Amplitude", "AUC")) %>% 
+#   mutate(Max.Amplitude_Sim = Max.Amplitude_Sim + (Min.V_Obs - Min.V_Sim)) %>% 
+#   mutate(Max.Amplitude_Delta = Max.Amplitude_Obs - Max.Amplitude_Sim,
+#          AUC_Delta = AUC_Obs - AUC_Sim) %>% 
+#   group_by(Condition, Experiment, Cell) %>% 
+#   select(-Min.V_Sim) %>% 
+#   mutate_at(c("Cor", 
+#               "Min.V_Obs", #"Min.V_Sim", "Min.V_Delta", 
+#               "Max.Amplitude_Obs", "Max.Amplitude_Sim", "Max.Amplitude_Delta", 
+#               "AUC_Obs", "AUC_Sim", "AUC_Delta"), median, na.rm = T) %>% 
+#   distinct() %>% 
+#   ungroup()
+
 M_epsp <- left_join(epsp, small_metadata) %>% 
+  filter(Type == "epsp") %>% 
   select(-FileName, -Type) %>% 
   mutate(Cell = as.character(Cell))  %>% 
   mutate(Key = case_when(Key %in% c("In4", "In9") ~ "Obs",
@@ -434,12 +477,36 @@ M_epsp <- left_join(epsp, small_metadata) %>%
          AUC_Delta = AUC_Obs - AUC_Sim) %>% 
   group_by(Condition, Experiment, Cell) %>% 
   select(-Min.V_Sim) %>% 
+  
+  mutate(
+    Cor.IQR = IQR(Cor, na.rm = T),
+    Min.V_Obs.IQR = IQR(Min.V_Obs, na.rm = T),
+    
+    Max.Amplitude_Obs.IQR = IQR(Max.Amplitude_Obs, na.rm = T),
+    Max.Amplitude_Sim.IQR = IQR(Max.Amplitude_Sim, na.rm = T),
+    Max.Amplitude_Delta.IQR = IQR(Max.Amplitude_Delta, na.rm = T),
+    
+    AUC_Obs.IQR = IQR(AUC_Obs, na.rm = T),
+    AUC_Sim.IQR = IQR(AUC_Sim, na.rm = T),
+    AUC_Delta.IQR = IQR(AUC_Delta, na.rm = T)
+  ) %>% 
+
   mutate_at(c("Cor", 
               "Min.V_Obs", #"Min.V_Sim", "Min.V_Delta", 
               "Max.Amplitude_Obs", "Max.Amplitude_Sim", "Max.Amplitude_Delta", 
               "AUC_Obs", "AUC_Sim", "AUC_Delta"), median, na.rm = T) %>% 
+  
+  select(-Sweep) %>% 
+  
   distinct() %>% 
-  ungroup()
+  ungroup()  
+
+
+  
+
+
+
+
 
 
 #Sweep   Cor Key        Min.V Max.Amplitude    AUC 
@@ -542,7 +609,12 @@ memb_cols <- c("vrest", "r11", "r1",
 epsp_cols <- c("Cor", "Min.V_Obs", 
                "Max.Amplitude_Obs", "Max.Amplitude_Sim", 
                "AUC_Obs", "AUC_Sim", 
-               "Max.Amplitude_Delta", "AUC_Delta")
+               "Max.Amplitude_Delta", "AUC_Delta",
+               
+               "Cor.IQR", "Min.V_Obs.IQR", 
+               "Max.Amplitude_Obs.IQR", "Max.Amplitude_Sim.IQR", 
+               "AUC_Obs.IQR", "AUC_Sim.IQR", 
+               "Max.Amplitude_Delta.IQR", "AUC_Delta.IQR")
 ```
 
 # 1 ############################################################################
@@ -1500,29 +1572,29 @@ cor_comp_df_for_points %>%
   select(Source, x, y, x.num, y.num, `0h`, `24h`) %>%
   rename(x_time = `0h`,
          y_time = `24h`) %>%
-  mutate(facet_x = "0 vs 24")
+  mutate(facet_x = "0h vs 24h")
 
 temp_2 <-
 cor_comp_df_for_points %>%
   select(Source, x, y, x.num, y.num, `0h`, `1h`) %>%
   rename(x_time = `0h`,
          y_time = `1h`) %>%
-  mutate(facet_x = "0 vs 1")
+  mutate(facet_x = "0h vs 1h")
 
 temp_3 <-
 cor_comp_df_for_points %>%
   select(Source, x, y, x.num, y.num, `1h`, `24h`) %>%
   rename(x_time = `1h`,
          y_time = `24h`) %>%
-  mutate(facet_x = "1 vs 24")
+  mutate(facet_x = "1h vs 24h")
 
 cor_comp_df_for_points <- rbind(rbind(temp_1, temp_2), temp_3)
 cor_comp_df_for_points <- cor_comp_df_for_points %>% 
   mutate(facet_x = factor(facet_x, 
                           levels = c(
-                            "0 vs 24",
-                            "0 vs 1",
-                            "1 vs 24"
+                            "0h vs 24h",
+                            "0h vs 1h",
+                            "1h vs 24h"
                           )))
 
 # plot
@@ -1636,7 +1708,7 @@ ecdf_list_df %>%
          )+
   scale_color_brewer(palette = "Set2" )+
   xlim( c(-1, 1))+
-  ylim( c(-1, 1))+
+  ylim( c(0, 1))+
     theme_minimal()+
     theme(legend.position = "right")+
   facet_grid(Source~Contrast)+
@@ -1647,9 +1719,18 @@ ecdf_list_df %>%
   
   
 ### Corr Table ####
-compare_cor_table <- cor_comp_df %>% 
+cor_comp_df %>% 
   spread(Source, Corr) %>% 
-  filter(Brian >= 0.7 & Daniel >= 0.7) %>% 
+  filter(Brian >= 0.7 & Daniel >= 0.7) %>%
+  gather(Source, Corr, c("Brian", "Daniel")) %>% 
+  # spread(Time, Corr) %>% 
+  pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
+  select(-x.num, -y.num) %>% 
+  select(x, y, Brian_0h, Daniel_0h, Brian_1h, Daniel_1h, Brian_24h, Daniel_24h)
+
+cor_comp_df %>% 
+  spread(Source, Corr) %>% 
+  filter(Brian >= 0.7 ) %>% #| Daniel >= 0.7) %>%
   gather(Source, Corr, c("Brian", "Daniel")) %>% 
   # spread(Time, Corr) %>% 
   pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
@@ -1657,13 +1738,42 @@ compare_cor_table <- cor_comp_df %>%
   select(x, y, Brian_0h, Daniel_0h, Brian_1h, Daniel_1h, Brian_24h, Daniel_24h)
 
 
+cor_comp_df %>% 
+  spread(Source, Corr) %>% 
+  filter(Daniel >= 0.7 ) %>% #| Daniel >= 0.7) %>%
+  gather(Source, Corr, c("Brian", "Daniel")) %>% 
+  # spread(Time, Corr) %>% 
+  pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
+  select(-x.num, -y.num) %>% 
+  select(x, y, Brian_0h, Daniel_0h, Brian_1h, Daniel_1h, Brian_24h, Daniel_24h)
+
+
+# compare_cor_table <-
+  
+  cor_comp_df %>% 
+  spread(Source, Corr) %>% 
+  # filter(Brian >= 0.7 | Daniel >= 0.7) %>% 
+  gather(Source, Corr, c("Brian", "Daniel")) %>% 
+  # spread(Time, Corr) %>% 
+  pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
+  select(-x.num, -y.num) %>% 
+  select(x, y, Brian_0h, Daniel_0h, Brian_1h, Daniel_1h, Brian_24h, Daniel_24h) %>% 
+  mutate(Diff_0h = Brian_0h - Daniel_0h, 
+         Diff_1h = Brian_1h - Daniel_1h, 
+         Diff_24h = Brian_24h - Daniel_24h) %>% 
+  ggplot()+
+  geom_point(aes(x = Brian_0h, y = Daniel_0h), color = "")
+  
+
+
 
 library(gridExtra)
 
 
 ### ####
-compare_corgrams_plt /
-  compare_cor_scatter_plt /
+(compare_corgrams_plt /
+  compare_cor_scatter_plt) |
+  # patchwork::plot_spacer() +
   # gridExtra::tableGrob(compare_cor_table, 
   #                      theme = gridExtra::ttheme_default(
   #                        core = list(fg_params=list(cex = .40)),
@@ -1671,12 +1781,10 @@ compare_corgrams_plt /
   #                        # rowhead = list(fg_params=list(cex = .20))
   #                        )
   #                      ) + 
-  compare_cor_ecdf_plt 
-  # patchwork::plot_layout(nrow = 2, ncol = 2, 
-  #                        widths = c(1, 1, .25, 1))
+  compare_cor_ecdf_plt
+  patchwork::plot_layout(nrow = 2, ncol = 2, 
+                         widths = c(1,1,.31))
 
- 
- 
 ```
 
 
@@ -3641,6 +3749,110 @@ save_as_docx("my table" = M_ft, path = docx_file)
 
 ```
 
+## for my curiosity:
+
+```{r}
+library(brms)
+# fit1 <- brm(shal ~ Condition,
+#             data = temp,
+#             family = gaussian())
+# # 'C:/rtools40/usr/mingw_/bin/g++' not found
+
+
+fit1 <- readRDS(here("data", "brms_models", paste0("shal", ".RDS")))
+
+plot(fit1, pars = c("Condition"))
+# 
+plot(conditional_effects(fit1, effects = "Condition"))
+# 
+# temp_col <- "Ia.0"
+
+
+
+tictoc::tic()
+walk(
+  c(mrna_cols, 
+    memb_cols, 
+    
+    # "Ia.Slope"
+    # "Ia.0.s", "Ia.Slope.s"
+    
+    # "Cor"
+    epsp_cols
+    # "Min.V_Obs", "Max.Amplitude_Obs", #"Max.Amplitude_Sim", 
+    # "AUC_Obs"#, "AUC_Sim", "Max.Amplitude_Delta", "AUC_Delta"
+    ),
+  # c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols), 
+  function(temp_col){
+    
+    
+    if (!file.exists(here("data", "brms_models", paste0(temp_col, ".RDS")))){
+      
+      print(temp_col)
+      
+      temp <- M_all[M_all$Source == "Daniel", c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
+      
+      # Identify outliers for each group
+      temp_b <- temp[temp$Condition == "0h", ]
+      temp_c <- temp[temp$Condition == "1h", ]
+      temp_d <- temp[temp$Condition == "24h", ]
+      
+      temp_b <- temp_b[win_x_iqr(temp_b[[temp_col]], multiplier = 1.5), ]
+      temp_c <- temp_c[win_x_iqr(temp_c[[temp_col]], multiplier = 1.5), ]
+      temp_d <- temp_d[win_x_iqr(temp_d[[temp_col]], multiplier = 1.5), ]
+      
+      temp <- rbind(temp_b, temp_c) %>% rbind(temp_d)
+      
+      # temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
+      temp <- temp[!is.na(temp[[temp_col]]), ]
+      
+      # make sure we don't have pseudoreplicates for network measurements
+      if (temp_col %in% c("ig.3_4", "ig.3_5", "ig.4_5")){
+        temp <- temp %>% 
+          select(-Cell) %>% 
+          group_by(Condition, Experiment) %>% 
+          mutate_all(median, na.rm = T) %>% 
+          distinct()
+      }
+      
+      
+      if(nrow(temp) < 10){
+        
+        return(list(
+          dv = temp_col,
+          p = NA,
+          ep = NA,
+          hsd_groups = data.frame(dv = c(NA, NA, NA), 
+                                  groups = c(NA, NA, NA), 
+                                  Condition = c(NA, NA, NA)
+          ),
+          fm = NA))
+        
+      } else {
+        
+        fit1 <- brm(as.formula(paste0(temp_col, " ~ Condition")), 
+                    data = temp, 
+                    family = gaussian())
+        
+        saveRDS(fit1, here("data", "brms_models", paste0(temp_col, ".RDS")))
+        
+        # rm(list = "fit1")
+      }
+      
+      
+    }
+    
+    
+    
+  })
+tictoc::toc()
+
+ 
+
+
+```
+
+
 
 
 ## mk table
@@ -3885,6 +4097,27 @@ save_as_pptx("my table" = M_ft, path = pptx_file)
 #   geom_histogram(binwidth = 0.025)+
 #   geom_vline(xintercept = 0.05)
 ```
+
+## Revisitng excitability 21/03/17
+```{r}
+df <- full_join(metadata[, c("Experiment",  "FileName", "Condition")],
+          epsp)
+df <- df %>% filter(!is.na(Channel))
+
+df %>% 
+  unite(uid, Experiment, Cell) %>% 
+  filter(Key != "predicted") %>% 
+  ggplot(aes(x = uid, AUC, color = Type))+
+  geom_point(alpha = 0.5)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = -0.))+
+facet_wrap(.~Condition)
+
+
+# it looks like we don't have full coverage of epsp_50
+df %>% group_by(Experiment, Cell, Key, Type) %>% filter(Sweep == 1) %>% tally() %>% spread(Type, n) %>% View()
+
+```
+
 
 
 ## Another take on excitability:
