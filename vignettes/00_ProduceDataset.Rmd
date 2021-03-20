@@ -39,7 +39,7 @@ This file represents the full preparation of data. Ideally, where we pull proces
 ```{r global params}
 use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
 
-abf_dir_path <- "D:/0000_Traces_mRNA24hLC/"
+abf_dir_path <- "F:/0000_Traces_mRNA24hLC/"
 
 force_process_ABF <- c("000000_0000.abf")
 ```
