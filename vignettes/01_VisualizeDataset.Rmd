@@ -1832,6 +1832,166 @@ ggsave(here("officer_output", "compare_cor_ecdf_plt.tiff"),
 ```
 
 
+Make a just in case set of tables
+```{r}
+
+
+
+unique_comparisons <- list()
+for (i in seq_along(mrna_cols)){
+  for (j in i:length(mrna_cols) ){
+    unique_comparisons[[length(unique_comparisons)+1]] <- 
+      data.frame(x = mrna_cols[i],
+           y = mrna_cols[j])
+  }  
+}
+unique_comparisons <- do.call(rbind, unique_comparisons)
+unique_comparisons <- unique_comparisons %>% filter(x != y)
+
+unique_comparisons$slope.p <- NA
+
+
+
+# Ancova
+for (i in 1:nrow(unique_comparisons)){
+  temp <- filter(mrna_rep_winxiqr, 
+                 Source == "Daniel") %>% 
+    select(unique_comparisons[i, "x"],
+           unique_comparisons[i, "y"],
+           "Time")
+  
+  fm <- lm(
+    as.formula(paste(unique_comparisons[i, "y"], 
+                     "~", 
+                     unique_comparisons[i, "x"], 
+                     "* Time")
+    ), 
+    data = temp
+  )
+  
+  unique_comparisons[i, "slope.p"] <- broom::tidy(car::Anova(fm))[3, "p.value"]
+}
+
+
+# Pearson
+unique_comparisons <- 
+  rbind(mutate(unique_comparisons, Time = "0h"), 
+      mutate(unique_comparisons, Time = "1h")) %>% 
+  rbind(., mutate(unique_comparisons, Time = "24h"))
+
+unique_comparisons$cor <- NA
+unique_comparisons$t <- NA
+unique_comparisons$p.value <- NA
+unique_comparisons$df <- NA
+
+
+for (i in 1:nrow(unique_comparisons)){
+  temp <- filter(mrna_rep_winxiqr, 
+                 Source == "Daniel",
+                 Time == unique_comparisons[i, "Time"]) %>% 
+    select(unique_comparisons[i, "x"],
+           unique_comparisons[i, "y"])
+  
+  
+  # Cors
+  res <- cor.test(x = temp[[unique_comparisons[i, "x"]]],
+                  y = temp[[unique_comparisons[i, "y"]]],
+                  method = "pearson", 
+                  use = "pairwise.complete.obs")
+  res <- broom::tidy(res)[, c("estimate", "statistic", "p.value", "parameter")]
+  names(res) <- c("cor", "t",  "p.value", "df")
+  
+  unique_comparisons[i, c("cor", "t",  "cor.p", "df")] <- res
+}
+
+
+# full ref
+
+
+
+# useful ref
+library(flextable)
+cor_use_ft <- unique_comparisons %>% 
+  select(x, y, Time, slope.p, cor, cor.p) %>%
+  
+  #fdr adj slope p
+  mutate(slope.p = p.adjust(slope.p, method = "fdr")) %>% 
+  pivot_wider(names_from = "Time", values_from = c("cor.p", "cor")) %>% 
+  mutate(
+    cor.p_0h = p.adjust(cor.p_0h, method = "fdr"),
+    cor.p_1h = p.adjust(cor.p_1h, method = "fdr"),
+    cor.p_24h = p.adjust(cor.p_24h, method = "fdr")
+  ) %>% 
+  mutate_at(.vars = c(
+    "slope.p", 
+    "cor.p_0h", "cor.p_1h", "cor.p_24h", 
+    "cor_0h", "cor_1h", "cor_24h"), 
+    .funs = round, digits = 3) %>% 
+  flextable()
+  
+
+
+cor_use_ft <- cor_use_ft %>% theme_vanilla()
+
+cor_use_ft <- bold(cor_use_ft, ~ slope.p <= 0.05, ~ x, bold = TRUE)
+cor_use_ft <- bold(cor_use_ft, ~ slope.p <= 0.05, ~ y, bold = TRUE)
+
+cor_use_ft <- bold(cor_use_ft, ~ slope.p <= 0.05, ~ slope.p, bold = TRUE)
+
+cor_use_ft <- bold(cor_use_ft, ~ cor.p_0h <= 0.05, ~ cor.p_0h, bold = TRUE)
+cor_use_ft <- bold(cor_use_ft, ~ cor.p_0h <= 0.05, ~ cor_0h, bold = TRUE)
+cor_use_ft <- bold(cor_use_ft, ~ cor.p_1h <= 0.05, ~ cor.p_1h, bold = TRUE)
+cor_use_ft <- bold(cor_use_ft, ~ cor.p_1h <= 0.05, ~ cor_1h, bold = TRUE)
+cor_use_ft <- bold(cor_use_ft, ~ cor.p_24h <= 0.05, ~ cor.p_24h, bold = TRUE)
+cor_use_ft <- bold(cor_use_ft, ~ cor.p_24h <= 0.05, ~ cor_24h, bold = TRUE)
+
+
+color_sig <- "#a1d99b"
+cor_use_ft <- bg(cor_use_ft, ~ slope.p <= 0.05, ~ slope.p, bg = color_sig)
+
+cor_use_ft <- bg(cor_use_ft, ~ cor.p_0h <= 0.05, ~ cor.p_0h, bg = color_sig)
+cor_use_ft <- bg(cor_use_ft, ~ cor.p_0h <= 0.05, ~ cor_0h, bg = color_sig)
+cor_use_ft <- bg(cor_use_ft, ~ cor.p_1h <= 0.05, ~ cor.p_1h, bg = color_sig)
+cor_use_ft <- bg(cor_use_ft, ~ cor.p_1h <= 0.05, ~ cor_1h, bg = color_sig)
+cor_use_ft <- bg(cor_use_ft, ~ cor.p_24h <= 0.05, ~ cor.p_24h, bg = color_sig)
+cor_use_ft <- bg(cor_use_ft, ~ cor.p_24h <= 0.05, ~ cor_24h, bg = color_sig)
+
+
+
+cor_use_ft <- set_header_labels(cor_use_ft, 
+                                values = list(
+                                  x = "", y = "",
+                          slope.p = "ANCOVA p",
+                          cor.p_0h = "p 0h",
+                          cor.p_1h = "p 1h",
+                          cor.p_24h = "p 24h",
+                          cor_0h = "R 0h",
+                          cor_1h = "R 1h",
+                          cor_24h = "R 24h"
+                                )
+                          
+)
+
+cor_use_ft <- autofit(cor_use_ft)
+cor_use_ft
+
+
+
+
+
+pptx_file <- "./officer_output/DanielAncova.pptx"
+save_as_pptx("my table" = M_ft, path = pptx_file)
+
+docx_file <- "./officer_output/DanielAncova.docx"
+save_as_docx("my table" = M_ft, path = docx_file)
+```
+
+
+
+
+
+
+
 ```{r eval=FALSE, include=FALSE}
 df_for_cor_of_cors <- do.call(rbind, cor_list) %>% filter(!is.na(Corr))%>% 
   spread(Time, Corr)
