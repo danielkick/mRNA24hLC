@@ -570,6 +570,17 @@ mrna_cols <- mrna_cols[mrna_cols %in% names(M_all)]
 temp <- mrna %>% select(Pharm, Time, Source) %>% distinct()
 
 temp %>% group_by(Pharm, Source) %>%  mutate(exists = "T") %>% spread(Time, exists)
+
+mrna %>% 
+  filter(
+    (Source == "Daniel") |
+    (Source == "Brian" & Pharm == "TEA") |
+    (Source == "Brian" & Pharm == "None" & Time == "0h") 
+    ) %>% 
+  distinct() %>% 
+  group_by(Pharm, Time, Source) %>% 
+  tally()
+
 ```
 
 ## How many networks had _any_ extracellular activity by their colleciton point?
@@ -612,8 +623,8 @@ epsp_cols <- c("Cor", "Min.V_Obs",
                "Max.Amplitude_Delta", "AUC_Delta",
                
                "Cor.IQR", "Min.V_Obs.IQR", 
-               "Max.Amplitude_Obs.IQR", "Max.Amplitude_Sim.IQR", 
-               "AUC_Obs.IQR", "AUC_Sim.IQR", 
+               "Max.Amplitude_Obs.IQR", #"Max.Amplitude_Sim.IQR", 
+               "AUC_Obs.IQR", #"AUC_Sim.IQR", 
                "Max.Amplitude_Delta.IQR", "AUC_Delta.IQR")
 ```
 
@@ -1535,6 +1546,12 @@ cor_comp_df <- cor_comp_df %>%
 library(ggforce) # for geom_circle
 # Corrgram, but in ggplot
 compare_corgrams_plt <- cor_comp_df %>% 
+  mutate(Source = factor(Source, 
+                         levels = c("Brian", "Daniel"), 
+                         labels = c("Pilot", "Replicate"))) %>% 
+  # df$supp <- factor(df$supp, levels = c("OJ", "VC"),
+  #                 labels = c("Orange Juice", "Vitamin C")
+  #                 )
   ggplot()+
   geom_circle(aes(x0 = x.num, y0 = y.num, r = abs(Corr)/2, fill = Corr))+
   scale_fill_distiller(palette = "PuOr", direction = 1, limits=c(-1,1))+
@@ -1602,6 +1619,9 @@ library(ggsci) # for scale_color_aaas
 library(ggpubr) # for stat_cor and stat_regline
 
 compare_cor_scatter_plt <- cor_comp_df_for_points %>% 
+  mutate(Source = factor(Source, 
+                         levels = c("Brian", "Daniel"), 
+                         labels = c("Pilot", "Replicate"))) %>% 
   ggplot(aes(x = x_time, y = y_time, color = Source))+
   geom_abline(intercept = 0, slope = 1)+
   geom_hline(yintercept = 0, color = "darkgray")+
@@ -1682,7 +1702,9 @@ ecdf_list <- map(list(
                     y0_extreme = y0[1],
                     y1_extreme = y1[1],
                     Source = current_Source,
-                    Contrast = paste0(time1 , " vs ", time2)
+                    Contrast = paste0(time1 , " vs ", time2),
+                    test_stat = test.res$statistic,
+                    test_p = test.res$p.value
              )
            
            return(graph.df)
@@ -1694,6 +1716,9 @@ ecdf_list_df <- ecdf_list_df %>% mutate(Contrast = factor(Contrast, levels = c("
 
 compare_cor_ecdf_plt <-
 ecdf_list_df %>% 
+  mutate(Source = factor(Source, 
+                         levels = c("Brian", "Daniel"), 
+                         labels = c("Pilot", "Replicate"))) %>% 
   ggplot()+
     geom_segment(aes(x = x0_extreme, y = y0_extreme, xend = x0_extreme, yend = y1_extreme),
                  # linetype = "dashed", 
@@ -1701,6 +1726,12 @@ ecdf_list_df %>%
     geom_point(aes(x = x0_extreme , y= y0_extreme), color="darkgray", size=2) +
     geom_point(aes(x = x0_extreme , y= y1_extreme), color="darkgray", size=2) +
     stat_ecdf(aes(x = Value, group = Condition, color = Condition))+
+  geom_label(aes(x = -0.75, y = 0.75, 
+                label = paste0(
+                  "KS = ", as.character(round(test_stat, 3)),
+                  "\np = ", as.character(round(test_p, 3))
+                  )), 
+            size = 2)+
     labs(x = "Sample",
          y = "ECDF"#,
          # subtitle = paste("K-S Test", as.character(group1), "vs", as.character(group2),
@@ -1750,19 +1781,19 @@ cor_comp_df %>%
 
 # compare_cor_table <-
   
-  cor_comp_df %>% 
-  spread(Source, Corr) %>% 
-  # filter(Brian >= 0.7 | Daniel >= 0.7) %>% 
-  gather(Source, Corr, c("Brian", "Daniel")) %>% 
-  # spread(Time, Corr) %>% 
-  pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
-  select(-x.num, -y.num) %>% 
-  select(x, y, Brian_0h, Daniel_0h, Brian_1h, Daniel_1h, Brian_24h, Daniel_24h) %>% 
-  mutate(Diff_0h = Brian_0h - Daniel_0h, 
-         Diff_1h = Brian_1h - Daniel_1h, 
-         Diff_24h = Brian_24h - Daniel_24h) %>% 
-  ggplot()+
-  geom_point(aes(x = Brian_0h, y = Daniel_0h), color = "")
+  # cor_comp_df %>% 
+  # spread(Source, Corr) %>% 
+  # # filter(Brian >= 0.7 | Daniel >= 0.7) %>% 
+  # gather(Source, Corr, c("Brian", "Daniel")) %>% 
+  # # spread(Time, Corr) %>% 
+  # pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
+  # select(-x.num, -y.num) %>% 
+  # select(x, y, Brian_0h, Daniel_0h, Brian_1h, Daniel_1h, Brian_24h, Daniel_24h) %>% 
+  # mutate(Diff_0h = Brian_0h - Daniel_0h, 
+  #        Diff_1h = Brian_1h - Daniel_1h, 
+  #        Diff_24h = Brian_24h - Daniel_24h) %>% 
+  # ggplot()+
+  # geom_point(aes(x = Brian_0h, y = Daniel_0h), color = "black")
   
 
 
@@ -1771,8 +1802,8 @@ library(gridExtra)
 
 
 ### ####
-(compare_corgrams_plt /
-  compare_cor_scatter_plt) |
+compare_corgrams_plt /
+  compare_cor_scatter_plt /
   # patchwork::plot_spacer() +
   # gridExtra::tableGrob(compare_cor_table, 
   #                      theme = gridExtra::ttheme_default(
@@ -1782,8 +1813,21 @@ library(gridExtra)
   #                        )
   #                      ) + 
   compare_cor_ecdf_plt
-  patchwork::plot_layout(nrow = 2, ncol = 2, 
-                         widths = c(1,1,.31))
+  # patchwork::plot_layout(nrow = 3, ncol = 1, 
+  #    
+
+
+ggsave(here("officer_output", "compare_corgrams_plt.tiff"),
+       compare_corgrams_plt, 
+       width = 8.5, units = "in")
+
+ggsave(here("officer_output", "compare_cor_scatter_plt.tiff"),
+       compare_cor_scatter_plt, 
+       width = 8.5, units = "in")
+
+ggsave(here("officer_output", "compare_cor_ecdf_plt.tiff"),
+       compare_cor_ecdf_plt, 
+       width = 8.5, units = "in")
 
 ```
 
@@ -3017,6 +3061,234 @@ ggpairs(select(filter(M_winxiqr),#, Condition == "0h"),
 # What univariate changes occur?
 
 
+## Produce univariate tables
+### Run anovas
+```{r}
+tictoc::tic()
+temp_list <- map(
+  c(mrna_cols, memb_cols, epsp_cols),
+  # c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols), 
+  function(temp_col){
+    print(temp_col)
+    
+    temp <- M_all[M_all$Source == "Daniel", c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
+    
+    # Identify outliers for each group
+    temp_b <- temp[temp$Condition == "0h", ]
+    temp_c <- temp[temp$Condition == "1h", ]
+    temp_d <- temp[temp$Condition == "24h", ]
+    
+    temp_b <- temp_b[win_x_iqr(temp_b[[temp_col]], multiplier = 1.5), ]
+    temp_c <- temp_c[win_x_iqr(temp_c[[temp_col]], multiplier = 1.5), ]
+    temp_d <- temp_d[win_x_iqr(temp_d[[temp_col]], multiplier = 1.5), ]
+    
+    temp <- rbind(temp_b, temp_c) %>% rbind(temp_d)
+    
+    # temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
+    temp <- temp[!is.na(temp[[temp_col]]), ]
+    
+    # make sure we don't have pseudoreplicates for network measurements
+    if (temp_col %in% c("ig.3_4", "ig.3_5", "ig.4_5")){
+      temp <- temp %>% 
+        select(-Cell) %>% 
+        group_by(Condition, Experiment) %>% 
+        mutate_all(median, na.rm = T) %>% 
+        distinct()
+    }
+    
+    
+    if(nrow(temp) < 10){
+      
+      return(list(
+        dv = temp_col,
+        p = NA,
+        ep = NA,
+        hsd_groups = data.frame(dv = c(NA, NA, NA), 
+                                groups = c(NA, NA, NA), 
+                                Condition = c(NA, NA, NA)
+        ),
+        fm = NA))
+      
+    } else {
+      
+      
+      temp_shuffle <- temp
+      resample_array <- map(1:1000, function(i){
+        temp_shuffle$Condition <- sample(temp_shuffle$Condition, replace = F)
+        fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp_shuffle)      
+        return(car::Anova(fm)[1,3])
+      }) %>% unlist()
+
+      
+      fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp)
+      
+      fm_hsd <- agricolae::HSD.test(fm, trt = "Condition") 
+      fm_hsd <- fm_hsd$group
+      
+      fm_hsd$Condition <- rownames(fm_hsd)
+      
+      fm_hsd_p <- agricolae::HSD.test(fm, trt = "Condition", 
+                                      group = F)$comparison
+      fm_hsd_p[rownames(fm_hsd_p) == "0h - 1h", "pvalue"]
+      
+      return(list(
+        dv = temp_col,
+        p = car::Anova(fm)[1,4],
+        ep = mean(resample_array >= car::Anova(fm)[1,3]),
+        hsd_groups = fm_hsd,
+        fm = fm,
+        p0.1 = fm_hsd_p[rownames(fm_hsd_p) == "0h - 1h", "pvalue"],
+        p0.24 = fm_hsd_p[rownames(fm_hsd_p) == "0h - 24h", "pvalue"],
+        p1.24 = fm_hsd_p[rownames(fm_hsd_p) == "1h - 24h", "pvalue"]        
+        ))
+    }
+  })
+tictoc::toc()
+
+
+temp_list <- temp_list %>% transpose()
+fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
+                                p  = unlist(temp_list[[2]]),
+                                ep = unlist(temp_list[[3]]),
+                                
+                                p0.1 =  unlist(temp_list[[6]]),
+                                p0.24 = unlist(temp_list[[7]]),
+                                p1.24 = unlist(temp_list[[8]])
+                                )
+
+
+# work up post hoc stats
+temp_list_hsd <- map(seq_along(temp_list[[4]]), function(i){
+  if (!is.na(unique(temp_list[[4]][[i]]$groups))){
+    temp_list[[4]][[i]] %>% 
+      gather("dv", "Estimate", names(temp_list[[4]][[i]])[1]) %>% 
+      pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
+      mutate_all(as.character)
+  }
+})  
+
+fm_overview_hsd <- do.call(rbind, temp_list_hsd)
+
+
+fm_overview_table <- full_join(fm_overview_table, fm_overview_hsd)
+# for adding tukey hsd p vals into plots
+fm_overview <- fm_overview_table
+```
+
+###Format table
+```{r}
+# add groupings
+fm_overview_table <- fm_overview_table %>% mutate(Family = case_when(
+  dv %in% c("vrest") ~ "Resting Voltage",
+  dv %in% c("r11", "r1") ~ "Membrane Resistance",
+  dv %in% ionic_cols ~ "Outward Currents",
+  dv %in% epsp_cols ~ "Excitability",
+  dv %in% c("r12", "rc", "ig", "cc", "ig.3_4", "ig.3_5", "ig.4_5") ~ "Coupling Measures"
+))
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Family = factor(fm_overview_table$Family, levels = c("Membrane Resistance", "Resting Voltage", "Coupling Measures", "Outward Currents", "Excitability"))) %>% 
+  arrange(Family) %>% 
+  mutate(Family = as.character(Family))
+
+# temp <- rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName)
+fm_overview_table <- full_join(fm_overview_table, 
+                               rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName, Family2 = Family))
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Family = ifelse(is.na(Family) & !is.na(Family2), Family2, Family)) %>% 
+  select(-Family2) %>% 
+  filter(!is.na(p))
+
+
+# add additional cols
+fm_overview_table$fdr <- p.adjust(fm_overview_table$ep, method = "fdr")
+
+fm_overview_table <- fm_overview_table %>% 
+  mutate(Estimate_0h = as.numeric(Estimate_0h),
+         Estimate_1h = as.numeric(Estimate_1h),
+         Estimate_24h = as.numeric(Estimate_24h)) %>% 
+  mutate(p = round(p, digits = 3),
+         ep = round(ep, digits = 3),
+         fdr = round(fdr, digits = 3),
+         Estimate_0h = round(Estimate_0h, digits = 3),
+         Estimate_1h = round(Estimate_1h, digits = 3),
+         Estimate_24h = round(Estimate_24h, digits = 3),
+         p0.1 = round(p0.1, digits = 3),
+         p0.24 = round(p0.24, digits = 3),
+         p1.24 = round(p1.24, digits = 3) ) %>% 
+  mutate(stars = case_when(fdr > 0.10               ~ "",
+                           fdr < 0.10 & fdr > 0.05  ~ ".",
+                           fdr < 0.05 & fdr > 0.01  ~ "*",
+                           fdr < 0.01 & fdr > 0.001 ~ "**",
+                           fdr < 0.001              ~ "***"
+  ))
+
+
+# library(officer)
+library(flextable)
+M_ft <-flextable(fm_overview_table,
+                 col_keys = c("Family", "dv", "p", "ep",
+                              "fdr", 
+                              "stars", 
+                              "Estimate_0h", "Estimate_1h", "Estimate_24h",
+                              "p0.1",  "p0.24",  "p1.24"))
+
+M_ft <- theme_vanilla(M_ft)
+M_ft <- merge_v(M_ft, j = c("Family") )
+# M_ft <- color(M_ft, ~ fdr < 0.05, ~ stars, color = "red")
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ dv, bold = TRUE)
+M_ft <- bold(M_ft, ~ p   <= 0.05, ~ p, bold = TRUE)
+M_ft <- bold(M_ft, ~ ep  <= 0.05, ~ ep, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ fdr, bold = TRUE)
+M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ stars, bold = TRUE)
+
+# get the groupings without showing the columns. 
+
+color_a = "#ffeda0"
+color_ab= "#feb24c"
+color_b = "#f03b20"
+color_c = "#2b8cbe"
+
+M_ft <- bg(M_ft, ~ groups_0h == "a", ~ Estimate_0h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_0h == "ab",~ Estimate_0h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_0h == "b", ~ Estimate_0h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_0h == "c", ~ Estimate_0h, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_1h == "a", ~ Estimate_1h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_1h == "ab",~ Estimate_1h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_1h == "b", ~ Estimate_1h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_1h == "c", ~ Estimate_1h, bg = color_c)
+
+M_ft <- bg(M_ft, ~ groups_24h == "a", ~ Estimate_24h, bg = color_a)
+M_ft <- bg(M_ft, ~ groups_24h == "ab",~ Estimate_24h, bg = color_ab)
+M_ft <- bg(M_ft, ~ groups_24h == "b", ~ Estimate_24h, bg = color_b)
+M_ft <- bg(M_ft, ~ groups_24h == "c", ~ Estimate_24h, bg = color_c)
+
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_0h, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_1h, bg = "White")
+M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_24h, bg = "White")
+
+
+M_ft <- set_header_labels(M_ft, 
+                          dv = "", stars = "",
+                          Estimate_0h = "0h", Estimate_1h = "1h", Estimate_24h = "24h",
+                          p0.1 = "0h vs 1h",  p0.24 = "0h vs 24h",  p1.24 = "1h vs 24h"
+                          )
+
+M_ft <- autofit(M_ft)
+M_ft
+
+pptx_file <- "./officer_output/DanielAnova.pptx"
+save_as_pptx("my table" = M_ft, path = pptx_file)
+
+docx_file <- "./officer_output/DanielAnova.docx"
+save_as_docx("my table" = M_ft, path = docx_file)
+
+
+```
+
+## produce univariate plots
 ```{r}
 # mrna_cols, memb_cols, epsp_cols
 
@@ -3098,14 +3370,71 @@ membrane_plts <- map(seq_along(membrane_dvs_plt), function(i){plot_univariate_de
   new.y = new.y_vector[i],
   new.title = new.title_vector[i])})
 
-(membrane_plts[[1]] / 
-    membrane_plts[[2]]) |
-  (membrane_plts[[3]] /
-     membrane_plts[[4]]) |
-  (membrane_plts[[5]] /
-     membrane_plts[[6]]) |
-  (membrane_plts[[7]] / 
-     patchwork::plot_spacer())
+
+
+
+
+
+# run through dependent variables, if there was a significant effect, get the HSD p values and add them for each significant comparison
+for (i in seq_along(membrane_dvs_plt)){ # <--------------------------------------- !
+  temp_annotation <- fm_overview_table %>% filter(dv == membrane_dvs_plt[i]) # <-- ! 
+  
+  if (temp_annotation$fdr <= 0.05){
+    
+    # base y position for on max y and % of range
+    current_yrange <- ggplot_build(
+      membrane_plts[[i]] # <------------------------------------------------------ !
+    )$layout$panel_params[[1]]$y.range 
+    
+    start_y <- .76*(current_yrange[2] - current_yrange[1]) + current_yrange[1]
+    step_size <- (current_yrange[2] - current_yrange[1])*.08
+    
+    # create the annotation data frame
+    df <- data.frame(
+          group1 = c("0h", "0h",  "1h"),
+          group2 = c("1h", "24h", "24h"),
+          p.adj = c(temp_annotation$p0.1,
+                    temp_annotation$p0.24, 
+                    temp_annotation$p1.24)
+        ) %>% 
+      mutate(sig = ifelse(p.adj <= 0.05, 1, 0)) %>% 
+      mutate(p.adj = as.character(p.adj)) %>% 
+      mutate(p.adj = ifelse(p.adj == "0", "< 0.001", p.adj))
+    
+    # only increase the y position if there was a significant difference
+    # begin at 1 to get the right output
+    steps_up <- cumsum(df$sig)
+    steps_up[1] <- 1
+    
+    df$y.position <- seq(start_y, by = step_size, length.out = 3)[steps_up]
+
+    membrane_plts[[i]] <- membrane_plts[[i]]+ # <------------------------------------- !
+      stat_pvalue_manual(
+        data = df, 
+        hide.ns = T
+      )
+    
+  }
+}
+
+
+# (membrane_plts[[1]] / 
+#     membrane_plts[[2]]) |
+#   (membrane_plts[[3]] /
+#      membrane_plts[[4]]) |
+#   (membrane_plts[[5]] /
+#      membrane_plts[[6]]) |
+#   (membrane_plts[[7]] / 
+#      patchwork::plot_spacer())
+
+
+
+ggsave(here("officer_output", "membrane_plts.svg"),
+       cowplot::plot_grid(plotlist =  membrane_plts, labels = LETTERS), 
+       # width = 8.5, 
+       width = 16, 
+       height = 8,
+       units = "in")
 
 # walk(seq_along(membrane_dvs_plt), function(i){
 #   ggsave(paste0(membrane_dvs_plt[i],".tiff"), 
@@ -3146,38 +3475,130 @@ plt_epsp <- M_all[, c("Condition", "Experiment", "Cell", epsp_cols)] %>%
 # $ AUC_Delta           <dbl> 18563.23796, -251.67701, NA, 2050.58898, 5702.37419,~
 
 
-epsp_dvs_plt <- c("Cor", 
-                  "Min.V_Obs", 
-                  "Max.Amplitude_Obs", "Max.Amplitude_Sim", "Max.Amplitude_Delta",
-                  "AUC_Obs", "AUC_Sim", "AUC_Delta")
-new.y_vector <- c(expression(rho),  #TODO confirm this was spearman's rho and not pearson
-                  "mV",
-                  "mV", "mV", "mV", 
+epsp_dvs_plt <- c(
+  # "Cor", 
+  # "Min.V_Obs", 
+  # "Max.Amplitude_Obs", "Max.Amplitude_Sim", "Max.Amplitude_Delta",
+  # "AUC_Obs", "AUC_Sim", "AUC_Delta"
+  
+  "Cor", 
+  "Cor.IQR", 
+  
+  "Min.V_Obs", 
+  "Min.V_Obs.IQR", 
+
+  "Max.Amplitude_Obs", 
+  "Max.Amplitude_Obs.IQR", 
+  
+  "AUC_Obs",
+  "AUC_Obs.IQR", 
+  
+  "Max.Amplitude_Delta", 
+  "Max.Amplitude_Delta.IQR", 
+  
+  "AUC_Delta", 
+  "AUC_Delta.IQR",
+  
+  "Max.Amplitude_Sim", 
+  "AUC_Sim")
+
+new.y_vector <- c("R", "R",
+                  
+                  "mV", "mV", "mV", "mV", 
+                  
                   "mV/Sec", "mV/Sec",
+                  
+                  "mV", "mV",
+                  
+                  "mV/Sec", "mV/Sec",
+                  
+                  "mV",
                   "mV/Sec")
 
-new.title_vector <- c("Correlation Coefficient",
-                      "Observed Baseline",
-                      "Observed Amplitude", "Simulated Amplitude", "Difference Amplitude",
-                      "Observed AUC", "Simulated AUC", "Difference AUC")
+new.title_vector <- c("Correlation", "Correlation IQR",
+                      
+                      "Baseline", "Baseline IQR",
+                      
+                      "Obs. Amp.", "Obs. Amp. IQR", 
+                      
+                      "Obs. AUC", "Obs. AUC IQR",
+                      
+                      "Diff. Amplitude", "Diff. Amp. IQR",
+                      
+                      "Diff. AUC", "Diff. AUC IQR",
+                      
+                      "Sim. Amp.", 
+                      "Sim. AUC" )
 
-epsp_plts <- map(seq_along(epsp_cols), function(i){plot_univariate_decorated_0(
+epsp_plts <- map(seq_along(epsp_dvs_plt), function(i){plot_univariate_decorated_0(
   temp = ungroup(plt_epsp), 
   yvar = epsp_dvs_plt[i],
   new.y = new.y_vector[i],
   new.title = new.title_vector[i] )})
 
 
-((epsp_plts[[1]]+ylim(c(0, 1))) / 
-    patchwork::plot_spacer()/ 
-    patchwork::plot_spacer()) |
-  (epsp_plts[[3]] /
-     epsp_plts[[4]]/
-     epsp_plts[[5]]) |
-  (epsp_plts[[6]] /
-     epsp_plts[[7]]/
-     epsp_plts[[8]]) 
+# ((epsp_plts[[1]]+ylim(c(0, 1))) / 
+#     patchwork::plot_spacer()/ 
+#     patchwork::plot_spacer()) |
+#   (epsp_plts[[3]] /
+#      epsp_plts[[4]]/
+#      epsp_plts[[5]]) |
+#   (epsp_plts[[6]] /
+#      epsp_plts[[7]]/
+#      epsp_plts[[8]]) 
 
+
+# run through dependent variables, if there was a significant effect, get the HSD p values and add them for each significant comparison
+for (i in seq_along(epsp_dvs_plt)){ # <--------------------------------------- !
+  temp_annotation <- fm_overview_table %>% filter(dv == epsp_dvs_plt[i]) # <-- ! 
+  
+  if (temp_annotation$fdr <= 0.05){
+    
+    # base y position for on max y and % of range
+    current_yrange <- ggplot_build(
+      epsp_plts[[i]] # <------------------------------------------------------ !
+    )$layout$panel_params[[1]]$y.range 
+    
+    start_y <- .76*(current_yrange[2] - current_yrange[1]) + current_yrange[1]
+    step_size <- (current_yrange[2] - current_yrange[1])*.08
+    
+    # create the annotation data frame
+    df <- data.frame(
+          group1 = c("0h", "0h",  "1h"),
+          group2 = c("1h", "24h", "24h"),
+          p.adj = c(temp_annotation$p0.1,
+                    temp_annotation$p0.24, 
+                    temp_annotation$p1.24)
+        ) %>% 
+      mutate(sig = ifelse(p.adj <= 0.05, 1, 0)) %>% 
+      mutate(p.adj = as.character(p.adj)) %>% 
+      mutate(p.adj = ifelse(p.adj == "0", "< 0.001", p.adj))
+    
+    # only increase the y position if there was a significant difference
+    # begin at 1 to get the right output
+    steps_up <- cumsum(df$sig)
+    steps_up[1] <- 1
+    
+    df$y.position <- seq(start_y, by = step_size, length.out = 3)[steps_up]
+
+    epsp_plts[[i]] <- epsp_plts[[i]]+ # <------------------------------------- !
+      stat_pvalue_manual(
+        data = df, 
+        hide.ns = T
+      )
+    
+  }
+}
+
+
+# cowplot::plot_grid(plotlist =  epsp_plts, labels = LETTERS)
+
+ggsave(here("officer_output", "epsp_plts.svg"),
+       cowplot::plot_grid(plotlist =  epsp_plts, labels = LETTERS),
+       width = 16, 
+       height = 16,
+       # width = 8.5, 
+       units = "in")
 
 # walk(seq_along(epsp_dvs_plt), function(i){
 #   ggsave(paste0(epsp_dvs_plt[i],".tiff"), 
@@ -3204,46 +3625,35 @@ mrna_plts <- map(seq_along(mrna_cols), function(i){plot_univariate_decorated_0(
   new.y = "",
   new.title = mrna_cols[i] )+theme(plot.title = element_text(face="italic"))})
 
-# TODO if desired, add in signifs like so
-# mrna_plts <- map(seq_along(mrna_plts), function(i){
-#   mrna_plts[[i]]+
-#   stat_compare_means(comparisons = list(
-#     c("0h", "1h"),
-#     c("1h", "24h"),
-#     c("0h", "24h")
-#   ), 
-#   label = "p.signif")+ # Add significance levels
-#   stat_compare_means(label.y = -100)
+
+
+
+# na_y = c(0, 20000)
+# ca_y = c(0, 7000)
+# k_y  = c(0, 5000)
+# inx_y <- c(0, 40000)
+# 
+# 
+# mrna_plts[[1]]+coord_cartesian(ylim = na_y)+
 #   
-# })
-
-
-na_y = c(0, 20000)
-ca_y = c(0, 7000)
-k_y  = c(0, 5000)
-inx_y <- c(0, 40000)
-
-
-mrna_plts[[1]]+coord_cartesian(ylim = na_y)+
-  
-  mrna_plts[[2]]+coord_cartesian(ylim = ca_y) +
-  mrna_plts[[3]]+coord_cartesian(ylim = ca_y) +
-  mrna_plts[[4]]+coord_cartesian(ylim = ca_y) +
-  patchwork::plot_spacer()+
-  
-  mrna_plts[[5]]+coord_cartesian(ylim = k_y) +
-  mrna_plts[[6]]+coord_cartesian(ylim = k_y) +
-  mrna_plts[[7]]+coord_cartesian(ylim = k_y) +
-  mrna_plts[[8]]+coord_cartesian(ylim = k_y) +
-  mrna_plts[[9]]+coord_cartesian(ylim = k_y) +
-  
-  mrna_plts[[10]]+coord_cartesian(ylim = inx_y) +
-  mrna_plts[[11]]+coord_cartesian(ylim = inx_y) +
-  mrna_plts[[12]]+coord_cartesian(ylim = inx_y) +
-  patchwork::plot_spacer() +
-  patchwork::plot_spacer() + 
-  
-  patchwork::plot_layout(ncol = 5, nrow = 3)
+#   mrna_plts[[2]]+coord_cartesian(ylim = ca_y) +
+#   mrna_plts[[3]]+coord_cartesian(ylim = ca_y) +
+#   mrna_plts[[4]]+coord_cartesian(ylim = ca_y) +
+#   patchwork::plot_spacer()+
+#   
+#   mrna_plts[[5]]+coord_cartesian(ylim = k_y) +
+#   mrna_plts[[6]]+coord_cartesian(ylim = k_y) +
+#   mrna_plts[[7]]+coord_cartesian(ylim = k_y) +
+#   mrna_plts[[8]]+coord_cartesian(ylim = k_y) +
+#   mrna_plts[[9]]+coord_cartesian(ylim = k_y) +
+#   
+#   mrna_plts[[10]]+coord_cartesian(ylim = inx_y) +
+#   mrna_plts[[11]]+coord_cartesian(ylim = inx_y) +
+#   mrna_plts[[12]]+coord_cartesian(ylim = inx_y) +
+#   patchwork::plot_spacer() +
+#   patchwork::plot_spacer() + 
+#   
+#   patchwork::plot_layout(ncol = 5, nrow = 3)
 
 
 #TODO probably a more elegant way to do this using the following functions
@@ -3251,6 +3661,59 @@ mrna_plts[[1]]+coord_cartesian(ylim = na_y)+
 # patchwork::set_dim()
 # mrna_plts[[1]]+ set_dim(mrna_plts[[2]], get_dim(mrna_plts[[1]]))
 # get_max_dim(mrna_plts[[1]], mrna_plts[[2]])
+
+
+
+
+# run through dependent variables, if there was a significant effect, get the HSD p values and add them for each significant comparison
+for (i in seq_along(mrna_cols)){ # <--------------------------------------- !
+  temp_annotation <- fm_overview_table %>% filter(dv == mrna_cols[i]) # <-- ! 
+  
+  if (temp_annotation$fdr <= 0.05){
+    
+    # base y position for on max y and % of range
+    current_yrange <- ggplot_build(
+      mrna_plts[[i]] # <------------------------------------------------------ !
+    )$layout$panel_params[[1]]$y.range 
+    
+    start_y <- .76*(current_yrange[2] - current_yrange[1]) + current_yrange[1]
+    step_size <- (current_yrange[2] - current_yrange[1])*.08
+    
+    # create the annotation data frame
+    df <- data.frame(
+          group1 = c("0h", "0h",  "1h"),
+          group2 = c("1h", "24h", "24h"),
+          p.adj = c(temp_annotation$p0.1,
+                    temp_annotation$p0.24, 
+                    temp_annotation$p1.24)
+        ) %>% 
+      mutate(sig = ifelse(p.adj <= 0.05, 1, 0)) %>% 
+      mutate(p.adj = as.character(p.adj)) %>% 
+      mutate(p.adj = ifelse(p.adj == "0", "< 0.001", p.adj))
+    
+    # only increase the y position if there was a significant difference
+    # begin at 1 to get the right output
+    steps_up <- cumsum(df$sig)
+    steps_up[1] <- 1
+    
+    df$y.position <- seq(start_y, by = step_size, length.out = 3)[steps_up]
+
+    mrna_plts[[i]] <- mrna_plts[[i]]+ # <------------------------------------- ! x2
+      stat_pvalue_manual(
+        data = df, 
+        hide.ns = T
+      )
+    
+  }
+}
+
+
+ggsave(here("officer_output", "mrna_plts.svg"),
+       cowplot::plot_grid(plotlist =  mrna_plts, labels = LETTERS),
+       width = 16, 
+       height = 12,
+       # width = 8.5, 
+       units = "in")
 
 
 # walk(seq_along(mrna_cols), function(i){
@@ -3541,213 +4004,6 @@ plt_2.1 / plt_2.2 / plt_2.3
 
 what happens at the level of output (excitability)? 
 
-## Produce univariate tables
-### Run anovas
-```{r}
-tictoc::tic()
-temp_list <- map(
-  c(mrna_cols, memb_cols, epsp_cols),
-  # c(tecc_cols, tevc_cols, epsp_cols, ionic_cols, mrna_cols), 
-  function(temp_col){
-    print(temp_col)
-    
-    temp <- M_all[M_all$Source == "Daniel", c("Condition", "Experiment", "Cell", temp_col)] %>% distinct()
-    
-    # Identify outliers for each group
-    temp_b <- temp[temp$Condition == "0h", ]
-    temp_c <- temp[temp$Condition == "1h", ]
-    temp_d <- temp[temp$Condition == "24h", ]
-    
-    temp_b <- temp_b[win_x_iqr(temp_b[[temp_col]], multiplier = 1.5), ]
-    temp_c <- temp_c[win_x_iqr(temp_c[[temp_col]], multiplier = 1.5), ]
-    temp_d <- temp_d[win_x_iqr(temp_d[[temp_col]], multiplier = 1.5), ]
-    
-    temp <- rbind(temp_b, temp_c) %>% rbind(temp_d)
-    
-    # temp <- temp[win_x_iqr(temp[[temp_col]], multiplier = 1.5), ]
-    temp <- temp[!is.na(temp[[temp_col]]), ]
-    
-    # make sure we don't have pseudoreplicates for network measurements
-    if (temp_col %in% c("ig.3_4", "ig.3_5", "ig.4_5")){
-      temp <- temp %>% 
-        select(-Cell) %>% 
-        group_by(Condition, Experiment) %>% 
-        mutate_all(median, na.rm = T) %>% 
-        distinct()
-    }
-    
-    
-    if(nrow(temp) < 10){
-      
-      return(list(
-        dv = temp_col,
-        p = NA,
-        ep = NA,
-        hsd_groups = data.frame(dv = c(NA, NA, NA), 
-                                groups = c(NA, NA, NA), 
-                                Condition = c(NA, NA, NA)
-        ),
-        fm = NA))
-      
-    } else {
-      
-      
-      temp_shuffle <- temp
-      resample_array <- map(1:1000, function(i){
-        temp_shuffle$Condition <- sample(temp_shuffle$Condition, replace = F)
-        fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp_shuffle)      
-        return(car::Anova(fm)[1,3])
-      }) %>% unlist()
-
-      
-      fm <- lm(as.formula(paste0(temp_col, " ~ Condition")), data = temp)
-      
-      fm_hsd <- agricolae::HSD.test(fm, trt = "Condition") 
-      fm_hsd <- fm_hsd$group
-      
-      fm_hsd$Condition <- rownames(fm_hsd)
-      
-      
-      
-      return(list(
-        dv = temp_col,
-        p = car::Anova(fm)[1,4],
-        ep = mean(resample_array >= car::Anova(fm)[1,3]),
-        hsd_groups = fm_hsd,
-        fm = fm))
-    }
-  })
-tictoc::toc()
-
-
-temp_list <- temp_list %>% transpose()
-fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
-                                p  = unlist(temp_list[[2]]),
-                                ep = unlist(temp_list[[3]]))
-
-
-# work up post hoc stats
-temp_list_hsd <- map(seq_along(temp_list[[4]]), function(i){
-  if (!is.na(unique(temp_list[[4]][[i]]$groups))){
-    temp_list[[4]][[i]] %>% 
-      gather("dv", "Estimate", names(temp_list[[4]][[i]])[1]) %>% 
-      pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
-      mutate_all(as.character)
-  }
-})  
-
-fm_overview_hsd <- do.call(rbind, temp_list_hsd)
-
-
-fm_overview_table <- full_join(fm_overview_table, fm_overview_hsd)
-```
-
-###Format table
-```{r}
-# add groupings
-fm_overview_table <- fm_overview_table %>% mutate(Family = case_when(
-  dv %in% c("vrest") ~ "Resting Voltage",
-  dv %in% c("r11", "r1") ~ "Membrane Resistance",
-  dv %in% ionic_cols ~ "Outward Currents",
-  dv %in% epsp_cols ~ "Excitability",
-  dv %in% c("r12", "rc", "ig", "cc", "ig.3_4", "ig.3_5", "ig.4_5") ~ "Coupling Measures"
-))
-
-fm_overview_table <- fm_overview_table %>% 
-  mutate(Family = factor(fm_overview_table$Family, levels = c("Membrane Resistance", "Resting Voltage", "Coupling Measures", "Outward Currents", "Excitability"))) %>% 
-  arrange(Family) %>% 
-  mutate(Family = as.character(Family))
-
-# temp <- rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName)
-fm_overview_table <- full_join(fm_overview_table, 
-                               rename(mRNAInfo[, c("Family", "RGeneName")], dv = RGeneName, Family2 = Family))
-
-fm_overview_table <- fm_overview_table %>% 
-  mutate(Family = ifelse(is.na(Family) & !is.na(Family2), Family2, Family)) %>% 
-  select(-Family2) %>% 
-  filter(!is.na(p))
-
-
-# add additional cols
-fm_overview_table$fdr <- p.adjust(fm_overview_table$ep, method = "fdr")
-
-fm_overview_table <- fm_overview_table %>% 
-  mutate(Estimate_0h = as.numeric(Estimate_0h),
-         Estimate_1h = as.numeric(Estimate_1h),
-         Estimate_24h = as.numeric(Estimate_24h)) %>% 
-  mutate(p = round(p, digits = 4),
-         ep = round(ep, digits = 4),
-         fdr = round(fdr, digits = 4),
-         Estimate_0h = round(Estimate_0h, digits = 4),
-         Estimate_1h = round(Estimate_1h, digits = 4),
-         Estimate_24h = round(Estimate_24h, digits = 4)) %>% 
-  mutate(stars = case_when(fdr > 0.10               ~ "",
-                           fdr < 0.10 & fdr > 0.05  ~ ".",
-                           fdr < 0.05 & fdr > 0.01  ~ "*",
-                           fdr < 0.01 & fdr > 0.001 ~ "**",
-                           fdr < 0.001              ~ "***"
-  ))
-
-
-# library(officer)
-library(flextable)
-M_ft <-flextable(fm_overview_table,
-                 col_keys = c("Family", "dv", "p", "ep",
-                              "fdr", 
-                              "stars", "Estimate_0h", "Estimate_1h", "Estimate_24h"))
-
-M_ft <- theme_vanilla(M_ft)
-M_ft <- merge_v(M_ft, j = c("Family") )
-# M_ft <- color(M_ft, ~ fdr < 0.05, ~ stars, color = "red")
-M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ dv, bold = TRUE)
-M_ft <- bold(M_ft, ~ p   <= 0.05, ~ p, bold = TRUE)
-M_ft <- bold(M_ft, ~ ep  <= 0.05, ~ ep, bold = TRUE)
-M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ fdr, bold = TRUE)
-M_ft <- bold(M_ft, ~ fdr <= 0.05, ~ stars, bold = TRUE)
-
-# get the groupings without showing the columns. 
-
-color_a = "#ffeda0"
-color_ab= "#feb24c"
-color_b = "#f03b20"
-color_c = "#2b8cbe"
-
-M_ft <- bg(M_ft, ~ groups_0h == "a", ~ Estimate_0h, bg = color_a)
-M_ft <- bg(M_ft, ~ groups_0h == "ab",~ Estimate_0h, bg = color_ab)
-M_ft <- bg(M_ft, ~ groups_0h == "b", ~ Estimate_0h, bg = color_b)
-M_ft <- bg(M_ft, ~ groups_0h == "c", ~ Estimate_0h, bg = color_c)
-
-M_ft <- bg(M_ft, ~ groups_1h == "a", ~ Estimate_1h, bg = color_a)
-M_ft <- bg(M_ft, ~ groups_1h == "ab",~ Estimate_1h, bg = color_ab)
-M_ft <- bg(M_ft, ~ groups_1h == "b", ~ Estimate_1h, bg = color_b)
-M_ft <- bg(M_ft, ~ groups_1h == "c", ~ Estimate_1h, bg = color_c)
-
-M_ft <- bg(M_ft, ~ groups_24h == "a", ~ Estimate_24h, bg = color_a)
-M_ft <- bg(M_ft, ~ groups_24h == "ab",~ Estimate_24h, bg = color_ab)
-M_ft <- bg(M_ft, ~ groups_24h == "b", ~ Estimate_24h, bg = color_b)
-M_ft <- bg(M_ft, ~ groups_24h == "c", ~ Estimate_24h, bg = color_c)
-
-
-M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_0h, bg = "White")
-M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_1h, bg = "White")
-M_ft <- bg(M_ft, ~ fdr > 0.05, ~ Estimate_24h, bg = "White")
-
-
-M_ft <- set_header_labels(M_ft, 
-                          dv = "", stars = "",
-                          Estimate_0h = "0h", Estimate_1h = "1h", Estimate_24h = "24h" )
-
-M_ft <- autofit(M_ft)
-M_ft
-
-pptx_file <- "./officer_output/DanielAnova.pptx"
-save_as_pptx("my table" = M_ft, path = pptx_file)
-
-docx_file <- "./officer_output/DanielAnova.docx"
-save_as_docx("my table" = M_ft, path = docx_file)
-
-
-```
 
 ## for my curiosity:
 
