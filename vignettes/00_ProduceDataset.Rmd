@@ -39,7 +39,8 @@ This file represents the full preparation of data. Ideally, where we pull proces
 ```{r global params}
 use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
 
-abf_dir_path <- "F:/0000_Traces_mRNA24hLC/"
+abf_dir_path <- "C:/Users/Daniel/Documents/GitHub/mRNA24hLC/inst/extdata/ABFs/0000_Traces_mRNA24hLC/" 
+#here("inst", "extdata", "ABFs","0000_Traces_mRNA24hLC") #"F:/0000_Traces_mRNA24hLC/"
 
 force_process_ABF <- c("000000_0000.abf")
 ```
@@ -1328,6 +1329,7 @@ workspace -- getting metrics from epsp
 
 # read in trace
 brian2_trace_files <- list.files(here("data", "predicted_voltage"))
+brian2_trace_files <- brian2_trace_files[stringr::str_ends(brian2_trace_files, ".*.rds")]
 
 brian2_trace_sets <- brian2_trace_files %>% 
   str_remove(pattern = "-actual_v.rds") %>% 
