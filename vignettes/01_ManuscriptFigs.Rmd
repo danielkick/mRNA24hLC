@@ -727,6 +727,20 @@ for(i in seq(1, nrow(mrna_cors))){
 mrna_cors$mrna1 <- factor(mrna_cors$mrna1, levels = mrnas)
 mrna_cors$mrna2 <- factor(mrna_cors$mrna2, levels = mrnas)
 
+
+
+
+# install.packages("GGally")
+
+
+```
+
+
+```{r}
+
+
+
+
 ## Data prep
 # mrna_cors %>% 
 #   ggplot(aes(x = 0, y = 0))+
@@ -765,10 +779,13 @@ mk_cor_scatter <- function(M, mrna1, mrna2,
     
     plt <- M %>% 
       ggplot(aes_string(x = mrna1, mrna2))+
+      geom_rect(aes(xmin=min(M$mrna1, na.rm = T), xmax=max(M$mrna1, na.rm = T),
+                    ymin=min(M$mrna2, na.rm = T), ymax=max(M$mrna2, na.rm = T)
+                    ), fill=fill_val)+
       stat_poly_line(formula = x ~ y, color = "black") +
       geom_point(alpha = 0.5)+
-      stat_poly_eq(aes(label = paste(after_stat(eq.label),
-                                     after_stat(rr.label), sep = "*\", \"*")))+
+      # stat_poly_eq(aes(label = paste(after_stat(eq.label),
+      #                                after_stat(rr.label), sep = "*\", \"*")))+
       theme_void()+
       theme(plot.background = element_rect(fill = fill_val),
             axis.title.x = element_text(face = "italic"),
@@ -811,6 +828,59 @@ for(i in seq(1, length(mrnas))){
 }
 
 
+
+
+
+# plt_list
+library(GGally)
+side_len <- (length(mrnas) -1)
+
+pm <- ggmatrix(
+  map(seq(1 , side_len**2), function(i){}),
+  nrow = side_len, ncol = side_len,
+  # xAxisLabels = c("A", "B", "C"),
+  # yAxisLabels = c("D", "E"),
+  title = "Matrix Title"
+)
+
+diagoffset <- 0
+colcount <- 1
+rowcount <- 1
+
+for(i in seq_along(plt_list)){
+  pm[rowcount, colcount] <- plt_list[[i]]
+  
+  if(colcount == side_len){
+    diagoffset <- diagoffset + 1
+    colcount <- 1 + diagoffset
+    rowcount <- rowcount + 1
+  } else {
+    colcount <- colcount + 1
+  }
+  
+  
+}
+
+# pm[1, 2] <- plt_list[[1]]
+pm
+
+# 
+# 
+# ggpairs(select(M,  -Group, -uid), 
+#         upper = list(continuous = "cor"),
+#   lower = list(na ="na"),
+#   diag = list( na = "naDiag"))
+
+
+
+
+```
+
+
+```{r}
+
+
+
 plot_grid(plt_list)
 
 library(patchwork)
@@ -843,8 +913,8 @@ plt_list[[1]]+plt_list[[2]]+plt_list[[3]]+plt_list[[4]]+plt_list[[5]]+plt_list[[
 #   ggraph(layout = 'linear', circular = TRUE) + 
 #   geom_edge_arc(aes(colour = ep)) + 
 #   coord_fixed()
-
 ```
+
 
 
 ```{r}
