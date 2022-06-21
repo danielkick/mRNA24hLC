@@ -51,7 +51,7 @@ theme_set(ggplot2::theme_minimal())
 devtools::load_all()
 ```
 
-# Data preparation
+# Data preparation #############################################################
 ## Load data and create a uid
 ```{r load data}
 ## Load in data ====
@@ -564,7 +564,7 @@ mrna_cols <- mrna_cols[mrna_cols %in% names(M_all)]
 ```
 "Ihtk.0", "Ihtk.Slope", "Ia.0", "Ia.Slope"
 
-# About the data
+# About the data ###############################################################
 ## What conditions exist in both datasets?
 ```{r}
 temp <- mrna %>% select(Pharm, Time, Source) %>% distinct()
@@ -676,210 +676,276 @@ mrna_b_winxiqr <- do.call(rbind, mrna_b_winxiqr_list)
 mrna_b_winxiqr_interp <- imputeMissings::impute(mrna_b_winxiqr, method = "median/mode")
 ```
 
+## 
 
-## Gestalt view: are there distinct groups?
+```{r}
+treatment <- unique(mrna_b_winxiqr$Group)[1]
+mrna1 <- "inx1"
+mrna2 <- "inx2"
 
-### PCA
+M <- mrna_b_winxiqr %>% filter(Group == treatment) #%>% select(uid, mrna1, mrna2)
 
-All groups
-```{r eval=FALSE}
-vis_pca_3D_plotly(
-  input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
-  color.by = unlist(select(mrna_b_winxiqr_interp, Group)),
-  use.colors = RColorBrewer::brewer.pal(9, "Paired"),
-  point.size = 3,
-  point.opacity = 1,
-  dropdowns = T,
-  dropdown.width = 1.5,
-  dropdown.opacity = 0.5,
-  ellipse.opacity = 0#.02
-)
-```
+## setup 
+mrnas <- c("nav", "cav1", "cav2", "bkkca", "shaker", "shal", "shab", "shaw1", "shaw2", "inx1", "inx2", "inx3")
 
-Combine observation groups 
-```{r eval=FALSE}
-mrna_b_annotations <- mrna_b_winxiqr_interp %>%
-  separate(Group, c("Source", "Pharm", "Time")) %>%
-  select(Source, Pharm, Time)
-
-# Color by Pharm
-vis_pca_3D_plotly(
-  input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
-  color.by = unlist(select(mrna_b_annotations, Pharm)),
-  use.colors = RColorBrewer::brewer.pal(9, "Paired"),
-  point.size = 3,
-  point.opacity = 1,
-  dropdowns = T,
-  dropdown.width = 1.5,
-  dropdown.opacity = 0.5,
-  ellipse.opacity = 0#.02
-)
-
-
-# Color by Time exposed
-vis_pca_3D_plotly(
-  input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
-  color.by = unlist(select(mrna_b_annotations, Time)),
-  use.colors = RColorBrewer::brewer.pal(9, "Paired"),
-  point.size = 3,
-  point.opacity = 1,
-  dropdowns = T,
-  dropdown.width = 1.5,
-  dropdown.opacity = 0.5,
-  ellipse.opacity = 0#.02
-)
-```
-
-```{r eval=FALSE, include=FALSE}
-mrna_b_pca_plts <- mk_pca_multi_plt(
-  input.df = select(mrna_b_winxiqr_interp, -Group, -uid),
-  scree.max.y = 100)
-
-cowplot::plot_grid(
-  plotlist = list(
-    mrna_b_pca_plts$biplt, 
-    mrna_b_pca_plts$cont2, 
-    mrna_b_pca_plts$cont1, 
-    mrna_b_pca_plts$scree)
-)
-
-# ggsave(plot = last_plot(),         
-#        filename = here("officer_output", "mRNA_Brian_PCA.tiff"),        
-#        width = 11.5, height = 4.76)
-```
-
-### UMAP
-```{r eval=FALSE, include=FALSE}
-set.seed(16069)
-temp.umap = umap(select(mrna_b_winxiqr_interp, -Group, -uid))
-
-temp <- temp.umap$layout %>% as.tibble()
-
-col_by_df <- mrna_b_winxiqr_interp[, "Group"] %>% as.data.frame() %>% rename("Group" = ".")
-col_by_df <- separate(col_by_df, col = "Group", sep = "_", c("Author", "Blocker", "Time"))
-
-# plot with convex hulls
-# https://stats.stackexchange.com/questions/22805/how-to-draw-neat-polygons-around-scatterplot-regions-in-ggplot2
-
-#getting the convex hull of each unique point set, must contain no missing data
-mrna_b_umap_plts <- map(
-  c("Group", "Blocker", "Time"), function(current_grouping){
-    df <- temp
-    if (current_grouping == "Group"){
-      df$Group <- mrna_b_winxiqr_interp[[current_grouping]]    
-    } else {
-      df$Group <- col_by_df[[current_grouping]]
+### Prep cor df
+mrna_cors <- list()
+for(i in seq_along(mrnas)){
+  for(j in seq(i, length(mrnas))){
+    if(i != j){
+      mrna_cors[[(length(mrna_cors)+1)]] <- c(mrnas[i], mrnas[j])
     }
+  }  
+}
+mrna_cors <- data.frame(do.call(rbind, mrna_cors))
+names(mrna_cors) <- c("mrna1", "mrna2")
+mrna_cors["Cor"] <- NA
+mrna_cors["ep"] <- NA
+### Fill cor df
+
+for(i in seq(1, nrow(mrna_cors))){
+  mrna1 <- mrna_cors[i, "mrna1"]
+  mrna2 <- mrna_cors[i, "mrna2"]
+  
+  # is there a significant correlation?
+  cor_obs <- cor(M[, c(mrna1)], M[, c(mrna2)], use = "pairwise.complete.obs", method = "pearson")
+  cor_obs <- as.numeric(cor_obs)
+  
+  niter <- 1000
+  cor_sim <- unlist(map(seq(1, niter), function(i){
+    # return(cor(M[[mrna1]], sample(M[[mrna2]]) ) )
+    cor_obs <- cor(M[, c(mrna1)], sample(unlist(M[, c(mrna2)])), use = "pairwise.complete.obs", method = "pearson")
+    return(unlist(cor_obs))
+    }))
+  cor_ep <- mean(c(cor_obs, abs(cor_sim)) >= cor_obs)
+  
+  mrna_cors[i, "Cor"] <- cor_obs
+  mrna_cors[i, "ep"]  <- cor_ep
+}
+
+# fix levels
+mrna_cors$mrna1 <- factor(mrna_cors$mrna1, levels = mrnas)
+mrna_cors$mrna2 <- factor(mrna_cors$mrna2, levels = mrnas)
+
+## Data prep
+# mrna_cors %>% 
+#   ggplot(aes(x = 0, y = 0))+
+#   geom_tile(aes(fill = Cor) )+
+#   geom_label(aes(label = Cor))+
+#   facet_grid(mrna1 ~ mrna2)
+  
+
+# get the right color for the background
+fill_val <- mrna_cors[(
+  (mrna_cors$mrna1 == mrna1 & mrna_cors$mrna2 == mrna2) & 
+  (mrna_cors$ep < 0.05)), "Cor"]
+
+
+mk_cor_scatter <- function(M, mrna1, mrna2,
+                           fill_val){
+  
+  if( length(fill_val) == 0 ){ # if there's a non-significant correlation, don't add fit.
+    fill_val <- "#00000000"
     
-    find_hull <- function(df) df[chull(df$V1, df$V2), ]
-    hulls <- plyr::ddply(df, "Group", find_hull)
+    plt <- M %>% 
+      ggplot(aes_string(x = mrna1, mrna2))+
+      # stat_poly_line(formula = x ~ y, color = "black") +
+      geom_point(alpha = 0.5)+
+      # stat_poly_eq(aes(label = paste(after_stat(eq.label),
+      #                                after_stat(rr.label), sep = "*\", \"*")))+
+      theme_void()+
+      theme(#plot.background = element_rect(fill = fill_val),
+            axis.title.x = element_text(face = "italic"),
+            axis.title.y = element_text(face = "italic"))
     
-    ggplot(df, aes(V1, V2, color = Group, fill = Group))+
-      geom_polygon(data = hulls, alpha = 0.1) +
-      geom_point()
-  })
-
-# plot_grid(plotlist = mrna_b_umap_plts)
-
-mrna_b_umap_plts[[1]] + patchwork::plot_spacer() + mrna_b_umap_plts[[2]] + mrna_b_umap_plts[[3]]
-```
-
-### Clustering
-
-```{r cache=TRUE, eval=FALSE}
-# If a move to tidygraph/ggraph becomes desirable
-# https://rpubs.com/Roeland-KINDT/702542
-
-set.seed(654684)
-cluster <- pvclust(
-  t(select(mrna_b_winxiqr_interp, -Group, -uid)),
-  method.hclust = "ward.D2",
-  method.dist = "correlation",
-  use.cor = "pairwise.complete.obs")
-```
-
-```{r, eval=FALSE, layout="l-body-outset", fig.width = 8, fig.asp = .7}
-# fig.width = 7, fig.asp = .607
-# 755/1243 # desired output height width
-
-# for bar with all groups
-my_colors <- case_when(
-  mrna_b_winxiqr$Group == "Brian_AP_24h" ~ "#8c2d04",
+    
+  } else {    # if there's a significant correlation, add the fit.
+    vals <- seq(-1, to = 1, length.out = 7)
+    fill_val <- RColorBrewer::brewer.pal(9, "PuOr")[seq(2, 8)][(fill_val < vals)][1]
+    
+    plt <- M %>% 
+      ggplot(aes_string(x = mrna1, mrna2))+
+      stat_poly_line(formula = x ~ y, color = "black") +
+      geom_point(alpha = 0.5)+
+      stat_poly_eq(aes(label = paste(after_stat(eq.label),
+                                     after_stat(rr.label), sep = "*\", \"*")))+
+      theme_void()+
+      theme(plot.background = element_rect(fill = fill_val),
+            axis.title.x = element_text(face = "italic"),
+            axis.title.y = element_text(face = "italic"))
+  }
   
-  mrna_b_winxiqr$Group == "Brian_None_0h" ~ "#4292c6",
-  mrna_b_winxiqr$Group == "Brian_None_24h" ~ "#084594",
-  
-  mrna_b_winxiqr$Group == "Brian_TEA_1h" ~ "#ef3b2c",
-  mrna_b_winxiqr$Group == "Brian_TEA_24h" ~ "#99000d",
-  
-  mrna_b_winxiqr$Group == "Brian_TTX_24h" ~ "#4a1486")
+  return(plt)
+}
 
-# for bars with one group
-flag_ap_d <- ifelse(mrna_b_winxiqr$Group == "Brian_AP_24h" , "#8c2d04", NA)
-flag_none_b <- ifelse(mrna_b_winxiqr$Group == "Brian_None_0h" , "#4292c6", NA)
-flag_none_d <- ifelse(mrna_b_winxiqr$Group == "Brian_None_24h" , "#084594", NA)
-flag_tea_c <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_1h" , "#ef3b2c", NA)
-flag_tea_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TEA_24h" , "#99000d", NA)
-flag_ttx_d <- ifelse(mrna_b_winxiqr$Group == "Brian_TTX_24h" , "#4a1486", NA)
+mk_cor_scatter(M = M, 
+               mrna1 = mrna1, 
+               mrna2 = mrna2,
+               fill_val = fill_val)
 
+# make all the plots
+plt_list <- list()
 
-group_flag_list <- list(
-  flag_ap_d,
-  flag_none_b,
-  flag_none_d,
-  flag_tea_c,
-  flag_tea_d,
-  flag_ttx_d
-)  
-group_flag_name_list <- list(
-  "ap_24h",
-  "none_0h",
-  "none_24h",
-  "tea_1h",
-  "tea_24h",
-  "ttx_24h"
-)  
+for(i in seq(1, length(mrnas))){
+  for(j in seq(i, length(mrnas))){
+    if(i != j){
 
-
-par(mar=c(8,2,2,1)) # quick ref on par https://bookdown.org/ndphillips/YaRrr/plot-margins.html
-
-dend <- cluster %>% 
-  as.dendrogram() %>% 
-  set("branches_k_color",
-      value = c(
-        #"#a6cee3", 
-        "#1f78b4", 
-        "#fb9a99",
-        "#e31a1c", 
-        #"#fdbf6f", 
-        "#ff7f00"
-      ),
-      k = 6)
-# set("labels_col", 
-#     value = c("#a6cee3", "#1f78b4", "#fb9a99", 
-#               "#e31a1c", "#fdbf6f", "#ff7f00"),
-#     k = 6) #%>%
-
-
-plot(dend)
-
-colored_bars(colors = my_colors, 
-             dend = as.dendrogram(cluster), 
-             rowLabels = " Groups",
-             y_shift = -.15)
-
-
-bar_y_pos <- -0.15
-for (i in seq_along(group_flag_list)){
-  bar_y_pos <- bar_y_pos-0.05
-  colored_bars(colors = group_flag_list[[i]], 
-               dend = as.dendrogram(cluster), 
-               rowLabels = group_flag_name_list[[i]],
-               y_shift = bar_y_pos)
+      mrna1 = mrnas[i]
+      mrna2 = mrnas[j]
+      
+      fill_val <- mrna_cors[(
+        (mrna_cors$mrna1 == mrna1 & mrna_cors$mrna2 == mrna2) & 
+        (mrna_cors$ep < 0.05)), "Cor"]
+      
+      print(fill_val)
+      
+      plt_list[[(1+length(plt_list))]] <- mk_cor_scatter(
+        M = M, 
+        mrna1 = mrna1, 
+        mrna2 = mrna2,
+        fill_val = fill_val)
+      
+            
+    }
+  }  
 }
 
 
+plot_grid(plt_list)
+
+library(patchwork)
+
+# quick and dirty get all the plots ordered
+patchwork_string <- c()
+
+ith <- 1
+for(i in seq(1, length(mrnas))){
+  for(j in seq(1, length(mrnas))){
+    if(i == j){
+      
+    } else if(j > i){
+      patchwork_string <- c(patchwork_string, paste0("plt_list[[", as.character(ith), "]]"))
+      ith <- ith+1
+    } else {
+      patchwork_string <- c(patchwork_string, "plot_spacer()")
+      
+    }
+  }
+}
+patchwork_string <- paste(patchwork_string, collapse = "+")
+
+# patchwork_string+patchwork::plot_layout(ncol = length(mrnas))
+
+plt_list[[1]]+plt_list[[2]]+plt_list[[3]]+plt_list[[4]]+plt_list[[5]]+plt_list[[6]]+plt_list[[7]]+plt_list[[8]]+plt_list[[9]]+plt_list[[10]]+plt_list[[11]]+plot_spacer()+plt_list[[12]]+plt_list[[13]]+plt_list[[14]]+plt_list[[15]]+plt_list[[16]]+plt_list[[17]]+plt_list[[18]]+plt_list[[19]]+plt_list[[20]]+plt_list[[21]]+plot_spacer()+plot_spacer()+plt_list[[22]]+plt_list[[23]]+plt_list[[24]]+plt_list[[25]]+plt_list[[26]]+plt_list[[27]]+plt_list[[28]]+plt_list[[29]]+plt_list[[30]]+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[31]]+plt_list[[32]]+plt_list[[33]]+plt_list[[34]]+plt_list[[35]]+plt_list[[36]]+plt_list[[37]]+plt_list[[38]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[39]]+plt_list[[40]]+plt_list[[41]]+plt_list[[42]]+plt_list[[43]]+plt_list[[44]]+plt_list[[45]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[46]]+plt_list[[47]]+plt_list[[48]]+plt_list[[49]]+plt_list[[50]]+plt_list[[51]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[52]]+plt_list[[53]]+plt_list[[54]]+plt_list[[55]]+plt_list[[56]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[57]]+plt_list[[58]]+plt_list[[59]]+plt_list[[60]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[61]]+plt_list[[62]]+plt_list[[63]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[64]]+plt_list[[65]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plt_list[[66]]+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+plot_spacer()+patchwork::plot_layout(ncol = length(mrnas))
+
+
+# as_tbl_graph(mrna_cors) %>% 
+#   ggraph(layout = 'linear', circular = TRUE) + 
+#   geom_edge_arc(aes(colour = ep)) + 
+#   coord_fixed()
+
 ```
+
+
+```{r}
+library(ggraph)
+library(igraph)
+
+temp <- mutate(mrna_cors, 
+               from = as.numeric(as.factor(mrna1)), 
+               to   = as.numeric(as.factor(mrna2))
+               )
+# graph <- graph_from_data_frame(temp[, c("from", "to")])
+
+# graph <- temp %>% 
+#     graph_from_data_frame(directed = FALSE)
+# 
+# # Not specifying the layout - defaults to "auto"
+# ggraph(graph) + 
+#     # geom_edge_link(aes(colour = factor(Cor))) + 
+#     geom_edge_link(aes(edge_alpha = 1-ep)) + 
+#     geom_node_point()
+
+
+# = = = = 
+
+# Create a tidy data frame of correlations
+tidy_cors <- M[, mrnas] %>% 
+  correlate() %>% 
+  stretch()
+
+tidy_cors["ep"] <- NA
+
+for(i in seq(1, nrow(mrna_cors))){
+  mrna1 <- mrna_cors[i, "mrna1"]
+  mrna2 <- mrna_cors[i, "mrna2"]
+  
+  tidy_cors[((tidy_cors$x == mrna1) & (tidy_cors$y == mrna2)) | (
+    (tidy_cors$x == mrna2) & (tidy_cors$y == mrna1)
+  ) , "ep"] <- mrna_cors[i, "ep"]
+  
+}
+
+
+# eps1 <- full_join(
+#   tidy_cors, 
+#   rename(select(mrna_cors, -Cor), x = mrna1, y = mrna2)
+#   ) %>% 
+#   filter(!is.na(ep))
+#   
+# eps2 <- full_join(
+#   tidy_cors,
+#     rename(select(mrna_cors, -Cor), x = mrna2, y = mrna1)
+#           ) 
+#   
+# full_join(
+#   tidy_cors,
+#   eps1) %>% full_join(eps2)
+
+# Convert correlations stronger than some value
+# to an undirected graph object
+# graph_cors <- tidy_cors %>% 
+#   filter(abs(r) > 0.7) %>% 
+#   graph_from_data_frame(directed = FALSE)
+# 
+# # Plot
+# ggraph(graph_cors) +
+#   geom_edge_link() +
+#   geom_node_point() +
+#   geom_node_text(aes(label = name), repel = TRUE) +
+#   theme_graph()
+
+
+# = = = = 
+#ref https://www.data-imaginist.com/2017/ggraph-introduction-layouts/
+graph_cors <- tidy_cors %>% 
+  # mutate(bool = case_when(ep < 0.05 ~ TRUE,
+  #                         ep >= 0.05 ~ FALSE)) %>% 
+  # filter(abs(ep) < 0.05) %>% 
+  graph_from_data_frame(directed = FALSE)
+
+
+graph_cors_sig <- tidy_cors %>% 
+  mutate(r = case_when(ep < 0.05 ~ r,
+                       ep >= 0.05~ 0)) %>%
+
+  graph_from_data_frame(directed = FALSE)
+
+custom_network_plot <- 
+ggraph(graph_cors_sig, layout = 'linear', circular = TRUE) +
+  geom_edge_link(aes(edge_alpha = 1/ep, edge_width = 1/ep, color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("#B35806", "White","#542788")) +
+  geom_node_point(color = "gray", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  theme_graph() +
+  labs(title = "")
+
+```
+
+
+
+
 
 ## Correlations
 ### Correlation heatmaps
