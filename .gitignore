@@ -17,5 +17,4 @@
 *.eps
 # Don't track files that are generated from the scripts
 /inst/extdata/EsynvmodData/*
-/data/*
 /temp/*
