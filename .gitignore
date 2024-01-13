@@ -5,6 +5,7 @@
 # Don't track ABFs -- large and static
 *.abf
 *.atf
+*.zip
 
 # Don't track human files for the time being.
 *.docx
@@ -18,3 +19,5 @@
 # Don't track files that are generated from the scripts
 /inst/extdata/EsynvmodData/*
 /temp/*
+*.rds
+
