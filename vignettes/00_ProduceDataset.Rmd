@@ -39,7 +39,7 @@ This file represents the full preparation of data. Ideally, where we pull proces
 ```{r global params}
 use.file.path <- here("inst", "extdata", "ManualDataEphys02.xlsx")
 
-abf_dir_path <- "C:/Users/Daniel/Documents/GitHub/mRNA24hLC/inst/extdata/ABFs/0000_Traces_mRNA24hLC/" 
+abf_dir_path <- "./inst/extdata/ABFs/" 
 #here("inst", "extdata", "ABFs","0000_Traces_mRNA24hLC") #"F:/0000_Traces_mRNA24hLC/"
 
 force_process_ABF <- c("000000_0000.abf")
@@ -985,11 +985,15 @@ HARDCODED_TAU <- 25
 # unique_abfs <- "190808a_0014.abf"
 unique_abfs <- process_these_abfs[process_these_abfs$Experiment %in% all_cell_params$Experiment, ]$File
   
+
+
 ## Simulate each cell ====
+pb = txtProgressBar(min = 0, max = length(unique_abfs), 
+                    initial = 0, 
+                    style = 3, char = '█') 
 for (i in seq_along(unique_abfs)){
-  tictoc::tic()
-  print(i)
-  
+  setTxtProgressBar(pb,i)
+
   current_file <- as.character(unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], "File"])[1])
   ## Should we process the current ABF? ====
   current_trace <- check_abf_expected(
@@ -1000,78 +1004,84 @@ for (i in seq_along(unique_abfs)){
   )
   
   if (current_trace$process){
-  current_trace <- current_trace$trace
+    current_trace <- current_trace$trace
     
-  # handle cells sequentially
-  unique_cells <- unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], ]$Cell)
-  unique_cells <- unique_cells[!is.na(unique_cells)]
-  
-  for (j in seq_along(unique_cells)){
-    current_cell <- unique_cells[j]
-    current_cell_params <- all_cell_params[all_cell_params$File == current_file &
-      all_cell_params$Experiment == unlist(str_split(current_file, pattern = "_"))[1] &
-                                             all_cell_params$Cell == unique_cells[j], ] %>% 
-      distinct()
+    # handle cells sequentially
+    unique_cells <- unlist(process_these_abfs[process_these_abfs$File == unique_abfs[i], ]$Cell)
+    unique_cells <- unique_cells[!is.na(unique_cells)]
     
-    if(nrow(current_cell_params) > 1){
-      warning("current_cell_params contains more than one row! Retaining only the first row.")
-      current_cell_params <- current_cell_params[1, ]
-    }
-    
-    if (nrow(current_cell_params)==1){ # if there are no acceptable parameters, current_cell_params will be nrow == 0 
+    for (j in seq_along(unique_cells)){
+      current_cell <- unique_cells[j]
+      current_cell_params <- all_cell_params[
+        all_cell_params$File == current_file &
+        all_cell_params$Experiment == unlist(str_split(current_file, pattern = "_"))[1] &
+        all_cell_params$Cell == unique_cells[j], ] %>% 
+        distinct()
       
-        
-        
+      if(nrow(current_cell_params) > 1){
+        warning("current_cell_params contains more than one row! Retaining only the first row.")
+        current_cell_params <- current_cell_params[1, ]
+      }
+      
+      if (nrow(current_cell_params)==1){ # if there are no acceptable parameters, current_cell_params will be nrow == 0 
         if (unlist(current_cell_params[, "Channel"]) == "In4"){
-          out <- predict_epsp_responses(trace = current_trace,
-                                        tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
-                                        rin = as.numeric(unlist(current_cell_params[, "Rin"])),
-                                        v_ch = "In4",
-                                        i_ch = "In7")
           
-          # Save for review:
-          saveRDS(current_trace[, c("In4", "In7", "Sweep", "Time")], 
-                  here("data", "predicted_voltage", paste(
-                    str_remove(current_file, ".abf"), "epsp", "In4", "actual_v.rds", sep = "-")))
+          path_obs_v_file <- here(
+            "data", "predicted_voltage", paste(str_remove(current_file, ".abf"), "epsp", "In4", "actual_v.rds", sep = "-"))
+          path_sim_v_file <- here(
+            "data", "predicted_voltage", paste(str_remove(current_file, ".abf"), "epsp", "In4", "predict_v.rds", sep = "-"))
           
-          saveRDS(out$predictions, 
-                  here("data", "predicted_voltage", paste(
-                    str_remove(current_file, ".abf"), "epsp", "In4", "predict_v.rds", sep = "-")))
+          path_plt_v_file <- here(
+            "data", "data_audits", "epsp", paste(str_remove(current_file,".abf"),"epsp", "In4", "segment.pdf", sep = "-"))
           
-          
-          
-          
-          save_plot(here("data", "data_audits", "epsp", paste(
-            str_remove(current_file, ".abf"), "epsp", "In4", "segment.pdf", sep = "-")),
-            out$diagnostic_plots$trace, base_height = 7, base_width = 10)
-          
-          
+          if(!(file.exists(path_obs_v_file) & 
+               file.exists(path_sim_v_file) &
+               file.exists(path_plt_v_file) )){
+            
+            
+            out <- predict_epsp_responses(trace = current_trace,
+                                          tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+                                          rin = as.numeric(unlist(current_cell_params[, "Rin"])),
+                                          v_ch = "In4",
+                                          i_ch = "In7")
+            # Save for review:
+            saveRDS(current_trace[, c("In4", "In7", "Sweep", "Time")], path_obs_v_file)
+            
+            saveRDS(out$predictions, path_sim_v_file)
+            
+            save_plot(path_plt_v_file, out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+          }
         } else if (unlist(current_cell_params[, "Channel"]) == "In9"){
-          out <- predict_epsp_responses(trace = current_trace,
-                                        tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
-                                        rin = as.numeric(unlist(current_cell_params[, "Rin"])),
-                                        v_ch = "In9",
-                                        i_ch = "In12")
           
-          # Save for review:
-          saveRDS(current_trace[, c("In9", "In12", "Sweep", "Time")], 
-                  here("data", "predicted_voltage", paste(
-                    str_remove(current_file, ".abf"), "epsp", "In9", "actual_v.rds", sep = "-")))
+          path_obs_v_file <- here(
+            "data", "predicted_voltage", paste(str_remove(current_file, ".abf"), "epsp", "In9", "actual_v.rds", sep = "-"))
+          path_sim_v_file <- here(
+            "data", "predicted_voltage", paste(str_remove(current_file, ".abf"), "epsp", "In9", "predict_v.rds", sep = "-"))
           
-          saveRDS(out$predictions, 
-                  here("data", "predicted_voltage", paste(
-                    str_remove(current_file, ".abf"), "epsp", "In9", "predict_v.rds", sep = "-")))
+          path_plt_v_file <- here(
+            "data", "data_audits", "epsp", paste(str_remove(current_file,".abf"),"epsp", "In9", "segment.pdf", sep = "-"))
           
-          save_plot(here("data", "data_audits", "epsp", paste(
-            str_remove(current_file, ".abf"), "epsp", "In9", "segment.pdf", sep = "-")),
-            out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+          if(!(file.exists(path_obs_v_file) & 
+               file.exists(path_sim_v_file) &
+               file.exists(path_plt_v_file) )){
+            out <- predict_epsp_responses(trace = current_trace,
+                                          tau = HARDCODED_TAU, #abs(as.numeric(unlist(current_cell_params[, "Tau"]))),
+                                          rin = as.numeric(unlist(current_cell_params[, "Rin"])),
+                                          v_ch = "In9",
+                                          i_ch = "In12")
+            
+            # Save for review:
+            saveRDS(current_trace[, c("In9", "In12", "Sweep", "Time")], path_obs_v_file)
+            
+            saveRDS(out$predictions, path_sim_v_file)
+            
+            save_plot(path_plt_v_file, out$diagnostic_plots$trace, base_height = 7, base_width = 10)
+          }
         }
       }
     }
   }
-  tictoc::toc()
 }
-
 tictoc::toc()
 
 ```
