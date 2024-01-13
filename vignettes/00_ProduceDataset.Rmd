@@ -1329,7 +1329,7 @@ tictoc::toc()
 
 Calculate summary metrics from epsp
 workspace -- getting metrics from epsp
-```{r eval=FALSE}
+```{r eval=TRUE}
 
 # Goal: extract Absolute measures and differential measures for 
 # 1. Burst Amplitude (max mV)
@@ -1346,8 +1346,12 @@ brian2_trace_sets <- brian2_trace_files %>%
   str_remove(pattern = "-predict_v.rds") %>% 
   unique()
 
+pb = txtProgressBar(min = 0, max = length(brian2_trace_sets), 
+                    initial = 0, style = 3, char = '█') 
+
 epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
-  print(i)
+  # print(i)
+  setTxtProgressBar(pb,i)
   brian2_read_in <- brian2_trace_files[str_detect(brian2_trace_files, brian2_trace_sets[i])]
   
 
@@ -1374,7 +1378,7 @@ epsp_summary_list <- map(seq(1, length(brian2_trace_sets)), function(i){
   temp_a$Sweep <- as.character(temp_a$Sweep)
   temp_p$Sweep <- as.character(temp_p$Sweep)
   
-  temp <- full_join(temp_a, select(temp_p, -Time)) %>% select(-nrow)
+  temp <- full_join(temp_a, select(temp_p, -Time), by = c("Sweep", "nrow") ) %>% select(-nrow)
   
   # Show difference between expected/actual
   # i = 1
@@ -1544,8 +1548,12 @@ ia$slope <- NA %>% as.numeric()
 ia <- ia %>% mutate(iter.var = paste(Experiment, Cell, Condition, sep =  "_"))
 iter.over <- ia$iter.var %>% unique()
 
+
+pb = txtProgressBar(min = 0, max = length(iter.over), 
+                    initial = 0, style = 3, char = '█') 
 walk(1:length(iter.over), function(i){
-  print(i)
+  setTxtProgressBar(pb,i)
+  # print(i)
   temp.df <- ia[ia$iter.var == iter.over[i], ]
   # temp <- select(temp, -c(leak, leak.sub))
   if(length(na.omit(temp.df$S2Max)) >1 &
@@ -1576,8 +1584,11 @@ ia$slope_s <- NA %>% as.numeric()
 ia <- ia %>% mutate(iter.var = paste(Experiment, Cell, Condition, sep =  "_"))
 iter.over <- ia$iter.var %>% unique()
 
+pb = txtProgressBar(min = 0, max = length(iter.over), 
+                    initial = 0, style = 3, char = '█') 
 walk(1:length(iter.over), function(i){
-  print(i)
+  setTxtProgressBar(pb,i)
+  # print(i)
   temp.df <- ia[ia$iter.var == iter.over[i], ]
   # temp <- select(temp, -c(leak, leak.sub))
   if(length(na.omit(temp.df$S2Mean)) >1 &
@@ -1648,8 +1659,13 @@ iter.over <- ihtk$iter.var %>% unique()
 ihtk$na.action <- "NA"
 ihtk$leak <- as.numeric(ihtk$leak) # necessary for merging
 ihtk$leak.sub <- as.numeric(ihtk$leak.sub) # necessary for merging
+
+
+pb = txtProgressBar(min = 0, max = length(iter.over), 
+                    initial = 0, style = 3, char = '█')
 walk(1:length(iter.over), function(i){
-  print(i)
+  setTxtProgressBar(pb,i)
+  # print(i)
   temp <- ihtk[ihtk$iter.var == iter.over[i], ]
   temp <- select(temp, -c(leak, leak.sub))
   
@@ -1695,8 +1711,11 @@ Fit Roughly linear portion from IHTK
 ihtk$intercept <- NA %>% as.numeric() 
 ihtk$slope <- NA %>% as.numeric()
 
+pb = txtProgressBar(min = 0, max = length(iter.over), 
+                    initial = 0, style = 3, char = '█')
 walk(1:length(iter.over), function(i){
-  print(i)
+  setTxtProgressBar(pb,i)
+  # print(i)
   temp.df <- ihtk[ihtk$iter.var == iter.over[i], ]
   # temp <- select(temp, -c(leak, leak.sub))
   if(nrow(temp.df) > 1){
@@ -1733,8 +1752,12 @@ Repeat for the sustained portion of the current.
 ihtk$intercept_s <- NA %>% as.numeric() 
 ihtk$slope_s <- NA %>% as.numeric()
 
+
+pb = txtProgressBar(min = 0, max = length(iter.over), 
+                    initial = 0, style = 3, char = '█')
 walk(1:length(iter.over), function(i){
-  print(i)
+  setTxtProgressBar(pb,i)
+  # print(i)
   temp.df <- ihtk[ihtk$iter.var == iter.over[i], ]
   # temp <- select(temp, -c(leak, leak.sub))
   if(nrow(temp.df) > 1){
