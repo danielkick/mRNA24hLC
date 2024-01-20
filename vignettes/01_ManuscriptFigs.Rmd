@@ -1899,7 +1899,7 @@ cor_comp_df %>%
 
 
 
-
+library(flextable)
 # make display table
 cor_comp_ft <- cor_comp_df %>% 
   mutate(Corr = round(Corr, digits = 3)) %>% 
@@ -1965,10 +1965,10 @@ cor_comp_ft <- set_header_labels(cor_comp_ft,
 cor_comp_ft <- autofit(cor_comp_ft)
 cor_comp_ft
 
-pptx_file <- "./officer_output/CorComparison.pptx"
+pptx_file <- "./output/officer_output/CorComparison.pptx"
 save_as_pptx("my table" = cor_comp_ft, path = pptx_file)
 
-docx_file <- "./officer_output/CorComparison.docx"
+docx_file <- "./output/officer_output/CorComparison.docx"
 save_as_docx("my table" = cor_comp_ft, path = docx_file)
 
 
@@ -2011,10 +2011,10 @@ cor_change_count_ft <- set_header_labels(cor_change_count_ft,
 cor_change_count_ft <- autofit(cor_change_count_ft)
 cor_change_count_ft
 
-pptx_file <- "./officer_output/CorComparisonCount.pptx"
+pptx_file <- "./output/officer_output/CorComparisonCount.pptx"
 save_as_pptx("my table" = cor_change_count_ft, path = pptx_file)
 
-docx_file <- "./officer_output/CorComparisonCount.docx"
+docx_file <- "./output/officer_output/CorComparisonCount.docx"
 save_as_docx("my table" = cor_change_count_ft, path = docx_file)
 
 
@@ -2053,7 +2053,7 @@ partial_count_table %>%
 
 cor_comp_df %>% 
   spread(Source, Corr) %>% 
-  filter(Brian >= 0.7 ) %>% #| Daniel >= 0.7) %>%
+  filter(Brian >= 0.7 ) %>% ## | Daniel >= 0.7) %>%
   gather(Source, Corr, c("Brian", "Daniel")) %>% 
   # spread(Time, Corr) %>% 
   pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
@@ -2063,7 +2063,7 @@ cor_comp_df %>%
 
 cor_comp_df %>% 
   spread(Source, Corr) %>% 
-  filter(Daniel >= 0.7 ) %>% #| Daniel >= 0.7) %>%
+  filter(Daniel >= 0.7 ) %>% ## | Daniel >= 0.7) %>%
   gather(Source, Corr, c("Brian", "Daniel")) %>% 
   # spread(Time, Corr) %>% 
   pivot_wider(names_from = c("Source", "Time"), values_from = "Corr") %>% 
@@ -2105,32 +2105,15 @@ cor_comp_df %>%
 
 library(gridExtra)
 
-
-### ####
-compare_corgrams_plt /
-  compare_cor_scatter_plt /
-  # patchwork::plot_spacer() +
-  # gridExtra::tableGrob(compare_cor_table, 
-  #                      theme = gridExtra::ttheme_default(
-  #                        core = list(fg_params=list(cex = .40)),
-  #                        colhead = list(fg_params=list(cex = .40))#,
-  #                        # rowhead = list(fg_params=list(cex = .20))
-  #                        )
-  #                      ) + 
-  compare_cor_ecdf_plt
-  # patchwork::plot_layout(nrow = 3, ncol = 1, 
-  #    
-
-
-ggsave(here("officer_output", "compare_corgrams_plt.tiff"),
+ggsave(here("output", "officer_output", "compare_corgrams_plt.tiff"),
        compare_corgrams_plt, 
        width = 8.5, units = "in")
 
-ggsave(here("officer_output", "compare_cor_scatter_plt.tiff"),
+ggsave(here("output", "officer_output", "compare_cor_scatter_plt.tiff"),
        compare_cor_scatter_plt, 
        width = 8.5, units = "in")
 
-ggsave(here("officer_output", "compare_cor_ecdf_plt.tiff"),
+ggsave(here("output", "officer_output", "compare_cor_ecdf_plt.tiff"),
        compare_cor_ecdf_plt, 
        width = 8.5, units = "in")
 
@@ -2155,7 +2138,11 @@ unique_comparisons$slope.p <- NA
 
 
 # Ancova
+pb = txtProgressBar(min = 0, max = nrow(unique_comparisons), 
+                    initial = 0, style = 3, char = '█') 
 for (i in 1:nrow(unique_comparisons)){
+  setTxtProgressBar(pb,i)
+  
   temp <- filter(mrna_rep_winxiqr, 
                  Source == "Daniel") %>% 
     select(unique_comparisons[i, "x"],
@@ -2186,8 +2173,10 @@ unique_comparisons$t <- NA
 unique_comparisons$p.value <- NA
 unique_comparisons$df <- NA
 
-
+pb = txtProgressBar(min = 0, max = nrow(unique_comparisons), 
+                    initial = 0, style = 3, char = '█') 
 for (i in 1:nrow(unique_comparisons)){
+  setTxtProgressBar(pb,i)
   temp <- filter(mrna_rep_winxiqr, 
                  Source == "Daniel",
                  Time == unique_comparisons[i, "Time"]) %>% 
@@ -2212,7 +2201,6 @@ for (i in 1:nrow(unique_comparisons)){
 
 
 # useful ref
-library(flextable)
 cor_use_ft <- unique_comparisons %>% 
   select(x, y, Time, slope.p, cor, cor.p) %>%
   
@@ -2281,10 +2269,10 @@ cor_use_ft
 
 
 
-pptx_file <- "./officer_output/DanielAncova.pptx"
+pptx_file <- "./output/officer_output/DanielAncova.pptx"
 save_as_pptx("my table" = cor_use_ft, path = pptx_file)
 
-docx_file <- "./officer_output/DanielAncova.docx"
+docx_file <- "./output/officer_output/DanielAncova.docx"
 save_as_docx("my table" = cor_use_ft, path = docx_file)
 ```
 
@@ -2638,7 +2626,7 @@ M_winxiqr_list <- map(c("0h", "1h", "24h"), function(condition){
 
 M_winxiqr <- do.call(rbind, M_winxiqr_list)
 M_winxiqr <- M_winxiqr %>% 
-  select(-Sweep) %>% 
+  # select(-Sweep) %>% 
   group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
@@ -2696,7 +2684,7 @@ pca_summary_descriptions <- map(list_for_pca, function(df){
 # {pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
 
 ggsave(plot = last_plot(), 
-       filename = here("officer_output", "PCA_Contrast.tiff"),        
+       filename = here("output", "officer_output", "PCA_Contrast.tiff"),        
        width = 11.5, height = 4.76)
 
 ```

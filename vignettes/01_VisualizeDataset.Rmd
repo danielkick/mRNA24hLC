@@ -45,7 +45,7 @@ library(rgl) # for vis_pca_3D
 library(ggnewscale) # for newscale so that mk_hclust
 # library(scales) # for overiding scientific notation on dendrogram y axis 
 
-
+library(flextable)
 library(ggpmisc) # for labeling through stat_poly_eq
 theme_set(ggplot2::theme_minimal())
 devtools::load_all()
@@ -1971,8 +1971,8 @@ library(gridExtra)
 
 
 ### ####
-compare_corgrams_plt /
-  compare_cor_scatter_plt /
+# compare_corgrams_plt /
+#   compare_cor_scatter_plt /
   # patchwork::plot_spacer() +
   # gridExtra::tableGrob(compare_cor_table, 
   #                      theme = gridExtra::ttheme_default(
@@ -1981,7 +1981,7 @@ compare_corgrams_plt /
   #                        # rowhead = list(fg_params=list(cex = .20))
   #                        )
   #                      ) + 
-  compare_cor_ecdf_plt
+  # compare_cor_ecdf_plt
   # patchwork::plot_layout(nrow = 3, ncol = 1, 
   #    
 
@@ -2502,7 +2502,7 @@ M_winxiqr_list <- map(c("0h", "1h", "24h"), function(condition){
 
 M_winxiqr <- do.call(rbind, M_winxiqr_list)
 M_winxiqr <- M_winxiqr %>% 
-  select(-Sweep) %>% 
+  # select(-Sweep) %>% 
   group_by(Condition, Cell, Experiment, Channel, Source, Pharm, Time, Sample) %>% 
   mutate_all(median, na.rm = T) %>% 
   ungroup() %>% 
@@ -2555,11 +2555,11 @@ pca_summary_descriptions <- map(list_for_pca, function(df){
 
 # {p4|p0}/{p1+p2+p3}
 
-{pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}/
+plt <- {pca_summary_descriptions[[1]]$scree | pca_summary_descriptions[[2]]$scree | pca_summary_descriptions[[3]]$scree}/
 {pca_summary_descriptions[[1]]$biplt | pca_summary_descriptions[[2]]$biplt | pca_summary_descriptions[[3]]$biplt}
 # {pca_summary_descriptions[[1]]$cont1 | pca_summary_descriptions[[2]]$cont1 | pca_summary_descriptions[[3]]$cont1}
-
-ggsave(plot = last_plot(), 
+plt
+ggsave(plot = plt, 
        filename = here("officer_output", "PCA_Contrast.tiff"),        
        width = 11.5, height = 4.76)
 
@@ -2635,9 +2635,10 @@ vis_pca_3D_plotly(
 ```{r}
 
 set.seed(16069)
-temp.umap = umap(select(M_winxiqr, 
-                        -Condition, -Cell, -Experiment, 
-                        -cc.3_4, -cc.3_5, -ig.3_4, -ig.3_5))
+temp.umap = umap(M_winxiqr[, names(M_winxiqr)[!(names(M_winxiqr) %in% c(
+  'Condition', 'Cell', 'Experiment', 'cc.3_4', 'cc.3_5', 'ig.3_4', 'ig.3_5'))]]
+  )
+
 
 temp <- temp.umap$layout %>% as.tibble()
 col_by_df <- M_winxiqr[, "Condition"] 
@@ -3485,7 +3486,8 @@ fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
 
 # work up post hoc stats
 temp_list_hsd <- map(seq_along(temp_list[[4]]), function(i){
-  if (!is.na(unique(temp_list[[4]][[i]]$groups))){
+  if (sum(!is.na(unique(temp_list[[4]][[i]]$groups)))){
+    print(i)
     temp_list[[4]][[i]] %>% 
       gather("dv", "Estimate", names(temp_list[[4]][[i]])[1]) %>% 
       pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
@@ -3730,9 +3732,13 @@ for (i in seq_along(membrane_dvs_plt)){ # <-------------------------------------
     # only increase the y position if there was a significant difference
     # begin at 1 to get the right output
     steps_up <- cumsum(df$sig)
-    steps_up[1] <- 1
+    # steps_up[1] <- 1
+    # df$y.position <- seq(start_y, by = step_size, length.out = 3)[steps_up]
     
-    df$y.position <- seq(start_y, by = step_size, length.out = 3)[steps_up]
+    # changed so that multiple insignificnat values e.g. i==7, steps_up 0,0,1 won't
+    # cause issues
+    df$y.position <- start_y + step_size*steps_up
+
 
     membrane_plts[[i]] <- membrane_plts[[i]]+ # <------------------------------------- !
       stat_pvalue_manual(
@@ -4367,7 +4373,7 @@ what happens at the level of output (excitability)?
 
 ## for my curiosity:
 
-```{r}
+```{r eval=FALSE, echo=FALSE}
 library(brms)
 # fit1 <- brm(shal ~ Condition,
 #             data = temp,
@@ -4590,7 +4596,7 @@ fm_overview_table <- data.frame(dv = unlist(temp_list[[1]]),
 
 # work up post hoc stats
 temp_list_hsd <- map(seq_along(temp_list[[4]]), function(i){
-  if (!is.na(unique(temp_list[[4]][[i]]$groups))){
+  if (sum(!is.na(unique(temp_list[[4]][[i]]$groups)))){
     temp_list[[4]][[i]] %>% 
       gather("dv", "Estimate", names(temp_list[[4]][[i]])[1]) %>% 
       pivot_wider(names_from = "Condition", values_from = c("groups", "Estimate") ) %>% 
